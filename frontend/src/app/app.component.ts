@@ -48,7 +48,6 @@ import { IconComponent } from './shared/icon.component';
 
             <a *ngIf="auth.isAuthenticated() && !auth.isAdmin()" routerLink="/wizard" routerLinkActive="active" class="nav-link" (click)="closeMenu()">Deploy</a>
             <a *ngIf="auth.isAuthenticated() && !auth.isAdmin()" routerLink="/dashboard" routerLinkActive="active" class="nav-link" (click)="closeMenu()">Dashboard</a>
-            <a *ngIf="auth.isAdmin()" routerLink="/admin" routerLinkActive="active" class="nav-link" (click)="closeMenu()">Admin</a>
           </nav>
 
           <div class="navbar-actions">

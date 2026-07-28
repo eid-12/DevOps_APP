@@ -41,3 +41,18 @@ export interface InfrastructureOverview {
   hostCpuUsage: string;
   hostRamUsage: string;
 }
+
+export type AuditAction =
+  | 'PROJECT_APPROVED'
+  | 'DEPLOY_ACCESS_ENABLED'
+  | 'DEPLOY_ACCESS_DISABLED';
+
+export interface AuditLogEntry {
+  id: string;
+  timestamp: string;
+  actorName: string;
+  actorEmail: string;
+  action: AuditAction;
+  target: string;
+  details: string;
+}

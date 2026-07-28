@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { delay, Observable, of, throwError } from 'rxjs';
 import { AuthService } from './auth.service';
 import { MockStore } from './mock-store';
-import { InfrastructureOverview, ProjectRecord, UserAccount } from './models';
+import { InfrastructureOverview, ProjectRecord, UserAccount, AuditLogEntry } from './models';
 
 @Injectable({ providedIn: 'root' })
 export class AdminService {
@@ -26,7 +26,7 @@ export class AdminService {
       return throwError(() => ({ error: { message: 'User not found' } })).pipe(delay(150));
     }
 
-    return of(this.store.updateUser({ ...user, deploymentEnabled: enabled })).pipe(delay(200));
+    return of(this.store.updateUser({ ...user, deploymentEnabled: enabled }, this.auth.user() ?? undefined)).pipe(delay(200));
   }
 
   pendingProjects(): Observable<ProjectRecord[]> {
@@ -40,7 +40,7 @@ export class AdminService {
     if (!this.auth.isAdmin()) {
       return throwError(() => ({ error: { message: 'Admin access required' } })).pipe(delay(150));
     }
-    return of(this.store.approveProject(projectId, payload.memory, payload.cpu)).pipe(delay(300));
+    return of(this.store.approveProject(projectId, payload.memory, payload.cpu, this.auth.user() ?? undefined)).pipe(delay(300));
   }
 
   infrastructure(): Observable<InfrastructureOverview> {
@@ -48,5 +48,12 @@ export class AdminService {
       return throwError(() => ({ error: { message: 'Admin access required' } })).pipe(delay(150));
     }
     return of(this.store.infrastructure()).pipe(delay(200));
+  }
+
+  auditLogs(): Observable<AuditLogEntry[]> {
+    if (!this.auth.isAdmin()) {
+      return throwError(() => ({ error: { message: 'Admin access required' } })).pipe(delay(150));
+    }
+    return of(this.store.listAuditLogs()).pipe(delay(200));
   }
 }

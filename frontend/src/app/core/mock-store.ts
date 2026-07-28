@@ -1,5 +1,6 @@
 import { Injectable } from '@angular/core';
 import {
+  AuditLogEntry,
   InfrastructureOverview,
   ProjectRecord,
   ProjectStatus,
@@ -27,6 +28,27 @@ export class MockStore {
       email: 'dev@cloudbase.dev',
       role: 'USER',
       deploymentEnabled: true
+    }
+  ];
+
+  auditLogs: AuditLogEntry[] = [
+    {
+      id: 'log-1001',
+      timestamp: '2026-07-27T08:12:00.000Z',
+      actorName: 'CloudBase Admin',
+      actorEmail: 'admin@cloudbase.dev',
+      action: 'PROJECT_APPROVED',
+      target: 'api-gateway-service',
+      details: 'Approved with 1.0 vCPU and 1 GB RAM'
+    },
+    {
+      id: 'log-1002',
+      timestamp: '2026-07-26T19:40:00.000Z',
+      actorName: 'CloudBase Admin',
+      actorEmail: 'admin@cloudbase.dev',
+      action: 'DEPLOY_ACCESS_ENABLED',
+      target: 'Developer One',
+      details: 'Deployment access enabled for dev@cloudbase.dev'
     }
   ];
 
@@ -96,8 +118,20 @@ export class MockStore {
     return user;
   }
 
-  updateUser(user: UserAccount): UserAccount {
+  updateUser(user: UserAccount, actor?: UserAccount): UserAccount {
+    const previous = this.findUserById(user.id);
     this.users = this.users.map((item) => (item.id === user.id ? user : item));
+
+    if (actor && previous && previous.deploymentEnabled !== user.deploymentEnabled) {
+      this.addAuditLog({
+        actorName: actor.name,
+        actorEmail: actor.email,
+        action: user.deploymentEnabled ? 'DEPLOY_ACCESS_ENABLED' : 'DEPLOY_ACCESS_DISABLED',
+        target: user.name,
+        details: `Deployment access ${user.deploymentEnabled ? 'enabled' : 'disabled'} for ${user.email}`
+      });
+    }
+
     return user;
   }
 
@@ -147,7 +181,7 @@ export class MockStore {
     return next;
   }
 
-  approveProject(projectId: string, memory: string, cpu: string): ProjectRecord {
+  approveProject(projectId: string, memory: string, cpu: string, actor?: UserAccount): ProjectRecord {
     const project = this.requireProject(projectId);
     const next: ProjectRecord = {
       ...project,
@@ -157,6 +191,17 @@ export class MockStore {
       ramUsageMb: 180
     };
     this.projects = this.projects.map((item) => (item.id === projectId ? next : item));
+
+    if (actor) {
+      this.addAuditLog({
+        actorName: actor.name,
+        actorEmail: actor.email,
+        action: 'PROJECT_APPROVED',
+        target: project.name,
+        details: `Approved with ${cpu} vCPU and ${memory} RAM`
+      });
+    }
+
     return next;
   }
 
@@ -174,6 +219,25 @@ export class MockStore {
       hostCpuUsage: '31%',
       hostRamUsage: '6.8 GB / 16 GB'
     };
+  }
+
+  listAuditLogs(): AuditLogEntry[] {
+    return [...this.auditLogs].sort(
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
+  }
+
+  private addAuditLog(entry: Omit<AuditLogEntry, 'id' | 'timestamp'> & { timestamp?: string }) {
+    const log: AuditLogEntry = {
+      id: `log-${Date.now()}`,
+      timestamp: entry.timestamp ?? new Date().toISOString(),
+      actorName: entry.actorName,
+      actorEmail: entry.actorEmail,
+      action: entry.action,
+      target: entry.target,
+      details: entry.details
+    };
+    this.auditLogs = [log, ...this.auditLogs];
   }
 
   private requireProject(projectId: string): ProjectRecord {

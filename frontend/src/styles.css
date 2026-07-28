@@ -782,6 +782,10 @@ code { font-family: 'Cascadia Code', 'Consolas', 'Courier New', monospace; font-
   font-size: 14px;
 }
 
+.data-table.audit-table {
+  min-width: 980px;
+}
+
 .data-table th,
 .data-table td {
   padding: 16px 20px;
@@ -976,6 +980,29 @@ code { font-family: 'Cascadia Code', 'Consolas', 'Courier New', monospace; font-
   color: #fff;
   border-color: rgba(99, 102, 241, 0.38);
   background: rgba(99, 102, 241, 0.12);
+}
+
+.infra-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 20px;
+  padding: 20px 24px;
+}
+
+.infra-summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 180px;
+}
+
+.infra-summary-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 /* ── Responsive ── */
