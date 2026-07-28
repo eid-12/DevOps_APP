@@ -1,22 +1,22 @@
 # CloudBase
 
-منصة نشر سحابية على Mini PC (Windows + WSL2 + Docker)، بواجهة Angular وباكند Spring Boot.
+CloudBase is a private cloud deployment platform designed to run on a Mini PC using Windows, WSL2, and Docker. This repository currently contains an Angular frontend and a Spring Boot backend scaffold.
 
-## هيكل المشروع
+## Project Structure
 
-```
+```text
 DevOps_APP/
-├── README.md          # هذا الملف
-├── docs/              # الوثائق العامة
-├── frontend/          # Angular
-└── backend/           # Spring Boot
+├── README.md
+├── docs/
+├── frontend/
+└── backend/
 ```
 
-## التشغيل
+## Current Status
 
-حالياً نركز على الفرونت فقط. الواجهة تعمل ببيانات وهمية محلية (بدون باكند).
+The current focus is the frontend experience. The UI works with local mock data for authentication, admin flows, and project management, while selected infrastructure metrics are fetched from Portainer.
 
-### الفرونت
+## Run the Frontend
 
 ```bash
 cd frontend
@@ -24,33 +24,37 @@ npm install
 npm start
 ```
 
-الواجهة: `http://localhost:4200`
+Frontend URL: `http://localhost:4200`
 
-### الباكند (لاحقاً)
+## Run the Backend
 
 ```bash
 cd backend
 ./mvnw spring-boot:run
 ```
 
-## حسابات تجريبية
+Note: the backend exists as a scaffold and is not fully integrated with the frontend yet.
 
-| الدور | البريد | كلمة المرور |
-|--------|--------|-------------|
+## Demo Accounts
+
+| Role | Email | Password |
+|------|-------|----------|
 | Admin | `admin@cloudbase.dev` | `Admin@2026` |
 | User | `dev@cloudbase.dev` | `Dev@2026` |
 
-## ما يعمل الآن
+## Implemented Features
 
-- تسجيل دخول / تسجيل حساب
-- إنشاء مشروع (انتظار موافقة)
-- لوحة المطور: عرض / تشغيل / إيقاف
-- لوحة الأدمن: موافقة، صلاحيات النشر، مراقبة البنية
+- Sign in and sign up flows
+- Project request creation with approval flow
+- Developer dashboard for viewing and controlling projects
+- Admin console for approvals, governance, infrastructure metrics, and audit history
+- Responsive dark UI with SVG icon system
+- Portainer-backed infrastructure metrics in the frontend
 
-## الخطوات القادمة
+## Next Steps
 
-- PostgreSQL + JWT
-- GitHub OAuth
-- Portainer API
-- Nginx Proxy Manager API
-- WebSockets + Terminal
+- PostgreSQL + JWT authentication
+- GitHub OAuth integration
+- Full backend integration for platform actions
+- Nginx Proxy Manager API integration
+- WebSockets and terminal streaming
