@@ -1,83 +1,93 @@
 package com.cloudbase.controller;
 
+import com.cloudbase.dto.AdminDtos.AccountStatusRequest;
+import com.cloudbase.dto.AdminDtos.AuditLogEntry;
 import com.cloudbase.dto.AdminDtos.DeploymentAccessRequest;
 import com.cloudbase.dto.AdminDtos.InfrastructureOverview;
-import com.cloudbase.dto.ProjectDtos.ApprovalRequest;
-import com.cloudbase.model.ProjectRecord;
+import com.cloudbase.dto.AdminDtos.RoleChangeRequest;
+import com.cloudbase.email.EmailService;
+import com.cloudbase.entity.UserEntity;
 import com.cloudbase.model.UserAccount;
-import com.cloudbase.model.UserRole;
 import com.cloudbase.service.AdminService;
-import com.cloudbase.service.AuthService;
-import com.cloudbase.service.ProjectService;
-import jakarta.validation.Valid;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/admin")
 public class AdminController {
 
-    private final AuthService authService;
     private final AdminService adminService;
-    private final ProjectService projectService;
+    private final EmailService emailService;
 
-    public AdminController(AuthService authService, AdminService adminService, ProjectService projectService) {
-        this.authService = authService;
+    public AdminController(AdminService adminService, EmailService emailService) {
         this.adminService = adminService;
-        this.projectService = projectService;
+        this.emailService = emailService;
     }
 
     @GetMapping("/users")
-    public List<UserAccount> users(@RequestHeader("X-Auth-Token") String token) {
-        requireAdmin(token);
+    public List<UserAccount> users(@AuthenticationPrincipal UserEntity admin) {
         return adminService.listUsers();
     }
 
     @PatchMapping("/users/{userId}/deployment-access")
     public UserAccount updateDeploymentAccess(
-            @RequestHeader("X-Auth-Token") String token,
+            @AuthenticationPrincipal UserEntity admin,
             @PathVariable String userId,
             @RequestBody DeploymentAccessRequest request
     ) {
-        requireAdmin(token);
-        return adminService.updateDeploymentAccess(userId, request.enabled());
+        return adminService.updateDeploymentAccess(admin, userId, request.enabled());
     }
 
-    @GetMapping("/projects/pending")
-    public List<ProjectRecord> pendingProjects(@RequestHeader("X-Auth-Token") String token) {
-        requireAdmin(token);
-        return projectService.pendingApprovals();
-    }
-
-    @PatchMapping("/projects/{projectId}/approve")
-    public ProjectRecord approveProject(
-            @RequestHeader("X-Auth-Token") String token,
-            @PathVariable String projectId,
-            @Valid @RequestBody ApprovalRequest request
+    @PatchMapping("/users/{userId}/account-status")
+    public UserAccount updateAccountStatus(
+            @AuthenticationPrincipal UserEntity admin,
+            @PathVariable String userId,
+            @RequestBody AccountStatusRequest request
     ) {
-        requireAdmin(token);
-        return projectService.approve(projectId, request);
+        return adminService.updateAccountStatus(admin, userId, request.accountStatus());
+    }
+
+    @PatchMapping("/users/{userId}/role")
+    public UserAccount updateRole(
+            @AuthenticationPrincipal UserEntity admin,
+            @PathVariable String userId,
+            @RequestBody RoleChangeRequest request
+    ) {
+        return adminService.updateRole(admin, userId, request.role());
     }
 
     @GetMapping("/infrastructure")
-    public InfrastructureOverview infrastructure(@RequestHeader("X-Auth-Token") String token) {
-        requireAdmin(token);
+    public InfrastructureOverview infrastructure(@AuthenticationPrincipal UserEntity admin) {
         return adminService.infrastructureOverview();
     }
 
-    private void requireAdmin(String token) {
-        UserAccount user = authService.resolveUser(token);
-        if (user.role() != UserRole.ADMIN) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Admin access required");
-        }
+    @GetMapping("/audit-logs")
+    public List<AuditLogEntry> auditLogs(@AuthenticationPrincipal UserEntity admin) {
+        return adminService.listAuditLogs();
+    }
+
+    @PostMapping("/users/{userId}/password-reset")
+    public com.cloudbase.dto.AuthDtos.MessageResponse sendPasswordReset(
+            @AuthenticationPrincipal UserEntity admin,
+            @PathVariable String userId
+    ) {
+        return adminService.sendPasswordReset(admin, userId);
+    }
+
+    /**
+     * One-time: register sending domain in Resend (e.g. mawrid.cloudbase.website).
+     * Returns DNS records to add in Cloudflare.
+     */
+    @PostMapping("/email/domain")
+    public Map<String, Object> createEmailDomain(@AuthenticationPrincipal UserEntity admin) {
+        return emailService.createDomain();
+    }
+
+    @GetMapping("/email/status")
+    public Map<String, Object> emailStatus(@AuthenticationPrincipal UserEntity admin) {
+        return Map.of("enabled", emailService.isEnabled());
     }
 }

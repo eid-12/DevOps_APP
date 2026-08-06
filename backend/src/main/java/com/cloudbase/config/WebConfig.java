@@ -13,6 +13,7 @@ public class WebConfig implements WebMvcConfigurer {
                 .allowedOrigins("http://localhost:4200")
                 .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
-                .exposedHeaders("X-Auth-Token");
+                .allowCredentials(true)
+                .exposedHeaders("Authorization");
     }
 }

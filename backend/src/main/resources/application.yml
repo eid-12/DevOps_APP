@@ -5,8 +5,37 @@ spring:
   application:
     name: cloudbase-backend
 
+# ─── GitHub OAuth App ─────────────────────────────────────────────────────────
+# Create at: https://github.com/settings/developers → OAuth Apps
+# Authorization callback URL must match github.oauth.redirect-uri exactly.
+#
+# Prefer env vars in real deployments (never commit secrets):
+#   GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET / GITHUB_REDIRECT_URI
+github:
+  oauth:
+    client-id: ${GITHUB_CLIENT_ID:}
+    client-secret: ${GITHUB_CLIENT_SECRET:}
+    # Must match the Frontend callback route (Angular proxy → this backend for /api)
+    redirect-uri: ${GITHUB_REDIRECT_URI:http://localhost:4200/auth/github/callback}
+    scopes: ${GITHUB_OAUTH_SCOPES:read:user repo user:email}
+    success-redirect: ${GITHUB_SUCCESS_REDIRECT:http://localhost:4200/account?github=connected}
+    failure-redirect: ${GITHUB_FAILURE_REDIRECT:http://localhost:4200/account?github=error}
+  webhook-secret: ${GITHUB_WEBHOOK_SECRET:}
+
 management:
   endpoints:
     web:
       exposure:
         include: health,info
+
+# ─── Resend email ─────────────────────────────────────────────────────────────
+# Domain: mawrid.cloudbase.website  (create once via POST /api/admin/email/domain)
+# Never commit the real API key — use env / application-local.properties
+resend:
+  enabled: ${RESEND_ENABLED:false}
+  api-key: ${RESEND_API_KEY:}
+  from: ${RESEND_FROM:CloudBase <noreply@mawrid.cloudbase.website>}
+  domain: ${RESEND_DOMAIN:mawrid.cloudbase.website}
+  admin-notify: ${RESEND_ADMIN_NOTIFY:}
+  app-base-url: ${APP_BASE_URL:http://localhost:4200}
+  ensure-domain: ${RESEND_ENSURE_DOMAIN:false}

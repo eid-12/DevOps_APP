@@ -14,14 +14,18 @@
     "@angular/forms": "^18.2.0",
     "@angular/platform-browser": "^18.2.0",
     "@angular/router": "^18.2.0",
+    "ngx-spinner": "file:vendor-pkgs/ngx-spinner.tgz",
+    "primeflex": "file:vendor-pkgs/primeflex.tgz",
+    "primeicons": "file:vendor-pkgs/primeicons.tgz",
+    "primeng": "file:vendor-pkgs/primeng.tgz",
     "rxjs": "^7.8.1",
     "tslib": "^2.6.3",
     "zone.js": "^0.14.10"
   },
   "devDependencies": {
+    "@angular-devkit/build-angular": "^18.2.0",
     "@angular/cli": "^18.2.0",
     "@angular/compiler-cli": "^18.2.0",
-    "@angular-devkit/build-angular": "^18.2.0",
     "typescript": "^5.5.4"
   }
 }

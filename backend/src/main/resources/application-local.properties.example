@@ -1,0 +1,35 @@
+# Copy to application-local.properties (gitignored) and fill secrets.
+# Run with: --spring.profiles.active=local
+#
+# When CloudBase Backend runs on your Windows/dev machine (outside Docker),
+# use the public hostnames below — NOT http://portainer:9000 / http://npm:81
+# (those only work if the backend container shares the Mini PC Docker network).
+
+# ─── Portainer ───────────────────────────────────────────────────────────────
+PORTAINER_URL=https://manage.cloudbase.website
+PORTAINER_API_KEY=ptr_xxxxxxxx
+PORTAINER_ENDPOINT_ID=3
+
+# ─── Nginx Proxy Manager ─────────────────────────────────────────────────────
+NPM_ENABLED=true
+NPM_URL=https://npm.cloudbase.website
+NPM_EMAIL=your_npm_email@example.com
+NPM_PASSWORD=your_npm_password
+NPM_CERTIFICATE_ID=14
+
+# ─── Docker Hub ──────────────────────────────────────────────────────────────
+DOCKER_HUB_USERNAME=minipcer
+DOCKER_HUB_TOKEN=dckr_pat_xxxxxxxx
+CLOUDBASE_DOCKERHUB_NAMESPACE=minipcer
+
+# ─── Platform ────────────────────────────────────────────────────────────────
+CLOUDBASE_BASE_DOMAIN=cloudbase.website
+CLOUDBASE_DOCKER_NETWORK=cloudbase
+
+# ─── Resend (optional) ───────────────────────────────────────────────────────
+resend.enabled=true
+resend.api-key=re_xxxxxxxxx
+resend.from=CloudBase <noreply@mawrid.cloudbase.website>
+resend.domain=mawrid.cloudbase.website
+resend.admin-notify=you@example.com
+resend.app-base-url=http://localhost:4200

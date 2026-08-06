@@ -24,10 +24,10 @@ import { IconComponent, IconName, IconTone } from '../shared/icon.component';
             </p>
             <div class="hero-actions">
               <a *ngIf="!auth.isAuthenticated()" routerLink="/auth" [queryParams]="{ mode: 'register' }" class="btn btn-primary btn-lg">Get Started Free</a>
-              <a *ngIf="auth.isAuthenticated() && !auth.isAdmin()" routerLink="/wizard" class="btn btn-primary btn-lg">Deploy a Project</a>
+              <a *ngIf="auth.isAuthenticated() && !auth.isAdmin()" routerLink="/dashboard" class="btn btn-primary btn-lg">Open Dashboard</a>
               <a *ngIf="auth.isAdmin()" routerLink="/admin" class="btn btn-primary btn-lg">Open Admin Console</a>
               <a *ngIf="!auth.isAuthenticated()" routerLink="/auth" [queryParams]="{ mode: 'login' }" class="btn btn-ghost btn-lg">Sign In</a>
-              <a *ngIf="auth.isAuthenticated() && !auth.isAdmin()" routerLink="/dashboard" class="btn btn-ghost btn-lg">My Dashboard</a>
+              <a *ngIf="auth.isAuthenticated() && !auth.isAdmin()" routerLink="/dashboard" class="btn btn-ghost btn-lg">My Projects</a>
             </div>
             <p class="hero-note">No credit card required · Runs on your own hardware</p>
 

@@ -1,14 +1,28 @@
 package com.cloudbase.service;
 
+import com.cloudbase.dto.AdminDtos.AuditLogEntry;
 import com.cloudbase.dto.AdminDtos.InfrastructureOverview;
+import com.cloudbase.dto.AuthDtos.MessageResponse;
+import com.cloudbase.entity.UserEntity;
+import com.cloudbase.model.AccountStatus;
 import com.cloudbase.model.UserAccount;
+import com.cloudbase.model.UserRole;
 
 import java.util.List;
 
 public interface AdminService {
     List<UserAccount> listUsers();
 
-    UserAccount updateDeploymentAccess(String userId, boolean enabled);
+    UserAccount updateDeploymentAccess(UserEntity actor, String userId, boolean enabled);
+
+    UserAccount updateAccountStatus(UserEntity actor, String userId, AccountStatus status);
+
+    UserAccount updateRole(UserEntity actor, String userId, UserRole role);
 
     InfrastructureOverview infrastructureOverview();
+
+    /** Admin-triggered password reset email for a user. */
+    MessageResponse sendPasswordReset(UserEntity actor, String userId);
+
+    List<AuditLogEntry> listAuditLogs();
 }

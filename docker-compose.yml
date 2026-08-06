@@ -1,0 +1,69 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cloudbase-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: cloudbase
+      POSTGRES_USER: cloudbase
+      POSTGRES_PASSWORD: ${DB_PASS:-cloudbase_secret}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cloudbase"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cloudbase-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/cloudbase
+      DB_USER: cloudbase
+      DB_PASS: ${DB_PASS:-cloudbase_secret}
+      JWT_SECRET: ${JWT_SECRET:-cloudbase-prod-secret-min-32chars-padding}
+      PORTAINER_URL: ${PORTAINER_URL:-http://host.docker.internal:9000}
+      PORTAINER_API_KEY: ${PORTAINER_API_KEY:-}
+      PORTAINER_ENDPOINT_ID: ${PORTAINER_ENDPOINT_ID:-1}
+      NPM_ENABLED: ${NPM_ENABLED:-false}
+      NPM_URL: ${NPM_URL:-http://host.docker.internal:81}
+      NPM_EMAIL: ${NPM_EMAIL:-}
+      NPM_PASSWORD: ${NPM_PASSWORD:-}
+      NPM_CERTIFICATE_ID: ${NPM_CERTIFICATE_ID:-0}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      GITHUB_REDIRECT_URI: ${GITHUB_REDIRECT_URI:-http://localhost:8080/api/auth/github/callback}
+      GITHUB_SUCCESS_REDIRECT: ${GITHUB_SUCCESS_REDIRECT:-http://localhost:4200/account?github=connected}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+      CLOUDBASE_BASE_DOMAIN: ${CLOUDBASE_BASE_DOMAIN:-cloudbase.website}
+      CLOUDBASE_DOCKER_NETWORK: ${CLOUDBASE_DOCKER_NETWORK:-cloudbase}
+      CLOUDBASE_DOCKERHUB_NAMESPACE: ${CLOUDBASE_DOCKERHUB_NAMESPACE:-cloudbase}
+    ports:
+      - "8080:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: cloudbase-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "4200:80"
+
+volumes:
+  postgres_data:

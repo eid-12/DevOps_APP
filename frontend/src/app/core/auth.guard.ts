@@ -26,6 +26,11 @@ export const developerGuard: CanActivateFn = () => {
     return router.createUrlTree(['/admin']);
   }
 
+  const user = auth.user();
+  if (!user || user.accountStatus !== 'ACTIVE' || !user.deploymentEnabled) {
+    return router.createUrlTree(['/dashboard']);
+  }
+
   return true;
 };
 

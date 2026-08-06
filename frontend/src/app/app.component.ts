@@ -2,20 +2,42 @@ import { Component, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs/operators';
+import { NgxSpinnerModule } from 'ngx-spinner';
+import { ButtonModule } from 'primeng/button';
 import { AuthService } from './core/auth.service';
 import { IconComponent } from './shared/icon.component';
+import { NotificationBellComponent } from './shared/notification-bell.component';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive, IconComponent],
+  imports: [
+    CommonModule,
+    RouterOutlet,
+    RouterLink,
+    RouterLinkActive,
+    IconComponent,
+    NotificationBellComponent,
+    NgxSpinnerModule,
+    ButtonModule
+  ],
   template: `
+    <ngx-spinner
+      name="api"
+      bdColor="rgba(2,6,23,0.72)"
+      color="#a5b4fc"
+      size="medium"
+      [fullScreen]="true"
+    >
+      <p class="spinner-caption">Waiting for backend…</p>
+    </ngx-spinner>
+
     <header class="navbar">
       <div class="container navbar-inner">
-        <a *ngIf="auth.isAdmin(); else publicBrand" routerLink="/admin" class="navbar-brand" (click)="closeMenu()">
+        <span *ngIf="auth.isAdmin(); else publicBrand" class="navbar-brand navbar-brand-static">
           <app-icon name="cloud" tone="violet" size="sm"></app-icon>
           CloudBase
-        </a>
+        </span>
         <ng-template #publicBrand>
           <a routerLink="/" class="navbar-brand" (click)="closeMenu()">
             <app-icon name="cloud" tone="violet" size="sm"></app-icon>
@@ -37,27 +59,22 @@ import { IconComponent } from './shared/icon.component';
 
         <div class="navbar-menu" [class.is-open]="menuOpen()">
           <nav class="navbar-links">
-            <a *ngIf="!auth.isAdmin()" routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }" class="nav-link nav-home" (click)="closeMenu()">
-              <app-icon name="home" tone="indigo" size="sm"></app-icon>
-              Home
-            </a>
-            <a *ngIf="!auth.isAdmin()" class="nav-link nav-contact" href="#contact" (click)="scrollToContact($event)">
-              <app-icon name="mail" tone="sky" size="sm"></app-icon>
-              Contact
-            </a>
-
-            <a *ngIf="auth.isAuthenticated() && !auth.isAdmin()" routerLink="/wizard" routerLinkActive="active" class="nav-link" (click)="closeMenu()">Deploy</a>
             <a *ngIf="auth.isAuthenticated() && !auth.isAdmin()" routerLink="/dashboard" routerLinkActive="active" class="nav-link" (click)="closeMenu()">Dashboard</a>
+            <a *ngIf="auth.isAuthenticated() && !auth.isAdmin()" routerLink="/billing" routerLinkActive="active" class="nav-link" (click)="closeMenu()">Billing</a>
+            <a *ngIf="auth.isAuthenticated() && !auth.isAdmin()" routerLink="/help" routerLinkActive="active" class="nav-link" (click)="closeMenu()">Help</a>
+            <a *ngIf="auth.isAuthenticated() && !auth.isAdmin()" routerLink="/account" routerLinkActive="active" class="nav-link" (click)="closeMenu()">Account</a>
           </nav>
 
           <div class="navbar-actions">
             <ng-container *ngIf="!auth.isAuthenticated(); else loggedIn">
               <a routerLink="/auth" [queryParams]="{ mode: 'login' }" class="btn btn-ghost btn-sm" (click)="closeMenu()">Login</a>
-              <a routerLink="/auth" [queryParams]="{ mode: 'register' }" class="btn btn-primary btn-sm" (click)="closeMenu()">Sign Up</a>
+              <p-button label="Sign Up" styleClass="p-button-sm" (onClick)="goRegister()" />
             </ng-container>
             <ng-template #loggedIn>
-              <span class="pill pill-indigo navbar-user">{{ auth.user()?.name }}</span>
-              <button class="btn btn-logout btn-sm" (click)="logout()">Logout</button>
+              <app-notification-bell *ngIf="!auth.isAdmin()"></app-notification-bell>
+              <a *ngIf="!auth.isAdmin()" routerLink="/account" class="pill pill-indigo navbar-user" (click)="closeMenu()">{{ auth.user()?.name }}</a>
+              <span *ngIf="auth.isAdmin()" class="pill pill-red navbar-user">{{ auth.user()?.name }}</span>
+              <p-button label="Logout" severity="secondary" [outlined]="true" styleClass="p-button-sm" (onClick)="logout()" />
             </ng-template>
           </div>
         </div>
@@ -116,10 +133,9 @@ export class AppComponent {
     this.menuOpen.set(false);
   }
 
-  scrollToContact(event: Event) {
-    event.preventDefault();
+  goRegister() {
     this.closeMenu();
-    document.getElementById('contact')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    this.router.navigate(['/auth'], { queryParams: { mode: 'register' } });
   }
 
   logout() {

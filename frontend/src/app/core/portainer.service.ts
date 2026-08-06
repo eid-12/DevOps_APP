@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
-import { Observable, catchError, forkJoin, map, of, switchMap } from 'rxjs';
+import { Observable, TimeoutError, catchError, forkJoin, map, of, switchMap, timeout } from 'rxjs';
 import { environment } from '../../environments/environment';
 
 export interface PortainerHostMetrics {
@@ -55,7 +55,8 @@ export class PortainerService {
 
   private headers(): HttpHeaders {
     return new HttpHeaders({
-      'X-API-Key': environment.portainerToken
+      'X-API-Key': environment.portainerToken,
+      'X-Skip-Spinner': '1'
     });
   }
 
@@ -87,6 +88,7 @@ export class PortainerService {
         headers: this.headers()
       })
       .pipe(
+        timeout(6000),
         switchMap((endpoint) => {
           const snap = endpoint.Snapshots?.[0];
           if (snap) {
@@ -110,6 +112,7 @@ export class PortainerService {
               headers: this.headers()
             })
           }).pipe(
+            timeout(8000),
             map(({ containers, images, volumes, stacks }) => {
               const running = containers.filter((item) => item.State === 'running').length;
               const healthy = containers.filter((item) => item.Health?.Status === 'healthy').length;
@@ -135,9 +138,13 @@ export class PortainerService {
             catchError(() => of(this.mapMetrics(endpoint, undefined)))
           );
         }),
-        catchError((err) =>
-          of(this.emptyMetrics(err?.error?.message ?? err?.message ?? 'Failed to reach Portainer'))
-        )
+        catchError((err) => {
+          const msg =
+            err instanceof TimeoutError
+              ? 'Portainer timed out (host unreachable)'
+              : err?.error?.message ?? err?.message ?? 'Failed to reach Portainer';
+          return of(this.emptyMetrics(msg));
+        })
       );
   }
 
