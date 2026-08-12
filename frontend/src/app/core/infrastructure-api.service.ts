@@ -60,6 +60,56 @@ export class InfrastructureApiService {
       .pipe(map(mapService));
   }
 
+  checkCustomDomain(
+    serviceId: string,
+    domain: string
+  ): Observable<{ domain: string; available: boolean; reason: string }> {
+    return this.http.get<{ domain: string; available: boolean; reason: string }>(
+      `${this.base}/projects/services/${serviceId}/custom-domain/check`,
+      { params: { domain: domain ?? '' } }
+    );
+  }
+
+  vanityStatus(serviceId: string): Observable<{
+    baseDomain: string;
+    limitPerAccount: number;
+    claimedSlug?: string | null;
+    claimedFqdn?: string | null;
+    claimedServiceId?: string | null;
+    thisServiceHoldsVanity: boolean;
+  }> {
+    return this.http.get<{
+      baseDomain: string;
+      limitPerAccount: number;
+      claimedSlug?: string | null;
+      claimedFqdn?: string | null;
+      claimedServiceId?: string | null;
+      thisServiceHoldsVanity: boolean;
+    }>(`${this.base}/projects/services/${serviceId}/vanity-subdomain`);
+  }
+
+  checkVanitySubdomain(
+    serviceId: string,
+    slug: string
+  ): Observable<{ domain: string; available: boolean; reason: string }> {
+    return this.http.get<{ domain: string; available: boolean; reason: string }>(
+      `${this.base}/projects/services/${serviceId}/vanity-subdomain/check`,
+      { params: { slug: slug ?? '' } }
+    );
+  }
+
+  setVanitySubdomain(serviceId: string, slug: string): Observable<Service> {
+    return this.http
+      .put<BackendService>(`${this.base}/projects/services/${serviceId}/vanity-subdomain`, { slug })
+      .pipe(map(mapService));
+  }
+
+  clearVanitySubdomain(serviceId: string): Observable<Service> {
+    return this.http
+      .delete<BackendService>(`${this.base}/projects/services/${serviceId}/vanity-subdomain`)
+      .pipe(map(mapService));
+  }
+
   clearCustomDomain(serviceId: string): Observable<Service> {
     return this.http
       .delete<BackendService>(`${this.base}/projects/services/${serviceId}/custom-domain`)
@@ -311,6 +361,23 @@ function mapDeployment(d: BackendDeployment): Deployment {
   };
 }
 
+function resolveRuntime(s: BackendService): Service['runtime'] {
+  if (s.sourceType === 'DATABASE' || s.sourceType === 'DOCKER') {
+    return 'other';
+  }
+  const fromApi = (s as { runtime?: Service['runtime'] }).runtime;
+  if (fromApi) return fromApi;
+  const details = s.sourceDetails as unknown as Record<string, unknown> | undefined;
+  const raw = details?.['runtime'];
+  if (
+    raw === 'node' || raw === 'java' || raw === 'python' || raw === 'go' ||
+    raw === 'dotnet' || raw === 'php' || raw === 'rust' || raw === 'other'
+  ) {
+    return raw;
+  }
+  return 'node';
+}
+
 function mapService(s: BackendService): Service {
   const envVars: EnvironmentVariable[] = [];
   if (s.envVars) {
@@ -337,7 +404,7 @@ function mapService(s: BackendService): Service {
     containerName: s.containerName,
     envVars,
     envPendingDeploy: s.envPendingDeploy,
-    runtime: (s as { runtime?: Service['runtime'] }).runtime ?? 'node',
+    runtime: resolveRuntime(s),
     quota: {
       memorymb: s.quotaMemoryMb ?? 512,
       cpuMilli: s.quotaCpuMilli ?? 500,

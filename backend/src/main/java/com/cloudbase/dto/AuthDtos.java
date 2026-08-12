@@ -25,8 +25,15 @@ public final class AuthDtos {
     public record AuthResponse(
             String token,
             UserAccount user,
-            String message
+            String message,
+            /** ISO-8601 absolute expiry of the access token; null when no token issued. */
+            String expiresAt,
+            /** Seconds until expiry at issue time; 0 when no token. */
+            long expiresInSeconds
     ) {
+        public AuthResponse(String token, UserAccount user, String message) {
+            this(token, user, message, null, 0L);
+        }
     }
 
     /**
@@ -83,6 +90,24 @@ public final class AuthDtos {
 
     public record ResendVerificationRequest(
             @Email @NotBlank String email
+    ) {
+    }
+
+    public record UpdateProfileRequest(
+            @NotBlank String name
+    ) {
+    }
+
+    public record ChangePasswordRequest(
+            @NotBlank String currentPassword,
+            @NotBlank String newPassword
+    ) {
+    }
+
+    public record NotificationPrefsRequest(
+            boolean emailDeployments,
+            boolean emailFailures,
+            boolean emailWeeklyUsage
     ) {
     }
 }

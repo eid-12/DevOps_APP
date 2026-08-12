@@ -24,6 +24,9 @@ export interface GitHubProfileFromApi {
  * 1) Redirect to GitHub authorize
  * 2) Capture ?code= on /auth/github/callback
  * 3) POST code → backend /api/auth/github/exchange (secret stays on server)
+ *
+ * Note: GitHub always reuses the browser's signed-in user. Switching accounts
+ * requires signing out of GitHub itself (CloudBase cannot override that session).
  */
 @Injectable({ providedIn: 'root' })
 export class GitHubOAuthService {
@@ -53,7 +56,24 @@ export class GitHubOAuthService {
     return this.clientId.length > 0;
   }
 
-  startLogin(): void {
+  /** GitHub sign-out page (user must confirm). */
+  logoutUrl(): string {
+    return 'https://github.com/logout';
+  }
+
+  /** Revoke this OAuth App for the current GitHub user. */
+  revokeAppUrl(): string {
+    const id = this.clientId;
+    return id
+      ? `https://github.com/settings/connections/applications/${encodeURIComponent(id)}`
+      : 'https://github.com/settings/applications';
+  }
+
+  /**
+   * Start GitHub OAuth (authorize URL).
+   * Does not clear the browser GitHub session — call {@link logoutUrl} first when switching accounts.
+   */
+  startLogin(_opts?: { forceAccountPick?: boolean }): void {
     if (!this.isConfigured()) {
       throw new Error('Set environment.githubClientId to your GitHub OAuth App Client ID.');
     }
@@ -61,14 +81,22 @@ export class GitHubOAuthService {
     const state = this.createState();
     sessionStorage.setItem(STATE_KEY, state);
 
-    const url = new URL('https://github.com/login/oauth/authorize');
-    url.searchParams.set('client_id', this.clientId);
-    url.searchParams.set('redirect_uri', this.redirectUri);
-    url.searchParams.set('scope', this.scopes);
-    url.searchParams.set('state', state);
-    url.searchParams.set('allow_signup', 'true');
+    const authorize = new URL('https://github.com/login/oauth/authorize');
+    authorize.searchParams.set('client_id', this.clientId);
+    authorize.searchParams.set('redirect_uri', this.redirectUri);
+    authorize.searchParams.set('scope', this.scopes);
+    authorize.searchParams.set('state', state);
+    authorize.searchParams.set('allow_signup', 'true');
 
-    window.location.assign(url.toString());
+    window.location.assign(authorize.toString());
+  }
+
+  openLogoutTab(): void {
+    window.open(this.logoutUrl(), '_blank', 'noopener,noreferrer');
+  }
+
+  openRevokeTab(): void {
+    window.open(this.revokeAppUrl(), '_blank', 'noopener,noreferrer');
   }
 
   captureCallback(params: { code: string | null; state: string | null; error: string | null }): GitHubOAuthPending {

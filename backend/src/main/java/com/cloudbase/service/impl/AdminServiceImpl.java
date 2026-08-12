@@ -1,6 +1,8 @@
 package com.cloudbase.service.impl;
 
 import com.cloudbase.dto.AdminDtos.AuditLogEntry;
+import com.cloudbase.dto.AdminDtos.HostingSettingsResponse;
+import com.cloudbase.dto.AdminDtos.HostingSettingsUpdateRequest;
 import com.cloudbase.dto.AdminDtos.InfrastructureOverview;
 import com.cloudbase.dto.AuthDtos.MessageResponse;
 import com.cloudbase.email.EmailService;
@@ -17,6 +19,7 @@ import com.cloudbase.repository.UserRepository;
 import com.cloudbase.security.JwtService;
 import com.cloudbase.service.AdminService;
 import com.cloudbase.service.AuditService;
+import com.cloudbase.service.PlatformSettingsService;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,6 +42,7 @@ public class AdminServiceImpl implements AdminService {
     private final JwtService jwtService;
     private final ResendProperties resendProperties;
     private final AuditService auditService;
+    private final PlatformSettingsService platformSettingsService;
 
     public AdminServiceImpl(
             UserRepository userRepository,
@@ -48,7 +52,8 @@ public class AdminServiceImpl implements AdminService {
             EmailService emailService,
             JwtService jwtService,
             ResendProperties resendProperties,
-            AuditService auditService
+            AuditService auditService,
+            PlatformSettingsService platformSettingsService
     ) {
         this.userRepository = userRepository;
         this.serviceRepository = serviceRepository;
@@ -58,6 +63,7 @@ public class AdminServiceImpl implements AdminService {
         this.jwtService = jwtService;
         this.resendProperties = resendProperties;
         this.auditService = auditService;
+        this.platformSettingsService = platformSettingsService;
     }
 
     @Override
@@ -71,6 +77,7 @@ public class AdminServiceImpl implements AdminService {
     @Override
     public UserAccount updateDeploymentAccess(UserEntity actor, String userId, boolean enabled) {
         UserEntity user = requireUser(userId);
+        boolean wasEnabled = user.isDeploymentEnabled();
         user.setDeploymentEnabled(enabled);
         UserEntity saved = userRepository.save(user);
         auditService.record(
@@ -79,6 +86,9 @@ public class AdminServiceImpl implements AdminService {
                 saved.getName(),
                 enabled ? "Deployment access enabled" : "Deployment access disabled"
         );
+        if (enabled && !wasEnabled) {
+            emailService.sendDeploymentEnabled(saved.getEmail(), saved.getName());
+        }
         return AuthServiceImpl.toModel(saved);
     }
 
@@ -181,9 +191,29 @@ public class AdminServiceImpl implements AdminService {
                 npmStatus,
                 "active",
                 (int) runningServices,
-                "–",
-                "–"
+                "-",
+                "-"
         );
+    }
+
+    @Override
+    public HostingSettingsResponse getHostingSettings() {
+        return platformSettingsService.view();
+    }
+
+    @Override
+    public HostingSettingsResponse updateHostingSettings(UserEntity actor, HostingSettingsUpdateRequest request) {
+        HostingSettingsResponse before = platformSettingsService.view();
+        HostingSettingsResponse saved = platformSettingsService.update(actor, request);
+        if (!before.equals(saved)) {
+            auditService.record(
+                    actor,
+                    AuditAction.HOSTING_SETTINGS_UPDATED,
+                    "Platform hosting",
+                    "Updated selected hosting fields only (partial save)"
+            );
+        }
+        return saved;
     }
 
     private UserEntity requireUser(String userId) {

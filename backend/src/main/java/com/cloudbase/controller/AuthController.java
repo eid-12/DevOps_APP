@@ -69,6 +69,50 @@ public class AuthController {
         return authService.resolveUserFromId(user.getId());
     }
 
+    @GetMapping("/plan")
+    public Map<String, Object> plan(@AuthenticationPrincipal UserEntity user) {
+        return authService.getPlan();
+    }
+
+    @GetMapping("/usage")
+    public Map<String, Object> usage(@AuthenticationPrincipal UserEntity user) {
+        return authService.getUsage(user);
+    }
+
+    @PutMapping("/profile")
+    public UserAccount updateProfile(
+            @AuthenticationPrincipal UserEntity user,
+            @Valid @RequestBody com.cloudbase.dto.AuthDtos.UpdateProfileRequest request
+    ) {
+        return authService.updateProfile(user, request.name());
+    }
+
+    @PostMapping("/change-password")
+    public com.cloudbase.dto.AuthDtos.MessageResponse changePassword(
+            @AuthenticationPrincipal UserEntity user,
+            @Valid @RequestBody com.cloudbase.dto.AuthDtos.ChangePasswordRequest request
+    ) {
+        return authService.changePassword(user, request.currentPassword(), request.newPassword());
+    }
+
+    @PostMapping("/onboarding/dismiss")
+    public UserAccount dismissOnboarding(@AuthenticationPrincipal UserEntity user) {
+        return authService.dismissOnboarding(user);
+    }
+
+    @PutMapping("/notifications")
+    public UserAccount updateNotifications(
+            @AuthenticationPrincipal UserEntity user,
+            @RequestBody com.cloudbase.dto.AuthDtos.NotificationPrefsRequest request
+    ) {
+        return authService.updateNotificationPrefs(
+                user,
+                request.emailDeployments(),
+                request.emailFailures(),
+                request.emailWeeklyUsage()
+        );
+    }
+
     /** Legacy stub connect (username only). Prefer OAuth authorize. */
     @PostMapping("/github/connect")
     public UserAccount connectGitHub(
@@ -78,7 +122,7 @@ public class AuthController {
         return authService.connectGitHub(user, request);
     }
 
-    /** Start real GitHub OAuth — returns authorize URL for the browser. */
+    /** Start real GitHub OAuth - returns authorize URL for the browser. */
     @GetMapping("/github/authorize")
     public Map<String, String> githubAuthorize(@AuthenticationPrincipal UserEntity user) {
         return Map.of("authorizeUrl", authService.beginGitHubOAuth(user));
@@ -86,7 +130,7 @@ public class AuthController {
 
     /**
      * GitHub redirects here with ?code=&state=.
-     * Public (permitAll) — CSRF protection is the signed state JWT.
+     * Public (permitAll) - CSRF protection is the signed state JWT.
      */
     @GetMapping("/github/callback")
     public ResponseEntity<Void> githubCallback(

@@ -140,7 +140,7 @@ public class GitHubRepoClient {
             List<String> events
     ) {
         if (!StringUtils.hasText(webhookUrl)) {
-            log.warn("Skipping webhook registration — public API URL is empty");
+            log.warn("Skipping webhook registration - public API URL is empty");
             return;
         }
 

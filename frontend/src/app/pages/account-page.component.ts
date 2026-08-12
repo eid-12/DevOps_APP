@@ -1,16 +1,22 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { FormsModule, NgForm } from '@angular/forms';
+import { Router, RouterLink, ActivatedRoute } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
-import { PasswordModule } from 'primeng/password';
 import { TagModule } from 'primeng/tag';
 import { MessageModule } from 'primeng/message';
 import { AuthService } from '../core/auth.service';
 import { GitHubOAuthService } from '../core/github-oauth.service';
 import { ApiToken, NotificationPrefs, UsageSummary } from '../core/models';
-import { HighlightDirective } from '../shared/highlight.directive';
+import { environment } from '../../environments/environment';
+import { AutofocusDirective } from '../shared/directives/autofocus.directive';
+import { CopyTextDirective } from '../shared/directives/copy-text.directive';
+import { PressableDirective } from '../shared/directives/pressable.directive';
+import { TimeAgoPipe } from '../shared/pipes/time-ago.pipe';
+
+/** Same regex used by auth Reactive Forms Validators.pattern(). */
+const STRONG_PASSWORD_PATTERN = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#._-]).{8,}$';
 
 @Component({
   selector: 'app-account-page',
@@ -21,10 +27,12 @@ import { HighlightDirective } from '../shared/highlight.directive';
     RouterLink,
     ButtonModule,
     InputTextModule,
-    PasswordModule,
     TagModule,
     MessageModule,
-    HighlightDirective
+    AutofocusDirective,
+    CopyTextDirective,
+    PressableDirective,
+    TimeAgoPipe
   ],
   template: `
 <div class="page railway-page">
@@ -51,7 +59,7 @@ import { HighlightDirective } from '../shared/highlight.directive';
 
     <div class="account-grid">
       <!-- GitHub -->
-      <section class="panel svc-panel account-span-2" appHighlight="violet">
+      <section class="panel svc-panel account-span-2">
         <div class="svc-panel-head">
           <h3>GitHub</h3>
           <p-tag
@@ -80,12 +88,19 @@ import { HighlightDirective } from '../shared/highlight.directive';
                 <div class="muted" style="font-size:13px;margin-top:2px">&#64;{{ auth.user()?.github?.username }}</div>
               }
               <p class="muted" style="margin:4px 0 0;font-size:13px">
-                Connected {{ auth.user()?.github?.connectedAt | date:'medium' }}
+                Connected {{ auth.user()?.github?.connectedAt | timeAgo }}
                 · scopes: {{ (auth.user()?.github?.scopes || []).join(', ') }}
               </p>
             </div>
           </div>
-          <div class="modal-actions" style="margin-top:14px">
+          <div class="modal-actions" style="margin-top:14px;display:flex;flex-wrap:wrap;gap:8px">
+            <p-button
+              label="Switch GitHub account"
+              severity="secondary"
+              [outlined]="true"
+              [loading]="githubBusy()"
+              (onClick)="switchGitHubAccount()"
+            />
             <p-button
               label="Disconnect"
               severity="danger"
@@ -93,6 +108,39 @@ import { HighlightDirective } from '../shared/highlight.directive';
               [loading]="githubBusy()"
               (onClick)="disconnectGitHub()"
             />
+          </div>
+        } @else if (githubSwitchOpen()) {
+          <div class="github-switch-wizard">
+            <p class="pill pill-amber railway-alert" style="display:block;white-space:normal;line-height:1.45;margin-bottom:14px">
+              GitHub keeps the old user signed in inside this browser. CloudBase cannot override that.
+              Sign out of GitHub first, then connect the new account.
+            </p>
+            <ol class="github-switch-steps">
+              <li>
+                <strong>Sign out of GitHub</strong>
+                <p class="muted">Opens GitHub — click <em>Sign out</em> and confirm.</p>
+                <button type="button" class="btn btn-ghost btn-sm" (click)="githubOAuth.openLogoutTab()">
+                  1. Open GitHub logout
+                </button>
+              </li>
+              <li>
+                <strong>Revoke old app access (recommended)</strong>
+                <p class="muted">Removes CloudBase from the previous GitHub user.</p>
+                <button type="button" class="btn btn-ghost btn-sm" (click)="githubOAuth.openRevokeTab()">
+                  2. Open GitHub app settings
+                </button>
+              </li>
+              <li>
+                <strong>Connect the new account</strong>
+                <p class="muted">Only after you signed out — otherwise GitHub will send you back to the first user.</p>
+                <button type="button" class="btn btn-primary btn-sm" (click)="connectAfterSwitch()" [disabled]="githubBusy()">
+                  3. Connect new GitHub account
+                </button>
+              </li>
+            </ol>
+            <button type="button" class="btn btn-ghost btn-sm" style="margin-top:8px" (click)="cancelGitHubSwitch()">
+              Cancel
+            </button>
           </div>
         } @else {
           <p class="muted" style="margin-bottom:14px;font-size:13px">
@@ -105,9 +153,9 @@ import { HighlightDirective } from '../shared/highlight.directive';
               [loading]="githubBusy()"
               (onClick)="connectGitHubOAuth()"
             />
-            <p class="muted" style="margin-top:10px;font-size:12px">
-              Authorizes on GitHub, then exchanges the code via
-              <code>POST /api/auth/github/exchange</code>.
+            <p class="muted" style="margin-top:10px;font-size:12px;line-height:1.45">
+              If the wrong GitHub user keeps coming back, use <strong>Switch GitHub account</strong> after connecting once,
+              or sign out at github.com/logout first.
             </p>
           } @else {
             <div class="pill pill-amber railway-alert" style="margin-bottom:12px">
@@ -117,116 +165,169 @@ import { HighlightDirective } from '../shared/highlight.directive';
         }
       </section>
 
-      <!-- Profile -->
+      <!-- Profile (template-driven) -->
       <section class="panel svc-panel">
         <h3>Profile</h3>
-        <div class="field flex flex-column gap-2">
-          <label for="acc-name">Full name</label>
-          <input id="acc-name" pInputText [(ngModel)]="name" autocomplete="name" class="w-full" />
-        </div>
-        <div class="field flex flex-column gap-2">
-          <label for="acc-email">Email</label>
-          <input
-            id="acc-email"
-            pInputText
-            [ngModel]="email"
-            name="accountEmail"
-            type="email"
-            autocomplete="email"
-            readonly
-            disabled
-            class="w-full"
-          />
-          <p class="muted" style="margin:0;font-size:12px">Login email — cannot be changed.</p>
-        </div>
-        <div class="modal-actions" style="margin-top:14px">
-          <p-button label="Save Profile" [loading]="savingProfile()" (onClick)="saveProfile()" />
-        </div>
+        <form #profileForm="ngForm" (ngSubmit)="saveProfile(profileForm)" novalidate>
+          <div class="field flex flex-column gap-2">
+            <label for="acc-name">Full name</label>
+            <input
+              id="acc-name"
+              name="name"
+              pInputText
+              class="w-full"
+              autocomplete="name"
+              required
+              minlength="2"
+              pattern="^.{2,80}$"
+              [(ngModel)]="name"
+              #nameCtrl="ngModel"
+              [appAutofocus]="true"
+              [class.ng-invalid-show]="nameCtrl.invalid && (nameCtrl.dirty || nameCtrl.touched || profileForm.submitted)"
+            />
+            @if (nameCtrl.invalid && (nameCtrl.dirty || nameCtrl.touched || profileForm.submitted)) {
+              <small class="auth-error">Name must be 2–80 characters.</small>
+            }
+          </div>
+          <div class="field flex flex-column gap-2">
+            <label for="acc-email">Email</label>
+            <input
+              id="acc-email"
+              pInputText
+              [ngModel]="email"
+              [ngModelOptions]="{ standalone: true }"
+              name="accountEmail"
+              type="email"
+              autocomplete="email"
+              readonly
+              disabled
+              class="w-full"
+            />
+            <p class="muted" style="margin:0;font-size:12px">Login email — cannot be changed.</p>
+          </div>
+          <div class="modal-actions" style="margin-top:14px">
+            <button type="submit" class="btn btn-primary" appPressable [disabled]="savingProfile() || profileForm.invalid">
+              {{ savingProfile() ? 'Saving…' : 'Save Profile' }}
+            </button>
+          </div>
+        </form>
       </section>
 
-      <!-- Security -->
+      <!-- Security — Template-Driven Form + pattern attribute (contrast with Auth Reactive Forms) -->
       <section class="panel svc-panel">
         <h3>Security</h3>
-        <div class="field flex flex-column gap-2">
-          <label for="acc-cur">Current password</label>
-          <p-password
-            inputId="acc-cur"
-            [(ngModel)]="currentPassword"
-            [feedback]="false"
-            [toggleMask]="true"
-            styleClass="w-full"
-            inputStyleClass="w-full"
-            autocomplete="current-password"
-          />
-        </div>
-        <div class="field flex flex-column gap-2">
-          <label for="acc-new">New password</label>
-          <p-password
-            inputId="acc-new"
-            [(ngModel)]="newPassword"
-            [feedback]="true"
-            [toggleMask]="true"
-            styleClass="w-full"
-            inputStyleClass="w-full"
-            autocomplete="new-password"
-          />
-        </div>
-        <div class="field flex flex-column gap-2">
-          <label for="acc-confirm">Confirm new password</label>
-          <p-password
-            inputId="acc-confirm"
-            [(ngModel)]="confirmPassword"
-            [feedback]="false"
-            [toggleMask]="true"
-            styleClass="w-full"
-            inputStyleClass="w-full"
-            autocomplete="new-password"
-          />
-        </div>
-        <div class="modal-actions" style="margin-top:14px">
-          <p-button label="Change Password" [loading]="savingPassword()" (onClick)="savePassword()" />
-        </div>
+        <form #pwdForm="ngForm" (ngSubmit)="savePassword(pwdForm)" novalidate class="account-pwd-form">
+          <div class="field flex flex-column gap-2">
+            <label for="acc-cur">Current password</label>
+            <input
+              id="acc-cur"
+              name="currentPassword"
+              type="password"
+              class="w-full"
+              autocomplete="current-password"
+              required
+              [(ngModel)]="currentPassword"
+              #curCtrl="ngModel"
+            />
+            @if (curCtrl.invalid && (curCtrl.dirty || pwdForm.submitted)) {
+              <small class="auth-error">Current password is required.</small>
+            }
+          </div>
+          <div class="field flex flex-column gap-2">
+            <label for="acc-new">New password</label>
+            <small class="muted">8+ characters with upper, lower, digit, and special character</small>
+            <input
+              id="acc-new"
+              name="newPassword"
+              type="password"
+              class="w-full"
+              autocomplete="new-password"
+              required
+              [attr.pattern]="passwordPattern"
+              [(ngModel)]="newPassword"
+              #newCtrl="ngModel"
+            />
+            @if (newCtrl.errors?.['required'] && (newCtrl.dirty || pwdForm.submitted)) {
+              <small class="auth-error">New password is required.</small>
+            }
+            @if (newCtrl.errors?.['pattern'] && (newCtrl.dirty || pwdForm.submitted)) {
+              <small class="auth-error">Password must include upper, lower, digit, and special character.</small>
+            }
+          </div>
+          <div class="field flex flex-column gap-2">
+            <label for="acc-confirm">Confirm new password</label>
+            <input
+              id="acc-confirm"
+              name="confirmPassword"
+              type="password"
+              class="w-full"
+              autocomplete="new-password"
+              required
+              [(ngModel)]="confirmPassword"
+              #confirmCtrl="ngModel"
+            />
+            @if (confirmCtrl.invalid && (confirmCtrl.dirty || pwdForm.submitted)) {
+              <small class="auth-error">Confirm your new password.</small>
+            }
+            @if (confirmPassword && newPassword !== confirmPassword) {
+              <small class="auth-error">New passwords do not match.</small>
+            }
+          </div>
+          <div class="modal-actions" style="margin-top:14px">
+            <button
+              type="submit"
+              class="btn btn-primary"
+              appPressable
+              [disabled]="savingPassword() || pwdForm.invalid || newPassword !== confirmPassword"
+            >
+              {{ savingPassword() ? 'Saving…' : 'Change Password' }}
+            </button>
+          </div>
+        </form>
       </section>
 
-      <!-- Usage -->
+      <!-- Usage — @defer until meters enter the viewport -->
       <section class="panel svc-panel account-span-2">
         <div class="svc-panel-head">
           <h3>Usage</h3>
           <a routerLink="/billing" class="btn btn-ghost btn-sm">Billing →</a>
         </div>
-        @if (usage(); as u) {
-          <div class="usage-grid">
-            <div class="usage-card">
-              <span class="metric-label">Projects</span>
-              <strong>{{ u.projects }} / 2</strong>
-              <div class="meter"><span [style.width.%]="pct(u.projects, 2)"></span></div>
+        @defer (on viewport; prefetch on idle) {
+          @if (usage(); as u) {
+            <div class="usage-grid">
+              <div class="usage-card">
+                <span class="metric-label">Projects</span>
+                <strong>{{ u.projects }} / 2</strong>
+                <div class="meter"><span [style.width.%]="pct(u.projects, 2)"></span></div>
+              </div>
+              <div class="usage-card">
+                <span class="metric-label">Services</span>
+                <strong>{{ u.runningServices }}/{{ u.services }} online · max 3</strong>
+                <div class="meter"><span [style.width.%]="pct(u.services, 3)"></span></div>
+              </div>
+              <div class="usage-card">
+                <span class="metric-label">Deployments (month)</span>
+                <strong>{{ u.deploymentsThisMonth }}</strong>
+              </div>
+              <div class="usage-card">
+                <span class="metric-label">CPU</span>
+                <strong>{{ u.cpuMilliUsed }}m / {{ u.cpuMilliLimit }}m</strong>
+                <div class="meter"><span [style.width.%]="pct(u.cpuMilliUsed, u.cpuMilliLimit)"></span></div>
+              </div>
+              <div class="usage-card">
+                <span class="metric-label">Memory</span>
+                <strong>{{ u.memoryMbUsed }} / {{ u.memoryMbLimit }} MB</strong>
+                <div class="meter"><span [style.width.%]="pct(u.memoryMbUsed, u.memoryMbLimit)"></span></div>
+              </div>
+              <div class="usage-card">
+                <span class="metric-label">Storage</span>
+                <strong>{{ u.storageGbUsed }} / {{ u.storageGbLimit }} GB</strong>
+                <div class="meter"><span [style.width.%]="pct(u.storageGbUsed, u.storageGbLimit)"></span></div>
+              </div>
             </div>
-            <div class="usage-card">
-              <span class="metric-label">Services</span>
-              <strong>{{ u.runningServices }}/{{ u.services }} online · max 3</strong>
-              <div class="meter"><span [style.width.%]="pct(u.services, 3)"></span></div>
-            </div>
-            <div class="usage-card">
-              <span class="metric-label">Deployments (month)</span>
-              <strong>{{ u.deploymentsThisMonth }} / 20</strong>
-              <div class="meter"><span [style.width.%]="pct(u.deploymentsThisMonth, 20)"></span></div>
-            </div>
-            <div class="usage-card">
-              <span class="metric-label">CPU</span>
-              <strong>{{ u.cpuMilliUsed }}m / {{ u.cpuMilliLimit }}m</strong>
-              <div class="meter"><span [style.width.%]="pct(u.cpuMilliUsed, u.cpuMilliLimit)"></span></div>
-            </div>
-            <div class="usage-card">
-              <span class="metric-label">Memory</span>
-              <strong>{{ u.memoryMbUsed }} / {{ u.memoryMbLimit }} MB</strong>
-              <div class="meter"><span [style.width.%]="pct(u.memoryMbUsed, u.memoryMbLimit)"></span></div>
-            </div>
-            <div class="usage-card">
-              <span class="metric-label">Storage</span>
-              <strong>{{ u.storageGbUsed }} / {{ u.storageGbLimit }} GB</strong>
-              <div class="meter"><span [style.width.%]="pct(u.storageGbUsed, u.storageGbLimit)"></span></div>
-            </div>
-          </div>
+          }
+        } @placeholder {
+          <p class="muted" style="padding:8px 0">Loading usage…</p>
         }
       </section>
 
@@ -252,11 +353,18 @@ import { HighlightDirective } from '../shared/highlight.directive';
           <div>
             <dt>Deploy</dt>
             <dd>
-              <span class="pill" [class]="auth.user()?.deploymentEnabled ? 'pill-green' : 'pill-amber'">
-                {{ auth.user()?.deploymentEnabled ? 'Enabled' : 'Disabled' }}
+              <span class="pill" [class]="auth.hasDeployAccess() ? 'pill-green' : 'pill-red'">
+                {{ auth.hasDeployAccess() ? 'Enabled' : 'Locked' }}
               </span>
             </dd>
           </div>
+          @if (!auth.hasDeployAccess() && auth.user()?.role !== 'ADMIN') {
+            <div style="grid-column:1/-1">
+              <div class="pill pill-red railway-alert" style="display:block;white-space:normal;line-height:1.45">
+                Deploy access is locked. Create, deploy, edit, stop, and delete actions are blocked until an admin clicks Enable Deploy on your account.
+              </div>
+            </div>
+          }
           <div>
             <dt>GitHub</dt>
             <dd>
@@ -268,7 +376,8 @@ import { HighlightDirective } from '../shared/highlight.directive';
         </dl>
       </section>
 
-      <!-- API tokens -->
+      <!-- API tokens (mock mode only — real tokens not shipped yet) -->
+      @if (!useApi) {
       <section class="panel svc-panel account-span-2">
         <div class="svc-panel-head">
           <h3>API Tokens</h3>
@@ -278,7 +387,7 @@ import { HighlightDirective } from '../shared/highlight.directive';
         @if (newTokenSecret()) {
           <div class="pill pill-amber railway-alert" style="display:block;margin-bottom:12px">
             Copy this token now — it won’t be shown again:<br>
-            <code class="mono">{{ newTokenSecret() }}</code>
+            <code class="mono" [appCopyText]="newTokenSecret()!">{{ newTokenSecret() }}</code>
           </div>
         }
         <div class="token-list">
@@ -289,8 +398,8 @@ import { HighlightDirective } from '../shared/highlight.directive';
                 <div class="muted mono" style="font-size:12px">{{ t.prefix }}…</div>
               </div>
               <div class="muted" style="font-size:12px">
-                Created {{ t.createdAt | date:'mediumDate' }}
-                @if (t.lastUsedAt) { · Last used {{ t.lastUsedAt | date:'short' }} }
+                Created {{ t.createdAt | timeAgo }}
+                @if (t.lastUsedAt) { · Last used {{ t.lastUsedAt | timeAgo }} }
               </div>
               <button type="button" class="btn btn-ghost btn-sm danger" (click)="revokeToken(t)">Revoke</button>
             </div>
@@ -299,6 +408,12 @@ import { HighlightDirective } from '../shared/highlight.directive';
           }
         </div>
       </section>
+      } @else {
+      <section class="panel svc-panel account-span-2">
+        <div class="svc-panel-head"><h3>API Tokens</h3></div>
+        <p class="muted" style="font-size:13px">Personal API tokens for CLI/CI are coming soon. Use the dashboard and GitHub Actions for deploys today.</p>
+      </section>
+      }
     </div>
   </div>
 </div>
@@ -308,6 +423,8 @@ export class AccountPageComponent implements OnInit {
   readonly auth = inject(AuthService);
   readonly githubOAuth = inject(GitHubOAuthService);
   readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
+  readonly useApi = !!(environment as { useApi?: boolean }).useApi;
 
   name = '';
   email = '';
@@ -316,6 +433,7 @@ export class AccountPageComponent implements OnInit {
   confirmPassword = '';
   githubUsername = '';
   tokenName = '';
+  readonly passwordPattern = STRONG_PASSWORD_PATTERN;
   notif: NotificationPrefs = {
     emailDeployments: true,
     emailFailures: true,
@@ -326,6 +444,7 @@ export class AccountPageComponent implements OnInit {
   readonly savingPassword = signal(false);
   readonly savingNotif = signal(false);
   readonly githubBusy = signal(false);
+  readonly githubSwitchOpen = signal(false);
   readonly tokenBusy = signal(false);
   readonly message = signal('');
   readonly tone = signal<'ok' | 'error'>('ok');
@@ -345,6 +464,11 @@ export class AccountPageComponent implements OnInit {
     this.notif = { ...(user.notifications ?? this.notif) };
     this.auth.usage().subscribe({ next: u => this.usage.set(u) });
     this.refreshTokens();
+
+    // Deep-link from create picker when GitHub is not connected
+    if (this.route.snapshot.queryParamMap.get('connect') === 'github' && !this.githubConnected()) {
+      queueMicrotask(() => this.connectGitHubOAuth());
+    }
   }
 
   githubConnected(): boolean {
@@ -363,6 +487,48 @@ export class AccountPageComponent implements OnInit {
       this.githubBusy.set(false);
       this.flash((e as Error).message || 'Could not start GitHub OAuth', 'error');
     }
+  }
+
+  /**
+   * GitHub reuses the browser session — we cannot silently switch users.
+   * Disconnect, then show steps: logout on GitHub → connect again.
+   */
+  switchGitHubAccount() {
+    if (!confirm(
+      'Switch GitHub account?\n\n'
+      + '1) CloudBase will disconnect the current link.\n'
+      + '2) You must Sign out of GitHub in this browser.\n'
+      + '3) Then connect the new account.\n\n'
+      + 'Without signing out of GitHub, it will keep returning the first user.'
+    )) return;
+
+    this.githubBusy.set(true);
+    this.githubOAuth.clearPending();
+    this.auth.disconnectGitHub().subscribe({
+      next: () => {
+        this.githubBusy.set(false);
+        this.githubSwitchOpen.set(true);
+        this.flash('Disconnected. Sign out of GitHub (step 1), then connect the new account.', 'ok');
+      },
+      error: e => {
+        this.githubBusy.set(false);
+        this.flash(e?.error?.message ?? 'Disconnect failed', 'error');
+      }
+    });
+  }
+
+  connectAfterSwitch() {
+    this.githubBusy.set(true);
+    try {
+      this.githubOAuth.startLogin();
+    } catch (e) {
+      this.githubBusy.set(false);
+      this.flash((e as Error).message || 'Could not start GitHub OAuth', 'error');
+    }
+  }
+
+  cancelGitHubSwitch() {
+    this.githubSwitchOpen.set(false);
   }
 
   connectGitHub() {
@@ -395,7 +561,12 @@ export class AccountPageComponent implements OnInit {
     });
   }
 
-  saveProfile() {
+  saveProfile(form?: NgForm) {
+    if (form && form.invalid) {
+      form.control.markAllAsTouched();
+      this.flash('Fix the highlighted profile fields', 'error');
+      return;
+    }
     if (!this.name.trim()) {
       this.flash('Name is required', 'error');
       return;
@@ -416,7 +587,12 @@ export class AccountPageComponent implements OnInit {
     });
   }
 
-  savePassword() {
+  savePassword(form?: NgForm) {
+    if (form && form.invalid) {
+      form.control.markAllAsTouched();
+      this.flash('Fix the highlighted password fields', 'error');
+      return;
+    }
     if (!this.currentPassword || !this.newPassword) {
       this.flash('Fill all password fields', 'error');
       return;
@@ -425,8 +601,8 @@ export class AccountPageComponent implements OnInit {
       this.flash('New passwords do not match', 'error');
       return;
     }
-    if (this.newPassword.length < 6) {
-      this.flash('New password must be at least 6 characters', 'error');
+    if (!new RegExp(STRONG_PASSWORD_PATTERN).test(this.newPassword)) {
+      this.flash('Password must be 8+ chars with upper, lower, digit, and special character', 'error');
       return;
     }
     this.savingPassword.set(true);
@@ -439,6 +615,7 @@ export class AccountPageComponent implements OnInit {
         this.currentPassword = '';
         this.newPassword = '';
         this.confirmPassword = '';
+        form?.resetForm();
         this.flash('Password changed', 'ok');
       },
       error: e => {

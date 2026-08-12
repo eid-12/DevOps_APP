@@ -2,12 +2,12 @@ package com.cloudbase.portainer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
+import com.cloudbase.service.PlatformSettingsService;
 
 import java.util.HashMap;
 import java.util.List;
@@ -15,7 +15,7 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Portainer HTTP API client — stack create / update / remove for CloudBase deploys.
+ * Portainer HTTP API client - stack create / update / remove for CloudBase deploys.
  */
 @Component
 public class PortainerClient {
@@ -26,20 +26,31 @@ public class PortainerClient {
     private static final ParameterizedTypeReference<List<Map<String, Object>>> LIST_MAP_TYPE =
             new ParameterizedTypeReference<>() {};
 
-    private final WebClient webClient;
-    private final int endpointId;
+    private final WebClient.Builder webClientBuilder;
+    private final PlatformSettingsService settings;
+    private volatile WebClient webClient;
+    private volatile int endpointId;
 
     public PortainerClient(
-            @Value("${portainer.url}") String portainerUrl,
-            @Value("${portainer.api-key:}") String apiKey,
-            @Value("${portainer.endpoint-id:1}") int endpointId,
+            PlatformSettingsService settings,
             WebClient.Builder webClientBuilder
     ) {
-        this.endpointId = endpointId;
-        this.webClient = webClientBuilder
-                .baseUrl(portainerUrl)
-                .defaultHeader("X-API-Key", apiKey)
+        this.settings = settings;
+        this.webClientBuilder = webClientBuilder;
+        reloadFromSettings();
+        settings.addChangeListener(this::reloadFromSettings);
+    }
+
+    public void reloadFromSettings() {
+        String url = settings.get(PlatformSettingsService.PORTAINER_URL);
+        String apiKey = settings.get(PlatformSettingsService.PORTAINER_API_KEY);
+        this.endpointId = settings.getInt(PlatformSettingsService.PORTAINER_ENDPOINT_ID, 1);
+        // Clone so repeated reloads do not accumulate defaultHeader on the shared builder.
+        this.webClient = webClientBuilder.clone()
+                .baseUrl(url == null || url.isBlank() ? "http://localhost:9000" : url)
+                .defaultHeader("X-API-Key", apiKey == null ? "" : apiKey)
                 .build();
+        log.info("Portainer client reloaded (endpointId={})", this.endpointId);
     }
 
     public int getEndpointId() {
@@ -116,9 +127,20 @@ public class PortainerClient {
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(body)
                 .retrieve()
+                .onStatus(s -> s.isError(), resp -> resp.bodyToMono(String.class).defaultIfEmpty("").flatMap(b -> {
+                    String detail = b == null || b.isBlank() ? resp.statusCode().toString() : b;
+                    log.error("Stack create failed for {}: {}", stackName, detail);
+                    return Mono.error(new IllegalStateException(
+                            "Portainer stack create failed (" + resp.statusCode().value() + "): " + truncate(detail)));
+                }))
                 .bodyToMono(MAP_TYPE)
-                .doOnSuccess(r -> log.info("Created Portainer stack {}", stackName))
-                .doOnError(e -> log.error("Stack create failed for {}: {}", stackName, e.getMessage()));
+                .doOnSuccess(r -> log.info("Created Portainer stack {}", stackName));
+    }
+
+    private static String truncate(String s) {
+        if (s == null) return "";
+        String t = s.replaceAll("\\s+", " ").trim();
+        return t.length() > 400 ? t.substring(0, 400) + "…" : t;
     }
 
     public Mono<Map<String, Object>> updateStack(
@@ -154,9 +176,69 @@ public class PortainerClient {
                         .path("/api/stacks/{id}")
                         .queryParam("endpointId", endpointId)
                         .build(stackId))
-                .retrieve()
-                .bodyToMono(Void.class)
+                .exchangeToMono(resp -> {
+                    int code = resp.statusCode().value();
+                    if (code == 404 || resp.statusCode().is2xxSuccessful()) {
+                        return resp.releaseBody().then();
+                    }
+                    return resp.bodyToMono(String.class).defaultIfEmpty("").flatMap(body ->
+                            Mono.error(new IllegalStateException(
+                                    "Portainer stack remove HTTP " + code + ": " + body)));
+                })
                 .doOnError(e -> log.error("Stack removal failed for id {}: {}", stackId, e.getMessage()));
+    }
+
+    /**
+     * Remove stack by name. Empty if no stack exists.
+     * Propagates Portainer/API failures (does not swallow) so delete can abort.
+     */
+    public Mono<Void> removeStackByName(String stackName) {
+        if (stackName == null || stackName.isBlank()) {
+            return Mono.empty();
+        }
+        return findStackByName(stackName)
+                .flatMap(found -> {
+                    Integer id = asInt(found.get("Id"));
+                    if (id == null) {
+                        return Mono.empty();
+                    }
+                    return removeStack(id);
+                });
+    }
+
+    /** Force-remove a container (running or stopped). 404 = already gone. */
+    public Mono<Void> forceRemoveContainer(String containerId) {
+        if (containerId == null || containerId.isBlank()) {
+            return Mono.empty();
+        }
+        return webClient.delete()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/api/endpoints/{eid}/docker/containers/{cid}")
+                        .queryParam("force", "true")
+                        .queryParam("v", "true")
+                        .build(endpointId, containerId))
+                .exchangeToMono(resp -> {
+                    int code = resp.statusCode().value();
+                    if (code == 404 || resp.statusCode().is2xxSuccessful()) {
+                        return resp.releaseBody().then();
+                    }
+                    return resp.bodyToMono(String.class).defaultIfEmpty("").flatMap(body ->
+                            Mono.error(new IllegalStateException(
+                                    "Portainer container remove HTTP " + code + ": " + body)));
+                })
+                .doOnError(e -> log.warn("Force remove container {} failed: {}", containerId, e.getMessage()));
+    }
+
+    /**
+     * Force-remove by name. Missing container is OK.
+     * List/API failures propagate so callers can refuse delete.
+     */
+    public Mono<Void> forceRemoveContainerByName(String containerName) {
+        if (containerName == null || containerName.isBlank()) {
+            return Mono.empty();
+        }
+        return findContainerIdByName(containerName)
+                .flatMap(this::forceRemoveContainer);
     }
 
     /** @deprecated prefer {@link #removeStack(int)} */
@@ -238,35 +320,198 @@ public class PortainerClient {
         if (cmd.isBlank()) {
             return Mono.just("");
         }
-        Map<String, Object> createBody = new HashMap<>();
-        createBody.put("AttachStdin", false);
-        createBody.put("AttachStdout", true);
-        createBody.put("AttachStderr", true);
-        createBody.put("Tty", false);
-        createBody.put("Cmd", List.of("sh", "-c", cmd));
+
+        return inspectContainer(containerId).flatMap(inspect -> {
+            String state = containerState(inspect);
+            if (!"running".equalsIgnoreCase(state)) {
+                return Mono.error(new IllegalStateException(
+                        "Container is " + state + " - Console only works while the container is running. "
+                                + "Check Logs / Redeploy if it is restarting."));
+            }
+
+            Map<String, Object> createBody = new HashMap<>();
+            createBody.put("AttachStdin", false);
+            createBody.put("AttachStdout", true);
+            createBody.put("AttachStderr", true);
+            createBody.put("Tty", false);
+            createBody.put("Cmd", List.of("sh", "-c", cmd));
+
+            return webClient.post()
+                    .uri("/api/endpoints/{eid}/docker/containers/{cid}/exec", endpointId, containerId)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(createBody)
+                    .retrieve()
+                    .onStatus(status -> status.value() == 409, resp -> Mono.error(new IllegalStateException(
+                            "Container refused exec (409). It may be paused or still starting - wait and retry.")))
+                    .bodyToMono(MAP_TYPE)
+                    .flatMap(created -> {
+                        Object id = created.get("Id");
+                        if (id == null) {
+                            return Mono.error(new IllegalStateException("Exec create returned no Id"));
+                        }
+                        Map<String, Object> startBody = Map.of("Detach", false, "Tty", false);
+                        return webClient.post()
+                                .uri("/api/endpoints/{eid}/docker/exec/{execId}/start", endpointId, String.valueOf(id))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .bodyValue(startBody)
+                                .retrieve()
+                                .bodyToMono(byte[].class)
+                                .defaultIfEmpty(new byte[0])
+                                .map(this::decodeDockerLogStream);
+                    });
+        }).doOnError(e -> log.warn("Container exec failed id={}: {}", containerId, e.getMessage()));
+    }
+
+    @SuppressWarnings("unchecked")
+    public Mono<Map<String, Object>> inspectContainer(String containerId) {
+        return webClient.get()
+                .uri("/api/endpoints/{eid}/docker/containers/{cid}/json", endpointId, containerId)
+                .retrieve()
+                .bodyToMono(MAP_TYPE)
+                .doOnError(e -> log.warn("Container inspect failed id={}: {}", containerId, e.getMessage()));
+    }
+
+    /**
+     * Poll until the named container is running, or error with a clear reason.
+     * Stack create can succeed while the container exits immediately (bad image/port/crash).
+     */
+    public Mono<Map<String, Object>> waitUntilRunning(String containerName, int attempts, long delayMs) {
+        int max = Math.max(1, attempts);
+        long delay = Math.max(200, delayMs);
+        return Mono.defer(() -> findContainerIdByName(containerName)
+                        .switchIfEmpty(Mono.error(new IllegalStateException(
+                                "Container '" + containerName + "' was not created after stack deploy")))
+                        .flatMap(this::inspectContainer)
+                        .flatMap(inspect -> {
+                            String state = containerState(inspect);
+                            if ("running".equalsIgnoreCase(state)) {
+                                return Mono.just(inspect);
+                            }
+                            String detail = exitDetail(inspect);
+                            return Mono.error(new IllegalStateException(
+                                    "Container is " + state + (detail.isBlank() ? "" : " (" + detail + ")")));
+                        }))
+                .retryWhen(reactor.util.retry.Retry.fixedDelay(max - 1L, java.time.Duration.ofMillis(delay))
+                        .filter(err -> {
+                            String msg = err.getMessage() == null ? "" : err.getMessage();
+                            // Keep retrying while Docker is still creating / starting
+                            return msg.contains("was not created")
+                                    || msg.contains("is created")
+                                    || msg.contains("is starting")
+                                    || msg.contains("is restarting");
+                        })
+                        .onRetryExhaustedThrow((spec, signal) -> signal.failure()));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static String exitDetail(Map<String, Object> inspect) {
+        if (inspect == null) return "";
+        Object stateObj = inspect.get("State");
+        if (!(stateObj instanceof Map<?, ?> state)) return "";
+        Object exit = state.get("ExitCode");
+        Object err = state.get("Error");
+        StringBuilder sb = new StringBuilder();
+        if (exit != null) sb.append("exit=").append(exit);
+        if (err != null && !String.valueOf(err).isBlank()) {
+            if (!sb.isEmpty()) sb.append(", ");
+            sb.append(err);
+        }
+        return sb.toString();
+    }
+
+    @SuppressWarnings("unchecked")
+    public static String containerState(Map<String, Object> inspect) {
+        if (inspect == null) return "unknown";
+        Object stateObj = inspect.get("State");
+        if (stateObj instanceof Map<?, ?> state) {
+            Object status = state.get("Status");
+            if (status != null) return String.valueOf(status);
+        }
+        return "unknown";
+    }
+
+    /**
+     * Wipe bind-mount data for a path on the Docker host (used to recover crash-looping DBs).
+     */
+    public Mono<Void> wipeBindMount(String hostPath) {
+        if (hostPath == null || hostPath.isBlank()) {
+            return Mono.empty();
+        }
+        Map<String, Object> body = new HashMap<>();
+        body.put("Image", "alpine:3.20");
+        body.put("Cmd", List.of("sh", "-c", "rm -rf /data/* /data/.[!.]* /data/..?* ; ls -la /data || true"));
+        body.put("HostConfig", Map.of("Binds", List.of(hostPath + ":/data")));
+        body.put("Labels", Map.of("cloudbase.temp", "volume-wipe"));
 
         return webClient.post()
-                .uri("/api/endpoints/{eid}/docker/containers/{cid}/exec", endpointId, containerId)
+                .uri(uriBuilder -> uriBuilder
+                        .path("/api/endpoints/{eid}/docker/containers/create")
+                        .queryParam("name", "cb-wipe-" + System.currentTimeMillis())
+                        .build(endpointId))
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(createBody)
+                .bodyValue(body)
                 .retrieve()
                 .bodyToMono(MAP_TYPE)
                 .flatMap(created -> {
-                    Object id = created.get("Id");
-                    if (id == null) {
-                        return Mono.error(new IllegalStateException("Exec create returned no Id"));
-                    }
-                    Map<String, Object> startBody = Map.of("Detach", false, "Tty", false);
+                    String id = String.valueOf(created.get("Id"));
                     return webClient.post()
-                            .uri("/api/endpoints/{eid}/docker/exec/{execId}/start", endpointId, String.valueOf(id))
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .bodyValue(startBody)
+                            .uri("/api/endpoints/{eid}/docker/containers/{cid}/start", endpointId, id)
                             .retrieve()
-                            .bodyToMono(byte[].class)
-                            .defaultIfEmpty(new byte[0])
-                            .map(this::decodeDockerLogStream);
+                            .bodyToMono(Void.class)
+                            .then(Mono.delay(java.time.Duration.ofSeconds(2)))
+                            .then(webClient.delete()
+                                    .uri(uriBuilder -> uriBuilder
+                                            .path("/api/endpoints/{eid}/docker/containers/{cid}")
+                                            .queryParam("force", "true")
+                                            .build(endpointId, id))
+                                    .retrieve()
+                                    .bodyToMono(Void.class)
+                                    .onErrorResume(e -> Mono.empty()));
                 })
-                .doOnError(e -> log.warn("Container exec failed id={}: {}", containerId, e.getMessage()));
+                .doOnSuccess(v -> log.info("Wiped bind mount {}", hostPath))
+                .doOnError(e -> log.warn("Wipe bind mount {} failed: {}", hostPath, e.getMessage()))
+                .then();
+    }
+
+    /**
+     * Remove a Docker network by name (e.g. project-{projectId}).
+     * Missing network is OK; API failures propagate.
+     */
+    public Mono<Void> removeNetworkByName(String networkName) {
+        if (networkName == null || networkName.isBlank()) {
+            return Mono.empty();
+        }
+        return webClient.get()
+                .uri("/api/endpoints/{eid}/docker/networks", endpointId)
+                .retrieve()
+                .bodyToMono(LIST_MAP_TYPE)
+                .flatMap(networks -> {
+                    if (networks == null) {
+                        return Mono.empty();
+                    }
+                    String id = networks.stream()
+                            .filter(n -> networkName.equalsIgnoreCase(String.valueOf(n.get("Name"))))
+                            .map(n -> n.get("Id") != null ? String.valueOf(n.get("Id")) : null)
+                            .filter(nid -> nid != null && !nid.isBlank())
+                            .findFirst()
+                            .orElse(null);
+                    if (id == null) {
+                        return Mono.empty();
+                    }
+                    return webClient.delete()
+                            .uri("/api/endpoints/{eid}/docker/networks/{nid}", endpointId, id)
+                            .exchangeToMono(resp -> {
+                                int code = resp.statusCode().value();
+                                if (code == 404 || resp.statusCode().is2xxSuccessful()) {
+                                    return resp.releaseBody().then();
+                                }
+                                return resp.bodyToMono(String.class).defaultIfEmpty("").flatMap(body ->
+                                        Mono.error(new IllegalStateException(
+                                                "Portainer network remove HTTP " + code + ": " + body)));
+                            });
+                })
+                .doOnSuccess(v -> log.info("Removed Docker network {}", networkName))
+                .doOnError(e -> log.warn("Remove network {} failed: {}", networkName, e.getMessage()));
     }
 
     public Mono<Map<String, Object>> getContainerStats(String containerId) {

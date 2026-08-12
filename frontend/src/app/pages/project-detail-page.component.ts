@@ -6,31 +6,79 @@ import { AuthService } from '../core/auth.service';
 import { ProjectService } from '../core/project.service';
 import {
   Project, Service, ServiceRuntime, ServiceSourceType, DatabaseType,
-  CreateServiceRequest, EnvironmentVariable, ServiceSourceDetails, SharedVariable, GitHubRepo
+  CreateServiceRequest, EnvironmentVariable, ServiceSourceDetails, SharedVariable, GitHubRepo,
+  UsageSummary, PlanInfo
 } from '../core/models';
+import { ConfirmDeleteDialogComponent } from '../shared/confirm-delete-dialog.component';
 import { CreatePickerComponent, CreatePickerOptionId } from '../shared/create-picker.component';
+import { EnvironmentSelectComponent } from '../shared/environment-select.component';
+import { RuntimeSelectComponent } from '../shared/runtime-select.component';
+import { GithubRepoSelectComponent } from '../shared/github-repo-select.component';
+import { DockerPresetSelectComponent } from '../shared/docker-preset-select.component';
+import { DatabaseTypeSelectComponent } from '../shared/database-type-select.component';
 import {
   DB_PRESETS,
   DOCKER_IMAGE_PRESETS,
+  defaultStartCommand,
   guessContainerPort,
   parseDockerImageRef,
   slugifyServiceName
 } from '../shared/service-source.util';
 import { publicHost } from '../shared/public-host.util';
+import { TagModule } from 'primeng/tag';
 
 type AddServiceMode = 'github' | 'docker' | 'database' | null;
-
-const SOON_OPTIONS = new Set<CreatePickerOptionId>(['template', 'function', 'bucket']);
-const SOON_LABELS: Record<string, string> = {
-  template: 'Templates are coming soon.',
-  function: 'Functions are coming soon.',
-  bucket: 'Buckets are coming soon.'
-};
 
 @Component({
   selector: 'app-project-detail-page',
   standalone: true,
-  imports: [CommonModule, FormsModule, CreatePickerComponent],
+  imports: [
+    CommonModule,
+    FormsModule,
+    CreatePickerComponent,
+    EnvironmentSelectComponent,
+    RuntimeSelectComponent,
+    GithubRepoSelectComponent,
+    DockerPresetSelectComponent,
+    DatabaseTypeSelectComponent,
+    ConfirmDeleteDialogComponent,
+    TagModule
+  ],
+  styles: [`
+    .services-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+      gap: 16px;
+    }
+    .service-card {
+      min-width: 0;
+      max-width: 100%;
+      overflow: visible;
+      box-sizing: border-box;
+    }
+    .service-card-footer {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      position: relative;
+      z-index: 2;
+    }
+    .service-url {
+      display: block;
+      width: 100%;
+      max-width: 100%;
+      margin: 0 0 10px;
+      padding: 0;
+      box-sizing: border-box;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+      color: var(--primary-light, #818cf8);
+      text-decoration: none;
+    }
+    .service-url:hover { text-decoration: underline; }
+  `],
   template: `
 <div class="page railway-page">
   <div class="container">
@@ -44,7 +92,13 @@ const SOON_LABELS: Record<string, string> = {
           @if (project()?.description) {
             <p class="railway-page-sub">{{ project()?.description }}</p>
           } @else {
-            <p class="railway-page-sub">{{ project()?.environment || 'production' }}</p>
+            <p class="railway-page-sub flex align-items-center gap-2">
+              <p-tag
+                [value]="(project()?.environment || 'production') | uppercase"
+                [severity]="envSeverity(project()?.environment)"
+                styleClass="railway-env-tag"
+              />
+            </p>
           }
         </div>
       </div>
@@ -60,7 +114,8 @@ const SOON_LABELS: Record<string, string> = {
           type="button"
           class="btn btn-primary railway-new-btn"
           (click)="openPicker()"
-          [disabled]="adding() || !canManage() || project()?.status === 'ARCHIVED'"
+          [disabled]="adding() || !canAddService() || project()?.status === 'ARCHIVED'"
+          [title]="!canAddService() && canManage() ? 'Free plan limit reached — see Billing' : ''"
         >+ Add Service</button>
       </div>
     </header>
@@ -80,8 +135,8 @@ const SOON_LABELS: Record<string, string> = {
     }
 
     @if (!canManage() && !loading()) {
-      <div class="pill pill-amber railway-alert">
-        You cannot add or manage services while deployment access is disabled or your account is suspended.
+      <div class="pill pill-red railway-alert">
+        Deploy access is locked. Adding, editing, deploying, stopping, and deleting services is blocked until an admin enables Deploy.
       </div>
     }
 
@@ -258,38 +313,39 @@ const SOON_LABELS: Record<string, string> = {
               </div>
 
               <div class="service-card-meta">
-                <span class="service-type">{{ runtimeLabel(svc.runtime) }}</span>
-                <span class="service-type">{{ svc.sourceType }}</span>
-                @if (servicePublicHost(svc); as host) {
-                  <a
-                    class="service-url"
-                    [href]="'https://' + host"
-                    target="_blank"
-                    rel="noopener"
-                    (click)="$event.stopPropagation()"
-                  >
-                    {{ host }}
-                  </a>
+                @if (svc.sourceType === 'GITHUB') {
+                  <span class="service-type">{{ runtimeLabel(svc.runtime) }}</span>
                 }
+                <span class="service-type">{{ svc.sourceType }}</span>
               </div>
+              @if (servicePublicHost(svc); as host) {
+                <a
+                  class="service-url"
+                  [href]="'https://' + host"
+                  target="_blank"
+                  rel="noopener"
+                  [title]="host"
+                  (click)="$event.stopPropagation()"
+                >{{ platformHostLabel(host) }}</a>
+              }
 
               <div class="service-source-line">{{ sourceSummary(svc) }}</div>
 
               <div class="service-metrics-mini">
-                <span>CPU {{ svc.cpuUsage | number:'1.0-0' }}%</span>
-                <span>RAM {{ svc.ramUsageMb }}MB</span>
+                <span>CPU {{ svc.cpuUsage > 0 ? (svc.cpuUsage | number:'1.0-0') + '%' : '—' }}</span>
+                <span>RAM {{ svc.ramUsageMb > 0 ? svc.ramUsageMb + 'MB' : '—' }}</span>
               </div>
 
               @if (isServiceDeploying(svc)) {
                 <div class="service-deploy-chrome deploy-chrome" (click)="$event.stopPropagation()">
                   <div class="deploy-timeline" aria-label="Deployment progress">
-                    @for (step of deployTimelineSteps; track step; let i = $index) {
+                    @for (step of deployTimelineFor(svc); track step; let i = $index) {
                       <span
                         class="deploy-step"
                         [class.done]="i < serviceDeployStep(svc)"
                         [class.active]="i === serviceDeployStep(svc)"
                       >{{ step }}</span>
-                      @if (i < deployTimelineSteps.length - 1) {
+                      @if (i < deployTimelineFor(svc).length - 1) {
                         <span class="deploy-step-sep">→</span>
                       }
                     }
@@ -308,32 +364,21 @@ const SOON_LABELS: Record<string, string> = {
                   (click)="openService(svc, 'terminal')"
                   [disabled]="svc.status !== 'RUNNING'"
                 >Terminal</button>
-                @if (svc.status === 'PENDING' || svc.status === 'STOPPED' || svc.status === 'FAILED') {
-                  <button
-                    type="button"
-                    class="btn btn-sm btn-primary"
-                    (click)="deployService(svc)"
-                    [disabled]="isServiceDeploying(svc) || !canManage()"
-                  >
-                    {{ isServiceDeploying(svc) ? 'Deploying…' : 'Deploy' }}
-                  </button>
-                }
-                @if (svc.status === 'RUNNING') {
-                  <button
-                    type="button"
-                    class="btn btn-sm btn-danger-soft"
-                    (click)="stopService(svc)"
-                    [disabled]="!canManage()"
-                  >Stop</button>
-                  <button
-                    type="button"
-                    class="btn btn-sm btn-ghost"
-                    (click)="deployService(svc)"
-                    [disabled]="isServiceDeploying(svc) || !canManage()"
-                  >
-                    {{ isServiceDeploying(svc) ? '…' : 'Redeploy' }}
-                  </button>
-                }
+                <button
+                  type="button"
+                  class="btn btn-sm btn-primary"
+                  (click)="deployService(svc)"
+                  [disabled]="!canDeployNow()"
+                >
+                  {{ isServiceDeploying(svc) || svc.status === 'RUNNING' ? 'Redeploy' : 'Deploy' }}
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-sm btn-danger-soft"
+                  (click)="stopService(svc)"
+                  [disabled]="!canManage() || svc.status === 'STOPPED'"
+                  title="Stop service / cancel stuck deploy"
+                >Stop</button>
                 <button
                   type="button"
                   class="btn btn-sm btn-ghost danger"
@@ -355,9 +400,10 @@ const SOON_LABELS: Record<string, string> = {
     @if (pickerOpen() && !addMode()) {
       <app-create-picker
         [(prompt)]="prompt"
-        placeholder="Describe a service or paste a repo link"
+        placeholder="Describe a service or paste a repo / image"
         [showEmpty]="false"
         [error]="pickerError()"
+        [githubConnected]="auth.isGitHubConnected()"
         (select)="onPickerSelect($event)"
         (enter)="onPromptEnter()"
       />
@@ -377,19 +423,25 @@ const SOON_LABELS: Record<string, string> = {
           </div>
 
           @if (addMode() === 'github') {
-            <div class="field">
-              <label>Runtime / Language</label>
-              <select [(ngModel)]="draft.runtime">
-                <option value="node">Node.js</option>
-                <option value="java">Java</option>
-                <option value="python">Python</option>
-                <option value="go">Go</option>
-                <option value="dotnet">.NET</option>
-                <option value="php">PHP</option>
-                <option value="rust">Rust</option>
-                <option value="other">Other</option>
-              </select>
-            </div>
+              <div class="field">
+                <label>Runtime / Language</label>
+                <app-runtime-select [value]="draft.runtime" (valueChange)="onRuntimeChange($event)" />
+              </div>
+              <div class="field">
+                <label>Start command</label>
+                <input
+                  [(ngModel)]="draft.startCommand"
+                  (ngModelChange)="startCommandTouched = true"
+                  placeholder="java -jar /app/app.jar"
+                  autocomplete="off"
+                  spellcheck="false"
+                  style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px"
+                />
+                <p class="empty-sub" style="margin:6px 0 0">
+                  Safe process argv only (java/python/node/nginx… or /app/…). No shell operators.
+                  Redeploy to apply.
+                </p>
+              </div>
           }
 
           @if (addMode() === 'github') {
@@ -399,20 +451,12 @@ const SOON_LABELS: Record<string, string> = {
               </p>
               <div class="field">
                 <label>Your repositories</label>
-                <select
-                  [ngModel]="selectedRepoFullName"
-                  (ngModelChange)="onGitHubRepoPicked($event)"
-                  [disabled]="reposLoading()"
-                >
-                  <option value="">
-                    {{ reposLoading() ? 'Loading repositories…' : (githubRepos().length ? 'Select a repository…' : 'No repos found — paste URL below') }}
-                  </option>
-                  @for (r of githubRepos(); track r.fullName) {
-                    <option [value]="r.fullName">
-                      {{ r.fullName }}{{ r.isPrivate ? ' (private)' : '' }}
-                    </option>
-                  }
-                </select>
+                <app-github-repo-select
+                  [repos]="githubRepos()"
+                  [value]="selectedRepoFullName"
+                  [loading]="reposLoading()"
+                  (valueChange)="onGitHubRepoPicked($event)"
+                />
                 @if (reposError()) {
                   <p class="muted" style="color:#f87171;font-size:12px;margin:6px 0 0">{{ reposError() }}</p>
                 }
@@ -442,12 +486,10 @@ const SOON_LABELS: Record<string, string> = {
             </p>
             <div class="field">
               <label>Quick presets</label>
-              <select (ngModelChange)="applyDockerPreset($event)" [ngModel]="dockerPresetKey">
-                <option value="">Custom image…</option>
-                @for (p of dockerPresets; track p.image) {
-                  <option [value]="p.image + ':' + p.tag">{{ p.label }} — {{ p.image }}:{{ p.tag }}</option>
-                }
-              </select>
+              <app-docker-preset-select
+                [value]="dockerPresetKey"
+                (valueChange)="applyDockerPreset($event)"
+              />
             </div>
             <div class="field">
               <label>Image</label>
@@ -463,20 +505,32 @@ const SOON_LABELS: Record<string, string> = {
               <input [(ngModel)]="draft.imageTag" placeholder="latest" />
             </div>
             <div class="field">
-              <label>Container port</label>
+              <label>Container listen port</label>
               <input type="number" [(ngModel)]="draft.containerPort" min="1" max="65535" />
-              <p class="empty-sub" style="margin:6px 0 0">Port inside the container. A random public URL is assigned automatically.</p>
+              <p class="empty-sub" style="margin:6px 0 0">
+                Port inside this container only (Nginx = 80, Grafana = 3000). Not the host port —
+                many apps can use 80 safely. Public access uses a random HTTPS URL.
+              </p>
+            </div>
+            <div class="field">
+              <label>Start command <span class="muted">(optional)</span></label>
+              <input
+                [(ngModel)]="draft.startCommand"
+                placeholder="Leave empty to use image default"
+                autocomplete="off"
+                spellcheck="false"
+                style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px"
+              />
             </div>
           }
 
           @if (addMode() === 'database') {
             <div class="field">
               <label>Database Type</label>
-              <select [(ngModel)]="draft.dbType" (ngModelChange)="onDbTypeChange($event)">
-                @for (t of dbTypes; track t) {
-                  <option [value]="t">{{ dbPreset(t).label }}</option>
-                }
-              </select>
+              <app-database-type-select
+                [value]="draft.dbType"
+                (valueChange)="onDbTypeChange($event)"
+              />
               <p class="empty-sub" style="margin:6px 0 0">{{ dbPreset(draft.dbType).hint }}</p>
             </div>
             <div class="field">
@@ -516,8 +570,9 @@ const SOON_LABELS: Record<string, string> = {
           }
           @if (draft.useVolume || addMode() === 'database') {
             <div class="field">
-              <label>Mount Path</label>
+              <label>Mount Path <span class="muted" style="font-weight:400">(inside container only)</span></label>
               <input [(ngModel)]="draft.mountPath" [placeholder]="addMode() === 'database' ? dbPreset(draft.dbType).mountPath : '/data'" />
+              <small class="muted">Host disk path is fixed by CloudBase. Example: /data or /var/lib/postgresql/data</small>
             </div>
             <div class="field">
               <label>Storage (GB)</label>
@@ -562,11 +617,7 @@ const SOON_LABELS: Record<string, string> = {
       </div>
       <div class="field" style="margin-bottom:18px">
         <label>Environment</label>
-        <select [(ngModel)]="settingsEnvironment">
-          <option value="production">production</option>
-          <option value="staging">staging</option>
-          <option value="development">development</option>
-        </select>
+        <app-environment-select [(value)]="settingsEnvironment" />
       </div>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" (click)="closeSettings()" [disabled]="savingSettings()">Cancel</button>
@@ -581,10 +632,36 @@ const SOON_LABELS: Record<string, string> = {
         } @else {
           <button type="button" class="btn btn-ghost btn-sm" (click)="restoreProject()" [disabled]="savingSettings()">Restore Project</button>
         }
-        <button type="button" class="btn btn-danger-soft btn-sm" style="margin-left:8px" (click)="deleteProject()" [disabled]="savingSettings()">Delete Project</button>
+        <button type="button" class="btn btn-danger-soft btn-sm" style="margin-left:8px" (click)="openDeleteProject()" [disabled]="savingSettings() || !canManage()">Delete Project</button>
       </div>
     </div>
   </div>
+}
+
+@if (deleteProjectTarget(); as target) {
+  <app-confirm-delete-dialog
+    title="Delete project"
+    [confirmName]="target.name"
+    [busy]="deleting()"
+    [error]="deleteError()"
+    confirmLabel="Delete project permanently"
+    warning="Deletes this project and everything under it: all services, deployments, shared variables, domains, Portainer stacks/containers/volumes, NPM proxies, and the project network. If Portainer does not confirm, nothing is deleted in CloudBase."
+    (cancel)="closeDeleteDialog()"
+    (confirm)="executeDeleteProject()"
+  />
+}
+
+@if (deleteServiceTarget(); as svc) {
+  <app-confirm-delete-dialog
+    title="Delete service"
+    [confirmName]="svc.name"
+    [busy]="deleting()"
+    [error]="deleteError()"
+    confirmLabel="Delete service permanently"
+    warning="Removes the Portainer stack, containers, volume data, proxy, and deployment history. Delete is blocked if Portainer does not confirm."
+    (cancel)="closeDeleteDialog()"
+    (confirm)="executeDeleteService()"
+  />
 }
   `,
 })
@@ -606,6 +683,10 @@ export class ProjectDetailPageComponent implements OnInit {
   settingsOpen = signal(false);
   savingSettings = signal(false);
   settingsError = signal('');
+  deleteProjectTarget = signal<Project | null>(null);
+  deleteServiceTarget = signal<Service | null>(null);
+  deleting = signal(false);
+  deleteError = signal<string | null>(null);
   projectTab = signal<'services' | 'variables'>('services');
   sharedVars = signal<SharedVariable[]>([]);
   sharedLoading = signal(false);
@@ -623,6 +704,13 @@ export class ProjectDetailPageComponent implements OnInit {
   deploying: Record<string, boolean> = {};
   deployStage: Record<string, string> = {};
   readonly deployTimelineSteps = ['Queued', 'Building', 'Deploying', 'Success'] as const;
+
+  deployTimelineFor(svc: Service): readonly string[] {
+    if (svc.sourceType === 'DOCKER' || svc.sourceType === 'DATABASE') {
+      return ['Queued', 'Starting', 'Success'];
+    }
+    return this.deployTimelineSteps;
+  }
   private deployPollTimers: Array<ReturnType<typeof setTimeout>> = [];
   draft = this.freshDraft();
   readonly dbTypes: DatabaseType[] = ['POSTGRESQL', 'MYSQL', 'REDIS', 'MONGODB'];
@@ -632,10 +720,14 @@ export class ProjectDetailPageComponent implements OnInit {
   readonly reposLoading = signal(false);
   readonly reposError = signal('');
   selectedRepoFullName = '';
+  readonly usage = signal<UsageSummary | null>(null);
+  readonly plan = signal<PlanInfo | null>(null);
 
   ngOnInit() {
     const id = this.route.snapshot.paramMap.get('projectId')!;
     const tab = this.route.snapshot.queryParamMap.get('tab');
+    this.auth.usage().subscribe({ next: u => this.usage.set(u) });
+    this.auth.getPlan().subscribe({ next: p => this.plan.set(p) });
     this.projectService.get(id).subscribe({
       next: p => {
         this.project.set(p);
@@ -857,27 +949,67 @@ export class ProjectDetailPageComponent implements OnInit {
     });
   }
 
-  deleteProject() {
+  openDeleteProject() {
     const p = this.project();
-    if (!p) return;
-    if (!confirm(`Delete project "${p.name}" and all its services? This cannot be undone.`)) return;
+    if (!p || !this.canManage()) return;
+    this.deleteError.set(null);
+    this.deleting.set(false);
+    this.deleteServiceTarget.set(null);
+    this.deleteProjectTarget.set(p);
+  }
+
+  closeDeleteDialog() {
+    if (this.deleting()) return;
+    this.deleteProjectTarget.set(null);
+    this.deleteServiceTarget.set(null);
+    this.deleteError.set(null);
+  }
+
+  executeDeleteProject() {
+    const p = this.deleteProjectTarget();
+    if (!p || this.deleting()) return;
+    this.deleting.set(true);
+    this.deleteError.set(null);
     this.savingSettings.set(true);
     this.projectService.delete(p.id).subscribe({
       next: () => this.router.navigate(['/dashboard']),
       error: e => {
+        this.deleting.set(false);
         this.savingSettings.set(false);
-        this.settingsError.set(e?.error?.message ?? 'Delete failed');
+        this.deleteError.set(
+          e?.error?.message ?? 'Delete failed. CloudBase kept the project because Portainer did not confirm removal.'
+        );
       }
     });
   }
 
   canManage(): boolean {
-    const user = this.auth.user();
-    return !!user && user.accountStatus === 'ACTIVE' && user.deploymentEnabled;
+    return this.auth.hasDeployAccess();
+  }
+
+  canAddService(): boolean {
+    if (!this.canManage()) return false;
+    const u = this.usage();
+    const p = this.plan();
+    if (u && p) return this.auth.canAddService(u, p);
+    return true;
+  }
+
+  canDeployNow(): boolean {
+    if (!this.canManage()) return false;
+    const u = this.usage();
+    const p = this.plan();
+    if (u && p) return this.auth.canStartDeploy(u, p);
+    return true;
   }
 
   openPicker() {
-    if (!this.canManage() || this.project()?.status === 'ARCHIVED') return;
+    if (!this.canAddService() || this.project()?.status === 'ARCHIVED') {
+      if (this.canManage() && !this.auth.canAddService(this.usage(), this.plan())) {
+        this.error.set('Free plan limit reached. Delete a service or see Billing.');
+      }
+      return;
+    }
     this.prompt = '';
     this.pickerError.set('');
     this.addMode.set(null);
@@ -903,14 +1035,20 @@ export class ProjectDetailPageComponent implements OnInit {
   }
 
   onPickerSelect(id: CreatePickerOptionId) {
-    if (SOON_OPTIONS.has(id)) {
-      this.pickerError.set(SOON_LABELS[id] ?? 'Coming soon.');
+    if (id === 'github' && !this.auth.isGitHubConnected()) {
+      this.redirectToGitHubConnect();
       return;
     }
     if (id === 'github' || id === 'docker' || id === 'database') {
       this.pickerError.set('');
       this.openAdd(id);
     }
+  }
+
+  private redirectToGitHubConnect() {
+    this.pickerOpen.set(false);
+    this.pickerError.set('');
+    this.router.navigate(['/account'], { queryParams: { connect: 'github' } });
   }
 
   openAdd(mode: AddServiceMode) {
@@ -946,6 +1084,14 @@ export class ProjectDetailPageComponent implements OnInit {
 
     if (mode === 'docker' && !this.draft.imageName) {
       this.draft.containerPort = 80;
+      this.draft.startCommand = '';
+    }
+
+    if (mode === 'github') {
+      this.startCommandTouched = false;
+      if (!this.draft.startCommand) {
+        this.draft.startCommand = defaultStartCommand(this.draft.runtime);
+      }
     }
 
     if (mode === 'database') {
@@ -1033,6 +1179,10 @@ export class ProjectDetailPageComponent implements OnInit {
     const value = this.prompt.trim();
     if (!value) return;
     if (value.includes('github.com') || /^https?:\/\//i.test(value)) {
+      if (!this.auth.isGitHubConnected()) {
+        this.redirectToGitHubConnect();
+        return;
+      }
       this.openAdd('github');
       return;
     }
@@ -1055,7 +1205,14 @@ export class ProjectDetailPageComponent implements OnInit {
   }
 
   servicePublicHost(svc: Service): string | undefined {
+    if (svc.sourceType === 'DATABASE') return undefined;
     return publicHost(svc);
+  }
+
+  /** Short label inside the card (e.g. cloudbase1510) — full host stays in title/href. */
+  platformHostLabel(host: string): string {
+    const slug = (host.split('.')[0] ?? host).trim();
+    return slug || host;
   }
 
   sourceIcon(type: ServiceSourceType): string {
@@ -1073,6 +1230,18 @@ export class ProjectDetailPageComponent implements OnInit {
       rust: 'Rust',
       other: 'Other'
     } as Record<string, string>)[type ?? 'node'] ?? 'Node.js';
+  }
+
+  envSeverity(env?: string): 'success' | 'info' | 'warning' | 'danger' | 'secondary' | 'contrast' {
+    switch (env) {
+      case 'staging':
+        return 'warning';
+      case 'development':
+        return 'info';
+      case 'production':
+      default:
+        return 'danger';
+    }
   }
 
   sourceSummary(svc: Service): string {
@@ -1111,14 +1280,16 @@ export class ProjectDetailPageComponent implements OnInit {
         repositoryUrl: this.draft.repoUrl.trim(),
         branch: this.draft.branch.trim() || 'main',
         autoDeploy: this.draft.autoDeploy,
-        runtime: this.draft.runtime
+        runtime: this.draft.runtime,
+        startCommand: (this.draft.startCommand || defaultStartCommand(this.draft.runtime)).trim()
       };
     } else if (mode === 'docker') {
       sourceType = 'DOCKER';
       sourceDetails = {
         imageName: this.draft.imageName.trim(),
         imageTag: this.draft.imageTag.trim() || 'latest',
-        containerPort: Number(this.draft.containerPort) || guessContainerPort(this.draft.imageName)
+        containerPort: Number(this.draft.containerPort) || guessContainerPort(this.draft.imageName),
+        ...(this.draft.startCommand.trim() ? { startCommand: this.draft.startCommand.trim() } : {})
       };
     } else {
       const preset = DB_PRESETS[this.draft.dbType];
@@ -1156,6 +1327,7 @@ export class ProjectDetailPageComponent implements OnInit {
         this.addMode.set(null);
         this.pickerOpen.set(false);
         this.adding.set(false);
+        this.auth.usage().subscribe({ next: u => this.usage.set(u) });
       },
       error: e => {
         this.error.set(e?.error?.message ?? 'Failed to add service');
@@ -1165,7 +1337,10 @@ export class ProjectDetailPageComponent implements OnInit {
   }
 
   deployService(svc: Service) {
-    if (!this.canManage()) return;
+    if (!this.canDeployNow()) {
+      this.error.set('Free plan deploy limit reached for this month. See Billing.');
+      return;
+    }
     this.deploying[svc.id] = true;
     this.deployStage[svc.id] = 'QUEUED';
     this.error.set(null);
@@ -1178,6 +1353,7 @@ export class ProjectDetailPageComponent implements OnInit {
           )
         } : p);
         this.pollServiceDeploy(svc.id);
+        this.auth.usage().subscribe({ next: u => this.usage.set(u) });
       },
       error: e => {
         this.error.set(e?.error?.message ?? 'Deploy failed');
@@ -1196,6 +1372,22 @@ export class ProjectDetailPageComponent implements OnInit {
 
   serviceDeployStep(svc: Service): number {
     const stage = this.deployStage[svc.id] ?? svc.status;
+    const short = svc.sourceType === 'DOCKER' || svc.sourceType === 'DATABASE';
+    if (short) {
+      switch (stage) {
+        case 'QUEUED':
+        case 'PENDING':
+          return 0;
+        case 'BUILDING':
+        case 'DEPLOYING':
+          return 1;
+        case 'SUCCESS':
+        case 'RUNNING':
+          return 2;
+        default:
+          return 0;
+      }
+    }
     switch (stage) {
       case 'QUEUED':
       case 'PENDING':
@@ -1213,44 +1405,79 @@ export class ProjectDetailPageComponent implements OnInit {
   }
 
   serviceDeployProgress(svc: Service): number {
-    return [18, 42, 72, 100][this.serviceDeployStep(svc)] ?? 18;
+    const short = svc.sourceType === 'DOCKER' || svc.sourceType === 'DATABASE';
+    const idx = this.serviceDeployStep(svc);
+    if (short) return [22, 65, 100][idx] ?? 22;
+    return [18, 42, 72, 100][idx] ?? 18;
   }
 
   private pollServiceDeploy(serviceId: string) {
     const projectId = this.project()?.id;
     if (!projectId) return;
-    const ticks: Array<{ ms: number; stage: string }> = [
-      { ms: 450, stage: 'BUILDING' },
-      { ms: 1000, stage: 'DEPLOYING' },
-      { ms: 1850, stage: 'SUCCESS' },
-      { ms: 2300, stage: 'DONE' }
-    ];
-    ticks.forEach(({ ms, stage }) => {
-      const t = setTimeout(() => {
-        if (stage !== 'DONE') this.deployStage[serviceId] = stage;
-        this.projectService.get(projectId).subscribe({
-          next: p => {
-            this.project.set(p);
-            const svc = p.services.find(s => s.id === serviceId);
-            if (stage === 'DONE' || svc?.status === 'RUNNING' || svc?.status === 'FAILED') {
-              this.deploying[serviceId] = false;
-              delete this.deployStage[serviceId];
-            }
-          },
-          error: () => {
-            if (stage === 'DONE') {
-              this.deploying[serviceId] = false;
-              delete this.deployStage[serviceId];
-            }
+    const started = Date.now();
+    const maxMs = 90_000;
+    const tick = () => {
+      this.projectService.get(projectId).subscribe({
+        next: p => {
+          this.project.set(p);
+          const svc = p.services.find(s => s.id === serviceId);
+          const status = svc?.status;
+          if (status === 'RUNNING' || status === 'FAILED' || status === 'STOPPED') {
+            this.deploying[serviceId] = false;
+            delete this.deployStage[serviceId];
+            return;
           }
-        });
-      }, ms);
-      this.deployPollTimers.push(t);
-    });
+          const elapsed = Date.now() - started;
+          if (elapsed < 800) this.deployStage[serviceId] = 'QUEUED';
+          else if (elapsed < 2500) this.deployStage[serviceId] = 'BUILDING';
+          else this.deployStage[serviceId] = 'DEPLOYING';
+
+          if (elapsed >= maxMs) {
+            this.deploying[serviceId] = false;
+            delete this.deployStage[serviceId];
+            this.projectService.stopService(serviceId).subscribe({
+              next: () => {
+                this.project.update(proj => proj ? {
+                  ...proj,
+                  services: proj.services.map(s =>
+                    s.id === serviceId ? { ...s, status: 'FAILED' } : s
+                  )
+                } : proj);
+                this.error.set(`Deploy timed out for ${svc?.name ?? serviceId}. Click Deploy to retry.`);
+              },
+              error: () => {
+                this.project.update(proj => proj ? {
+                  ...proj,
+                  services: proj.services.map(s =>
+                    s.id === serviceId ? { ...s, status: 'FAILED' } : s
+                  )
+                } : proj);
+                this.error.set(`Deploy stuck for ${svc?.name ?? serviceId}. Click Stop or Deploy to retry.`);
+              }
+            });
+            return;
+          }
+          const t = setTimeout(tick, 2000);
+          this.deployPollTimers.push(t);
+        },
+        error: () => {
+          if (Date.now() - started >= maxMs) {
+            this.deploying[serviceId] = false;
+            delete this.deployStage[serviceId];
+            return;
+          }
+          const t = setTimeout(tick, 2500);
+          this.deployPollTimers.push(t);
+        }
+      });
+    };
+    tick();
   }
 
   stopService(svc: Service) {
     if (!this.canManage()) return;
+    this.deploying[svc.id] = false;
+    delete this.deployStage[svc.id];
     this.projectService.stopService(svc.id).subscribe({
       next: () => {
         this.project.update(p => p ? {
@@ -1264,19 +1491,46 @@ export class ProjectDetailPageComponent implements OnInit {
 
   confirmDeleteService(svc: Service) {
     if (!this.canManage()) return;
-    if (!confirm(`Delete service "${svc.name}"? This cannot be undone.`)) return;
+    this.deleteError.set(null);
+    this.deleting.set(false);
+    this.deleteProjectTarget.set(null);
+    this.deleteServiceTarget.set(svc);
+  }
+
+  executeDeleteService() {
+    const svc = this.deleteServiceTarget();
+    if (!svc || this.deleting()) return;
+    this.deleting.set(true);
+    this.deleteError.set(null);
     this.projectService.deleteService(svc.id).subscribe({
       next: () => {
         this.project.update(p => p ? { ...p, services: p.services.filter(s => s.id !== svc.id) } : p);
+        this.deleting.set(false);
+        this.deleteServiceTarget.set(null);
       },
-      error: e => this.error.set(e?.error?.message ?? 'Delete failed')
+      error: e => {
+        this.deleting.set(false);
+        this.deleteError.set(
+          e?.error?.message ?? 'Delete failed. Service kept because Portainer did not confirm removal.'
+        );
+      }
     });
+  }
+
+  startCommandTouched = false;
+
+  onRuntimeChange(runtime: ServiceRuntime) {
+    this.draft.runtime = runtime;
+    if (!this.startCommandTouched) {
+      this.draft.startCommand = defaultStartCommand(runtime);
+    }
   }
 
   private freshDraft() {
     return {
       name: '',
       runtime: 'node' as ServiceRuntime,
+      startCommand: defaultStartCommand('node'),
       repoUrl: '',
       branch: 'main',
       autoDeploy: true,

@@ -1,7 +1,9 @@
 package com.cloudbase.security;
 
 import com.cloudbase.entity.UserEntity;
+import com.cloudbase.model.AccountStatus;
 import com.cloudbase.repository.UserRepository;
+import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -36,17 +38,26 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         String header = request.getHeader("Authorization");
         if (header != null && header.startsWith("Bearer ")) {
             String token = header.substring(7);
-            if (jwtService.isTokenValid(token)) {
-                String userId = jwtService.extractUserId(token);
-                UserEntity user = userRepository.findById(userId).orElse(null);
-                if (user != null) {
-                    var auth = new UsernamePasswordAuthenticationToken(
-                            user,
-                            null,
-                            List.of(new SimpleGrantedAuthority("ROLE_" + user.getRole().name()))
-                    );
-                    SecurityContextHolder.getContext().setAuthentication(auth);
+            try {
+                if (jwtService.isTokenValid(token)) {
+                    Claims claims = jwtService.parseToken(token);
+                    String purpose = claims.get("purpose", String.class);
+                    // Reject password-reset / OAuth-state tokens as session credentials
+                    if (purpose == null || purpose.isBlank()) {
+                        String userId = claims.getSubject();
+                        UserEntity user = userRepository.findById(userId).orElse(null);
+                        if (user != null && user.getAccountStatus() != AccountStatus.SUSPENDED) {
+                            var auth = new UsernamePasswordAuthenticationToken(
+                                    user,
+                                    null,
+                                    List.of(new SimpleGrantedAuthority("ROLE_" + user.getRole().name()))
+                            );
+                            SecurityContextHolder.getContext().setAuthentication(auth);
+                        }
+                    }
                 }
+            } catch (Exception ignored) {
+                SecurityContextHolder.clearContext();
             }
         }
         filterChain.doFilter(request, response);

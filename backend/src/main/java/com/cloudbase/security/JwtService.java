@@ -34,6 +34,18 @@ public class JwtService {
                 .compact();
     }
 
+    public long getExpirationMs() {
+        return expirationMs;
+    }
+
+    public long getExpiresInSeconds() {
+        return Math.max(1L, expirationMs / 1000L);
+    }
+
+    public Date getExpiration(String token) {
+        return parseToken(token).getExpiration();
+    }
+
     /** Short-lived password-reset token (30 minutes). */
     public String generatePasswordResetToken(String userId) {
         return Jwts.builder()

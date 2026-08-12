@@ -187,11 +187,11 @@ export type IconTone = 'indigo' | 'violet' | 'emerald' | 'sky' | 'amber';
       height: 28px;
     }
 
-    .icon-indigo { color: #a5b4fc; border-color: rgba(99, 102, 241, 0.28); background: linear-gradient(145deg, rgba(99,102,241,0.18), rgba(15,23,42,0.55)); }
-    .icon-violet { color: #c4b5fd; border-color: rgba(139, 92, 246, 0.28); background: linear-gradient(145deg, rgba(139,92,246,0.18), rgba(15,23,42,0.55)); }
-    .icon-emerald { color: #6ee7b7; border-color: rgba(16, 185, 129, 0.28); background: linear-gradient(145deg, rgba(16,185,129,0.16), rgba(15,23,42,0.55)); }
-    .icon-sky { color: #7dd3fc; border-color: rgba(14, 165, 233, 0.28); background: linear-gradient(145deg, rgba(14,165,233,0.16), rgba(15,23,42,0.55)); }
-    .icon-amber { color: #fcd34d; border-color: rgba(245, 158, 11, 0.28); background: linear-gradient(145deg, rgba(245,158,11,0.16), rgba(15,23,42,0.55)); }
+    .icon-indigo { color: #9bb8d4; border-color: rgba(107, 154, 196, 0.28); background: rgba(107, 154, 196, 0.1); }
+    .icon-violet { color: #a8b2c0; border-color: rgba(125, 138, 156, 0.28); background: rgba(125, 138, 156, 0.1); }
+    .icon-emerald { color: #8fcbb0; border-color: rgba(90, 158, 130, 0.28); background: rgba(90, 158, 130, 0.1); }
+    .icon-sky { color: #8ec5d9; border-color: rgba(100, 160, 185, 0.28); background: rgba(100, 160, 185, 0.1); }
+    .icon-amber { color: #d4b44a; border-color: rgba(201, 162, 39, 0.28); background: rgba(201, 162, 39, 0.1); }
 
     .pulse-dot {
       animation: iconPulse 1.8s ease-in-out infinite;

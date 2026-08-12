@@ -1,6 +1,8 @@
 package com.cloudbase.service;
 
 import com.cloudbase.dto.AdminDtos.AuditLogEntry;
+import com.cloudbase.dto.AdminDtos.HostingSettingsResponse;
+import com.cloudbase.dto.AdminDtos.HostingSettingsUpdateRequest;
 import com.cloudbase.dto.AdminDtos.InfrastructureOverview;
 import com.cloudbase.dto.AuthDtos.MessageResponse;
 import com.cloudbase.entity.UserEntity;
@@ -25,4 +27,8 @@ public interface AdminService {
     MessageResponse sendPasswordReset(UserEntity actor, String userId);
 
     List<AuditLogEntry> listAuditLogs();
+
+    HostingSettingsResponse getHostingSettings();
+
+    HostingSettingsResponse updateHostingSettings(UserEntity actor, HostingSettingsUpdateRequest request);
 }

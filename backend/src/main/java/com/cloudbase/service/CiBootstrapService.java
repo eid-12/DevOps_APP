@@ -6,7 +6,7 @@ import com.cloudbase.entity.UserEntity;
 import java.util.Map;
 
 /**
- * B2 — bootstrap CI on a GitHub repo: Dockerfile + Actions workflow + webhook.
+ * B2 - bootstrap CI on a GitHub repo: Dockerfile + Actions workflow + webhook.
  */
 public interface CiBootstrapService {
 

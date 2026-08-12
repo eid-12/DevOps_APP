@@ -7,9 +7,10 @@ import com.cloudbase.github.GitHubRepoClient;
 import com.cloudbase.github.GitHubRepoClient.OwnerRepo;
 import com.cloudbase.github.GitHubSecretEncryptor;
 import com.cloudbase.service.CiBootstrapService;
+import com.cloudbase.service.PlatformSettingsService;
+import com.cloudbase.service.StartCommandValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -26,28 +27,39 @@ public class CiBootstrapServiceImpl implements CiBootstrapService {
 
     private final GitHubRepoClient repoClient;
     private final GitHubSecretEncryptor secretEncryptor;
-    private final String dockerHubNamespace;
-    private final String dockerHubUsername;
-    private final String dockerHubToken;
-    private final String publicApiUrl;
-    private final String webhookSecret;
+    private final PlatformSettingsService settings;
 
     public CiBootstrapServiceImpl(
             GitHubRepoClient repoClient,
             GitHubSecretEncryptor secretEncryptor,
-            @Value("${cloudbase.dockerhub.namespace:minipcer}") String dockerHubNamespace,
-            @Value("${dockerhub.username:}") String dockerHubUsername,
-            @Value("${dockerhub.token:}") String dockerHubToken,
-            @Value("${cloudbase.public-api-url:}") String publicApiUrl,
-            @Value("${github.webhook-secret:}") String webhookSecret
+            PlatformSettingsService settings
     ) {
         this.repoClient = repoClient;
         this.secretEncryptor = secretEncryptor;
-        this.dockerHubNamespace = dockerHubNamespace;
-        this.dockerHubUsername = StringUtils.hasText(dockerHubUsername) ? dockerHubUsername : dockerHubNamespace;
-        this.dockerHubToken = dockerHubToken == null ? "" : dockerHubToken;
-        this.publicApiUrl = publicApiUrl == null ? "" : publicApiUrl.trim().replaceAll("/$", "");
-        this.webhookSecret = webhookSecret;
+        this.settings = settings;
+    }
+
+    private String dockerHubNamespace() {
+        return settings.get(PlatformSettingsService.DOCKERHUB_NAMESPACE);
+    }
+
+    private String dockerHubUsername() {
+        String u = settings.get(PlatformSettingsService.DOCKERHUB_USERNAME);
+        return StringUtils.hasText(u) ? u : dockerHubNamespace();
+    }
+
+    private String dockerHubToken() {
+        String t = settings.get(PlatformSettingsService.DOCKERHUB_TOKEN);
+        return t == null ? "" : t;
+    }
+
+    private String publicApiUrl() {
+        String u = settings.get(PlatformSettingsService.PUBLIC_API_URL);
+        return u == null ? "" : u.trim().replaceAll("/$", "");
+    }
+
+    private String webhookSecret() {
+        return settings.get(PlatformSettingsService.GITHUB_WEBHOOK_SECRET);
     }
 
     @Override
@@ -65,8 +77,15 @@ public class CiBootstrapServiceImpl implements CiBootstrapService {
         if (!StringUtils.hasText(runtime) || "null".equals(runtime)) {
             runtime = "node";
         }
+        String startCommand = String.valueOf(src.getOrDefault("startCommand", ""));
+        if (!StringUtils.hasText(startCommand) || "null".equals(startCommand)) {
+            startCommand = defaultStartCommand(runtime);
+        }
+        var validated = StartCommandValidator.validateRequired(startCommand);
+        startCommand = validated.normalized();
+        src.put("startCommand", startCommand);
 
-        String imageName = dockerHubNamespace + "/" + sanitize(service.getName());
+        String imageName = dockerHubNamespace() + "/" + sanitize(service.getName());
         src.put("imageName", imageName);
         src.put("runtime", runtime);
 
@@ -95,7 +114,7 @@ public class CiBootstrapServiceImpl implements CiBootstrapService {
             if (!repoClient.fileExists(token, or.owner(), or.repo(), "Dockerfile")) {
                 dockerfileCreated = repoClient.putTextFile(
                         token, or.owner(), or.repo(), "Dockerfile",
-                        dockerfileFor(runtime),
+                        dockerfileFor(runtime, startCommand),
                         "chore(cloudbase): add Dockerfile for CloudBase deploy",
                         branch,
                         false
@@ -111,22 +130,22 @@ public class CiBootstrapServiceImpl implements CiBootstrapService {
             );
 
             boolean secretsOk = false;
-            if (StringUtils.hasText(dockerHubToken)) {
+            if (StringUtils.hasText(dockerHubToken())) {
                 repoClient.putActionsSecret(
                         token, or.owner(), or.repo(),
-                        "DOCKERHUB_USERNAME", dockerHubUsername, secretEncryptor
+                        "DOCKERHUB_USERNAME", dockerHubUsername(), secretEncryptor
                 );
                 repoClient.putActionsSecret(
                         token, or.owner(), or.repo(),
-                        "DOCKERHUB_TOKEN", dockerHubToken, secretEncryptor
+                        "DOCKERHUB_TOKEN", dockerHubToken(), secretEncryptor
                 );
                 secretsOk = true;
             }
 
-            if (StringUtils.hasText(publicApiUrl)) {
-                String hookUrl = publicApiUrl + "/api/webhooks/github";
+            if (StringUtils.hasText(publicApiUrl())) {
+                String hookUrl = publicApiUrl() + "/api/webhooks/github";
                 repoClient.ensureWebhook(
-                        token, or.owner(), or.repo(), hookUrl, webhookSecret,
+                        token, or.owner(), or.repo(), hookUrl, webhookSecret(),
                         List.of("workflow_run")
                 );
                 webhookOk = true;
@@ -157,8 +176,11 @@ public class CiBootstrapServiceImpl implements CiBootstrapService {
                     service.getId(), or.owner(), or.repo(), dockerfileCreated, workflowCreated, webhookOk);
         } catch (Exception e) {
             log.warn("CI bootstrap failed for {}: {}", service.getId(), e.toString());
+            String hint = e.getMessage() != null && e.getMessage().contains("HTTP 404")
+                    ? " Reconnect GitHub on Account (needs the workflow scope) then retry."
+                    : "";
             src.put("ciBootstrapped", false);
-            src.put("ciMessage", "CI bootstrap failed: " + e.getMessage());
+            src.put("ciMessage", "CI bootstrap failed: " + e.getMessage() + hint);
         }
 
         return src;
@@ -168,8 +190,30 @@ public class CiBootstrapServiceImpl implements CiBootstrapService {
         return name.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9-]", "-").replaceAll("^-+|-+$", "");
     }
 
-    static String dockerfileFor(String runtime) {
+    static String defaultStartCommand(String runtime) {
         String r = runtime == null ? "node" : runtime.toLowerCase(Locale.ROOT);
+        return switch (r) {
+            case "java" -> "java -jar /app/app.jar";
+            case "python" -> "python -m uvicorn main:app --host 0.0.0.0 --port 8000";
+            case "go" -> "/app/app";
+            case "dotnet" -> "dotnet App.dll";
+            case "php" -> "apache2-foreground";
+            case "rust" -> "/app/app";
+            case "node" -> "nginx -g \"daemon off;\"";
+            default -> "";
+        };
+    }
+
+    static String dockerfileFor(String runtime) {
+        return dockerfileFor(runtime, defaultStartCommand(runtime));
+    }
+
+    static String dockerfileFor(String runtime, String startCommand) {
+        String r = runtime == null ? "node" : runtime.toLowerCase(Locale.ROOT);
+        String cmd = (startCommand == null || startCommand.isBlank())
+                ? defaultStartCommand(r)
+                : startCommand.trim();
+        String cmdJson = toJsonExecArray(cmd);
         return switch (r) {
             case "java" -> """
                     FROM maven:3.9-eclipse-temurin-17 AS build
@@ -182,8 +226,9 @@ public class CiBootstrapServiceImpl implements CiBootstrapService {
                     WORKDIR /app
                     COPY --from=build /app/target/*.jar app.jar
                     EXPOSE 8080
-                    ENTRYPOINT ["java","-jar","/app/app.jar"]
-                    """;
+                    # CMD (not ENTRYPOINT) so CloudBase can override start command in compose
+                    CMD %s
+                    """.formatted(cmdJson);
             case "python" -> """
                     FROM python:3.12-slim
                     WORKDIR /app
@@ -191,8 +236,8 @@ public class CiBootstrapServiceImpl implements CiBootstrapService {
                     RUN pip install --no-cache-dir -r requirements.txt
                     COPY . .
                     EXPOSE 8000
-                    CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-                    """;
+                    CMD %s
+                    """.formatted(cmdJson);
             case "go" -> """
                     FROM golang:1.22-alpine AS build
                     WORKDIR /src
@@ -205,13 +250,14 @@ public class CiBootstrapServiceImpl implements CiBootstrapService {
                     WORKDIR /app
                     COPY --from=build /out/app /app/app
                     EXPOSE 8080
-                    ENTRYPOINT ["/app/app"]
-                    """;
+                    CMD %s
+                    """.formatted(cmdJson);
             case "php" -> """
                     FROM php:8.3-apache
                     COPY . /var/www/html/
                     EXPOSE 80
-                    """;
+                    CMD %s
+                    """.formatted(cmdJson.isBlank() ? "[\"apache2-foreground\"]" : cmdJson);
             case "dotnet" -> """
                     FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
                     WORKDIR /src
@@ -222,8 +268,8 @@ public class CiBootstrapServiceImpl implements CiBootstrapService {
                     WORKDIR /app
                     COPY --from=build /app .
                     EXPOSE 8080
-                    ENTRYPOINT ["dotnet", "App.dll"]
-                    """;
+                    CMD %s
+                    """.formatted(cmdJson);
             default -> """
                     # CloudBase default Node/SPA Dockerfile (override if needed)
                     FROM node:20-alpine AS build
@@ -236,14 +282,34 @@ public class CiBootstrapServiceImpl implements CiBootstrapService {
                     FROM nginx:1.27-alpine
                     COPY --from=build /app/dist /usr/share/nginx/html
                     EXPOSE 80
-                    CMD ["nginx", "-g", "daemon off;"]
-                    """;
+                    CMD %s
+                    """.formatted(cmdJson.isBlank() ? "[\"nginx\", \"-g\", \"daemon off;\"]" : cmdJson);
         };
+    }
+
+    /** Validated argv → Docker JSON-array CMD (exec form, never shell). */
+    static String toJsonExecArray(String command) {
+        if (command == null || command.isBlank()) {
+            return "[]";
+        }
+        var validated = StartCommandValidator.validateRequired(command);
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < validated.argv().size(); i++) {
+            if (i > 0) {
+                sb.append(", ");
+            }
+            String arg = validated.argv().get(i)
+                    .replace("\\", "\\\\")
+                    .replace("\"", "\\\"");
+            sb.append('"').append(arg).append('"');
+        }
+        sb.append(']');
+        return sb.toString();
     }
 
     static String workflowYaml(String imageName) {
         return """
-                # Generated by CloudBase — build & push on every push to the default branch
+                # Generated by CloudBase - build & push on every push to the default branch
                 name: CloudBase Deploy
 
                 on:

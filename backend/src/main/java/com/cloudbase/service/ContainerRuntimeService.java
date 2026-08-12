@@ -1,6 +1,7 @@
 package com.cloudbase.service;
 
 import com.cloudbase.entity.ServiceEntity;
+import com.cloudbase.model.ServiceStatus;
 import com.cloudbase.portainer.ComposeGenerator;
 import com.cloudbase.portainer.PortainerClient;
 import org.springframework.http.HttpStatus;
@@ -45,29 +46,36 @@ public class ContainerRuntimeService {
             return List.of("__CLEAR__");
         }
         if ("help".equalsIgnoreCase(cmd)) {
-            return List.of(
-                    "CloudBase container shell (via Portainer)",
-                    "Runs: sh -c \"<command>\" inside " + resolveName(service),
-                    "Examples: ls -la · pwd · env · ps aux · cat /etc/os-release",
-                    "Built-ins: help · clear"
-            );
+            return helpLines(service);
         }
         String containerId = requireContainerId(service);
-        String out = portainerClient.exec(containerId, cmd).block(TIMEOUT);
-        if (out == null || out.isBlank()) {
-            return List.of("(no output)");
-        }
-        String[] parts = out.replace("\r\n", "\n").replace('\r', '\n').split("\n", -1);
-        List<String> lines = new ArrayList<>();
-        for (String p : parts) {
-            if (!p.isEmpty() || lines.isEmpty()) {
-                lines.add(p);
+        try {
+            String out = portainerClient.exec(containerId, cmd).block(TIMEOUT);
+            if (out == null || out.isBlank()) {
+                return List.of("(no output)");
             }
+            String[] parts = out.replace("\r\n", "\n").replace('\r', '\n').split("\n", -1);
+            List<String> lines = new ArrayList<>();
+            for (String p : parts) {
+                if (!p.isEmpty() || lines.isEmpty()) {
+                    lines.add(p);
+                }
+            }
+            if (lines.size() > 1 && lines.get(lines.size() - 1).isEmpty()) {
+                lines.remove(lines.size() - 1);
+            }
+            return lines.isEmpty() ? List.of("(no output)") : lines;
+        } catch (Exception e) {
+            Throwable root = e;
+            while (root.getCause() != null && root.getCause() != root) {
+                root = root.getCause();
+            }
+            String msg = root.getMessage() != null ? root.getMessage() : e.getMessage();
+            if (msg != null && (msg.contains("409") || msg.toLowerCase(Locale.ROOT).contains("restart"))) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, msg);
+            }
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Exec failed: " + msg);
         }
-        if (lines.size() > 1 && lines.get(lines.size() - 1).isEmpty()) {
-            lines.remove(lines.size() - 1);
-        }
-        return lines.isEmpty() ? List.of("(no output)") : lines;
     }
 
     public Map<String, Object> fetchMetrics(ServiceEntity service) {
@@ -90,6 +98,39 @@ public class ContainerRuntimeService {
         return result;
     }
 
+    /**
+     * Best-effort: map live Docker state onto the service entity status.
+     * Skips while a deploy is in flight so we don't clobber DEPLOYING.
+     */
+    public ServiceStatus resolveLiveStatus(ServiceEntity service) {
+        if (service.getStatus() == ServiceStatus.DEPLOYING
+                || service.getStatus() == ServiceStatus.BUILDING
+                || service.getStatus() == ServiceStatus.PENDING) {
+            return service.getStatus();
+        }
+        try {
+            String name = resolveName(service);
+            String id = portainerClient.findContainerIdByName(name).block(Duration.ofSeconds(8));
+            if (id == null || id.isBlank()) {
+                return service.getStatus() == ServiceStatus.STOPPED
+                        ? ServiceStatus.STOPPED
+                        : service.getStatus();
+            }
+            Map<String, Object> inspect = portainerClient.inspectContainer(id).block(Duration.ofSeconds(8));
+            String state = PortainerClient.containerState(inspect);
+            return switch (state.toLowerCase(Locale.ROOT)) {
+                case "running" -> ServiceStatus.RUNNING;
+                case "restarting" -> ServiceStatus.CRASHED;
+                case "exited", "dead" ->
+                        service.getStatus() == ServiceStatus.STOPPED ? ServiceStatus.STOPPED : ServiceStatus.FAILED;
+                case "created", "paused" -> ServiceStatus.STOPPED;
+                default -> service.getStatus();
+            };
+        } catch (Exception e) {
+            return service.getStatus();
+        }
+    }
+
     public void stop(ServiceEntity service) {
         String name = resolveName(service);
         portainerClient.findContainerIdByName(name)
@@ -107,6 +148,44 @@ public class ContainerRuntimeService {
         portainerClient.findContainerIdByName(name)
                 .flatMap(portainerClient::startContainer)
                 .block(TIMEOUT);
+    }
+
+    private static List<String> helpLines(ServiceEntity service) {
+        List<String> lines = new ArrayList<>();
+        lines.add("CloudBase container shell (via Portainer)");
+        lines.add("Runs inside " + (service.getContainerName() != null ? service.getContainerName() : service.getName()));
+        if (service.getSourceType() == com.cloudbase.model.ServiceSourceType.DATABASE) {
+            Map<String, Object> src = service.getSourceDetails() != null ? service.getSourceDetails() : Map.of();
+            String dbType = String.valueOf(src.getOrDefault("dbType", "DATABASE"));
+            lines.add("Database: " + dbType);
+            switch (dbType) {
+                case "MYSQL" -> {
+                    lines.add("Examples:");
+                    lines.add("  mysql -u\"$MYSQL_USER\" -p\"$MYSQL_PASSWORD\" -e 'SHOW DATABASES;'");
+                    lines.add("  mysql -u\"$MYSQL_USER\" -p\"$MYSQL_PASSWORD\" \"$MYSQL_DATABASE\" -e 'SHOW TABLES;'");
+                    lines.add("  mysqladmin -u\"$MYSQL_USER\" -p\"$MYSQL_PASSWORD\" status");
+                }
+                case "POSTGRESQL" -> {
+                    lines.add("Examples:");
+                    lines.add("  psql -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -c '\\l'");
+                    lines.add("  psql -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -c '\\dt'");
+                }
+                case "REDIS" -> {
+                    lines.add("Examples:");
+                    lines.add("  redis-cli -a \"$REDIS_PASSWORD\" --no-auth-warning PING");
+                    lines.add("  redis-cli -a \"$REDIS_PASSWORD\" --no-auth-warning INFO");
+                }
+                case "MONGODB" -> {
+                    lines.add("Examples:");
+                    lines.add("  mongosh -u \"$MONGO_INITDB_ROOT_USERNAME\" -p \"$MONGO_INITDB_ROOT_PASSWORD\" --eval 'db.runCommand({ping:1})'");
+                }
+                default -> lines.add("Use the shortcut chips below for engine-specific commands.");
+            }
+        } else {
+            lines.add("Examples: ls -la · pwd · env · ps aux · curl localhost");
+        }
+        lines.add("Built-ins: help · clear");
+        return lines;
     }
 
     private String requireContainerId(ServiceEntity service) {

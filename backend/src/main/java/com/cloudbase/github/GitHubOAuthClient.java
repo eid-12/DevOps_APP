@@ -16,6 +16,7 @@ import org.springframework.web.reactive.function.client.WebClientRequestExceptio
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Mono;
+import com.cloudbase.service.PlatformSettingsService;
 
 import java.util.Arrays;
 import java.util.List;
@@ -23,7 +24,7 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Talks to GitHub’s OAuth + REST APIs.
+ * Talks to GitHub's OAuth + REST APIs.
  * Client secret never leaves the server.
  */
 @Component
@@ -35,31 +36,63 @@ public class GitHubOAuthClient {
 
     private final WebClient webClient;
     private final GitHubOAuthProperties props;
+    private final PlatformSettingsService settings;
 
-    public GitHubOAuthClient(WebClient.Builder webClientBuilder, GitHubOAuthProperties props) {
+    public GitHubOAuthClient(
+            WebClient.Builder webClientBuilder,
+            GitHubOAuthProperties props,
+            PlatformSettingsService settings
+    ) {
         this.webClient = webClientBuilder.build();
         this.props = props;
+        this.settings = settings;
+    }
+
+    private String clientId() {
+        if (settings.hasOverride(PlatformSettingsService.GITHUB_CLIENT_ID)) {
+            return settings.get(PlatformSettingsService.GITHUB_CLIENT_ID);
+        }
+        String v = settings.get(PlatformSettingsService.GITHUB_CLIENT_ID);
+        return StringUtils.hasText(v) ? v : props.clientId();
+    }
+
+    private String clientSecret() {
+        if (settings.hasOverride(PlatformSettingsService.GITHUB_CLIENT_SECRET)) {
+            return settings.get(PlatformSettingsService.GITHUB_CLIENT_SECRET);
+        }
+        String v = settings.get(PlatformSettingsService.GITHUB_CLIENT_SECRET);
+        return StringUtils.hasText(v) ? v : props.clientSecret();
     }
 
     public boolean isConfigured() {
-        return StringUtils.hasText(props.clientId()) && StringUtils.hasText(props.clientSecret());
+        return StringUtils.hasText(clientId()) && StringUtils.hasText(clientSecret());
     }
 
     public String redirectUri() {
-        return props.redirectUri();
+        if (settings.hasOverride(PlatformSettingsService.GITHUB_REDIRECT_URI)) {
+            String v = settings.get(PlatformSettingsService.GITHUB_REDIRECT_URI);
+            return StringUtils.hasText(v) ? v : props.redirectUri();
+        }
+        String v = settings.get(PlatformSettingsService.GITHUB_REDIRECT_URI);
+        return StringUtils.hasText(v) ? v : props.redirectUri();
     }
 
-    public String scopesConfig() {
-        return props.scopes();
+    public String scopes() {
+        if (settings.hasOverride(PlatformSettingsService.GITHUB_SCOPES)) {
+            String v = settings.get(PlatformSettingsService.GITHUB_SCOPES);
+            return StringUtils.hasText(v) ? v : props.scopes();
+        }
+        String v = settings.get(PlatformSettingsService.GITHUB_SCOPES);
+        return StringUtils.hasText(v) ? v : props.scopes();
     }
 
     public String buildAuthorizeUrl(String state) {
         requireConfigured();
         return UriComponentsBuilder
                 .fromHttpUrl("https://github.com/login/oauth/authorize")
-                .queryParam("client_id", props.clientId())
-                .queryParam("redirect_uri", props.redirectUri())
-                .queryParam("scope", props.scopes())
+                .queryParam("client_id", clientId())
+                .queryParam("redirect_uri", redirectUri())
+                .queryParam("scope", scopes())
                 .queryParam("state", state)
                 .queryParam("allow_signup", "true")
                 .build(true)
@@ -77,10 +110,10 @@ public class GitHubOAuthClient {
         }
 
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("client_id", props.clientId());
-        form.add("client_secret", props.clientSecret());
+        form.add("client_id", clientId());
+        form.add("client_secret", clientSecret());
         form.add("code", code.trim());
-        form.add("redirect_uri", props.redirectUri());
+        form.add("redirect_uri", redirectUri());
 
         Map<String, Object> body;
         try {
@@ -140,7 +173,7 @@ public class GitHubOAuthClient {
         }
 
         String accessToken = String.valueOf(tokenObj);
-        String scope = body.get("scope") != null ? String.valueOf(body.get("scope")) : props.scopes();
+        String scope = body.get("scope") != null ? String.valueOf(body.get("scope")) : scopes();
         String tokenType = body.get("token_type") != null ? String.valueOf(body.get("token_type")) : "bearer";
         return new TokenResponse(accessToken, scope, tokenType);
     }
@@ -217,7 +250,7 @@ public class GitHubOAuthClient {
     }
 
     /**
-     * GET https://api.github.com/user/repos — repos the token can access.
+     * GET https://api.github.com/user/repos - repos the token can access.
      */
     public List<GitHubRepo> listRepos(String accessToken) {
         if (!StringUtils.hasText(accessToken)) {
@@ -238,7 +271,7 @@ public class GitHubOAuthClient {
                             resp -> resp.bodyToMono(String.class).defaultIfEmpty("").flatMap(msg ->
                                     Mono.error(GitHubOAuthException.unauthorized(
                                             "invalid_token",
-                                            "GitHub rejected the access token — reconnect GitHub on Account."
+                                            "GitHub rejected the access token - reconnect GitHub on Account."
                                     ))
                             )
                     )
@@ -254,6 +287,14 @@ public class GitHubOAuthClient {
             );
         } catch (WebClientRequestException e) {
             log.error("Cannot reach GitHub repos API", e);
+            Throwable root = rootCause(e);
+            if (root instanceof javax.net.ssl.SSLHandshakeException
+                    || (root != null && String.valueOf(root.getMessage()).contains("PKIX"))) {
+                throw GitHubOAuthException.badGateway(
+                        "github_ssl_error",
+                        "GitHub SSL failed (often antivirus HTTPS scanning). CloudBase now trusts Windows certs — restart the backend, or temporarily disable Norton SSL scanning for api.github.com."
+                );
+            }
             throw GitHubOAuthException.badGateway(
                     "github_unreachable",
                     "Could not reach GitHub. Check network connectivity."
@@ -319,6 +360,14 @@ public class GitHubOAuthClient {
             cur = cur.getCause();
         }
         return last;
+    }
+
+    private static Throwable rootCause(Throwable e) {
+        Throwable cur = e;
+        while (cur.getCause() != null && cur.getCause() != cur) {
+            cur = cur.getCause();
+        }
+        return cur;
     }
 
     private static GitHubOAuthException mapTokenError(String error, String description) {

@@ -22,10 +22,17 @@ import {
 } from '../core/models';
 import { ProjectService } from '../core/project.service';
 import { CreatePickerComponent, CreatePickerOptionId } from '../shared/create-picker.component';
-import { HighlightDirective } from '../shared/highlight.directive';
+import { EnvironmentSelectComponent } from '../shared/environment-select.component';
+import { RuntimeSelectComponent } from '../shared/runtime-select.component';
+import { GithubRepoSelectComponent } from '../shared/github-repo-select.component';
+import { DockerPresetSelectComponent } from '../shared/docker-preset-select.component';
+import { DatabaseTypeSelectComponent } from '../shared/database-type-select.component';
+import { StyledSelectComponent, StyledSelectOption } from '../shared/styled-select.component';
+import { ConfirmDeleteDialogComponent } from '../shared/confirm-delete-dialog.component';
 import {
   DB_PRESETS,
   DOCKER_IMAGE_PRESETS,
+  defaultStartCommand,
   guessContainerPort,
   parseDockerImageRef,
   slugifyServiceName
@@ -34,17 +41,27 @@ import {
 type CreateStep = 'picker' | 'form' | 'empty';
 type CreateKind = 'empty' | 'github' | 'docker' | 'database';
 
-const SOON_OPTIONS = new Set<CreatePickerOptionId>(['template', 'function', 'bucket']);
-const SOON_LABELS: Record<string, string> = {
-  template: 'Templates are coming soon.',
-  function: 'Functions are coming soon.',
-  bucket: 'Buckets are coming soon.'
-};
 
 @Component({
   selector: 'app-dashboard-page',
   standalone: true,
-  imports: [CommonModule, FormsModule, CreatePickerComponent, RouterLink, ButtonModule, TagModule, TableModule, ToolbarModule, HighlightDirective],
+  imports: [
+    CommonModule,
+    FormsModule,
+    CreatePickerComponent,
+    EnvironmentSelectComponent,
+    RuntimeSelectComponent,
+    GithubRepoSelectComponent,
+    DockerPresetSelectComponent,
+    DatabaseTypeSelectComponent,
+    StyledSelectComponent,
+    ConfirmDeleteDialogComponent,
+    RouterLink,
+    ButtonModule,
+    TagModule,
+    TableModule,
+    ToolbarModule
+  ],
   template: `
     <div class="page railway-page">
       <div class="container">
@@ -76,9 +93,6 @@ const SOON_LABELS: Record<string, string> = {
         </header>
 
         @if (!loading() && projects().length) {
-          <div appHighlight="sky" class="mb-3">
-            Angular + PrimeNG · binding: "{{ searchQuery }}" · {{ filteredProjects().length }} project(s)
-          </div>
           <p-table
             [value]="filteredProjects()"
             [paginator]="filteredProjects().length > 5"
@@ -100,7 +114,13 @@ const SOON_LABELS: Record<string, string> = {
                 <td>
                   <button type="button" class="btn btn-ghost btn-sm" (click)="openProject(p)">{{ p.name }}</button>
                 </td>
-                <td>{{ p.environment || 'production' }}</td>
+                <td>
+                  <p-tag
+                    [value]="(p.environment || 'production') | uppercase"
+                    [severity]="envSeverity(p.environment)"
+                    styleClass="railway-env-tag"
+                  />
+                </td>
                 <td>
                   <p-tag
                     [value]="p.status"
@@ -125,8 +145,8 @@ const SOON_LABELS: Record<string, string> = {
             Your account is suspended. You cannot deploy or manage projects.
           </div>
         } @else if (!canDeploy()) {
-          <div class="pill pill-amber railway-alert">
-            Deployment is disabled. An admin must enable deploy access before you can create projects.
+          <div class="pill pill-red railway-alert">
+            Deploy access is locked. You can browse existing projects, but create, deploy, edit, stop, and delete are blocked until an admin enables Deploy for your account.
           </div>
         }
 
@@ -145,7 +165,7 @@ const SOON_LABELS: Record<string, string> = {
               <label [class.done]="projects().length > 0">
                 <input type="checkbox" [checked]="projects().length > 0" disabled />
                 <span>Create a project</span>
-                <button type="button" (click)="openCreateModal()">New</button>
+                <button type="button" (click)="openCreateModal()" [disabled]="!canCreate()">New</button>
               </label>
               <label [class.done]="hasAnyDeploy()">
                 <input type="checkbox" [checked]="hasAnyDeploy()" disabled />
@@ -170,13 +190,27 @@ const SOON_LABELS: Record<string, string> = {
         }
 
         @if (usage(); as u) {
-          <div class="usage-strip panel">
-            <div class="usage-strip-item"><span>Projects</span><strong>{{ u.projects }}/{{ plan()?.projectsLimit ?? 2 }}</strong></div>
-            <div class="usage-strip-item"><span>Services</span><strong>{{ u.services }}/{{ plan()?.servicesLimit ?? 3 }}</strong></div>
-            <div class="usage-strip-item"><span>RAM</span><strong>{{ u.memoryMbUsed }}/{{ u.memoryMbLimit }}MB</strong></div>
-            <div class="usage-strip-item"><span>Deploys</span><strong>{{ u.deploymentsThisMonth }}/{{ plan()?.deploymentsLimit ?? 20 }}</strong></div>
+          <div class="usage-strip panel" [class.usage-over]="isOverPlan()">
+            <div class="usage-strip-item">
+              <span>Projects</span><strong>{{ u.projects }}</strong>
+            </div>
+            <div class="usage-strip-item">
+              <span>Services</span><strong>{{ u.services }}</strong>
+            </div>
+            <div class="usage-strip-item" [class.over]="isOver(u.memoryMbUsed, u.memoryMbLimit)">
+              <span>RAM</span><strong>{{ u.memoryMbUsed }}/{{ u.memoryMbLimit }}MB</strong>
+            </div>
+            <div class="usage-strip-item">
+              <span>Deploys</span><strong>{{ u.deploymentsThisMonth }}</strong>
+            </div>
             <a routerLink="/billing" class="btn btn-ghost btn-sm">Billing</a>
           </div>
+          @if (isOverPlan()) {
+            <div class="pill pill-red railway-alert">
+              Free plan resource limit exceeded. Downsize RAM/CPU/storage before creating more.
+              <a routerLink="/billing" style="margin-left:8px;color:inherit;text-decoration:underline">Billing</a>
+            </div>
+          }
         }
 
         <div class="railway-toolbar">
@@ -184,14 +218,21 @@ const SOON_LABELS: Record<string, string> = {
             <span class="railway-count">
               {{ filteredProjects().length }} Project{{ filteredProjects().length === 1 ? '' : 's' }}
             </span>
-            <select class="railway-sort" [(ngModel)]="sortBy">
-              <option value="name">Sort By: Name</option>
-              <option value="status">Sort By: Status</option>
-            </select>
-            <label class="toggle-inline railway-archived-toggle">
-              <input type="checkbox" [(ngModel)]="showArchived" />
+            <app-styled-select
+              class="railway-sort-wrap"
+              [compact]="true"
+              [(value)]="sortBy"
+              [options]="sortOptions"
+            />
+            <button
+              type="button"
+              class="railway-filter-chip"
+              [class.active]="showArchived"
+              (click)="showArchived = !showArchived"
+              [attr.aria-pressed]="showArchived"
+            >
               Show archived
-            </label>
+            </button>
           </div>
         </div>
 
@@ -259,7 +300,11 @@ const SOON_LABELS: Record<string, string> = {
                 </div>
                 <footer class="railway-card-footer">
                   <span class="railway-status-dot" [class.online]="hasRunning(project)"></span>
-                  <span class="railway-env">{{ project.environment || 'production' }}</span>
+                  <p-tag
+                    [value]="(project.environment || 'production') | uppercase"
+                    [severity]="envSeverity(project.environment)"
+                    styleClass="railway-env-tag"
+                  />
                   <span class="railway-footer-sep">·</span>
                   <span>{{ runningCount(project) }}/{{ project.services.length }} services online</span>
                 </footer>
@@ -267,7 +312,7 @@ const SOON_LABELS: Record<string, string> = {
             }
 
             @if (canCreate()) {
-              <button type="button" class="railway-card railway-card-create" (click)="openCreateModal()">
+              <button type="button" class="railway-card railway-card-create" (click)="openCreateModal()" [disabled]="!canCreate()">
                 <span class="railway-create-plus">+</span>
                 <span>New Project</span>
               </button>
@@ -296,6 +341,7 @@ const SOON_LABELS: Record<string, string> = {
           <app-create-picker
             [(prompt)]="prompt"
             [error]="createError()"
+            [githubConnected]="auth.isGitHubConnected()"
             (select)="onPickerSelect($event)"
             (enter)="onPromptEnter()"
           />
@@ -326,11 +372,7 @@ const SOON_LABELS: Record<string, string> = {
             </div>
             <div class="field" style="margin-bottom: 18px;">
               <label>Environment</label>
-              <select [(ngModel)]="emptyEnvironment">
-                <option value="production">production</option>
-                <option value="staging">staging</option>
-                <option value="development">development</option>
-              </select>
+              <app-environment-select [(value)]="emptyEnvironment" />
             </div>
             <div class="modal-actions">
               <button type="button" class="btn btn-ghost" (click)="backToPicker()" [disabled]="creating()">Cancel</button>
@@ -373,26 +415,28 @@ const SOON_LABELS: Record<string, string> = {
               @if (createKind() === 'github') {
                 <div class="field">
                   <label>Runtime / Language</label>
-                  <select [(ngModel)]="draft.runtime">
-                    <option value="node">Node.js</option>
-                    <option value="java">Java</option>
-                    <option value="python">Python</option>
-                    <option value="go">Go</option>
-                    <option value="dotnet">.NET</option>
-                    <option value="php">PHP</option>
-                    <option value="rust">Rust</option>
-                    <option value="other">Other</option>
-                  </select>
+                  <app-runtime-select [value]="draft.runtime" (valueChange)="onRuntimeChange($event)" />
+                </div>
+                <div class="field">
+                  <label>Start command</label>
+                  <input
+                    [(ngModel)]="draft.startCommand"
+                    (ngModelChange)="startCommandTouched = true"
+                    placeholder="java -jar /app/app.jar"
+                    autocomplete="off"
+                    spellcheck="false"
+                    style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px"
+                  />
+                  <p class="empty-sub" style="margin:6px 0 0">
+                    Process command inside the container (no shell: no <code>| ; &amp; $</code>).
+                    Example: <code>java -Xmx512m -jar /app/app.jar</code>. Applied on next deploy.
+                  </p>
                 </div>
               }
 
               <div class="field">
                 <label>Environment</label>
-                <select [(ngModel)]="createEnvironment">
-                  <option value="production">production</option>
-                  <option value="staging">staging</option>
-                  <option value="development">development</option>
-                </select>
+                <app-environment-select [(value)]="createEnvironment" />
               </div>
 
               @if (createKind() === 'github') {
@@ -402,20 +446,12 @@ const SOON_LABELS: Record<string, string> = {
                   </p>
                   <div class="field">
                     <label>Your repositories</label>
-                    <select
-                      [ngModel]="selectedRepoFullName"
-                      (ngModelChange)="onGitHubRepoPicked($event)"
-                      [disabled]="reposLoading()"
-                    >
-                      <option value="">
-                        {{ reposLoading() ? 'Loading repositories…' : (githubRepos().length ? 'Select a repository…' : 'No repos found — paste URL below') }}
-                      </option>
-                      @for (r of githubRepos(); track r.fullName) {
-                        <option [value]="r.fullName">
-                          {{ r.fullName }}{{ r.isPrivate ? ' (private)' : '' }}
-                        </option>
-                      }
-                    </select>
+                    <app-github-repo-select
+                      [repos]="githubRepos()"
+                      [value]="selectedRepoFullName"
+                      [loading]="reposLoading()"
+                      (valueChange)="onGitHubRepoPicked($event)"
+                    />
                     @if (reposError()) {
                       <p class="muted" style="color:#f87171;font-size:12px;margin:6px 0 0">{{ reposError() }}</p>
                     }
@@ -444,12 +480,10 @@ const SOON_LABELS: Record<string, string> = {
                 </p>
                 <div class="field">
                   <label>Quick presets</label>
-                  <select (ngModelChange)="applyDockerPreset($event)" [ngModel]="dockerPresetKey">
-                    <option value="">Custom image…</option>
-                    @for (p of dockerPresets; track p.image) {
-                      <option [value]="p.image + ':' + p.tag">{{ p.label }} — {{ p.image }}:{{ p.tag }}</option>
-                    }
-                  </select>
+                  <app-docker-preset-select
+                    [value]="dockerPresetKey"
+                    (valueChange)="applyDockerPreset($event)"
+                  />
                 </div>
                 <div class="field">
                   <label>Image</label>
@@ -465,20 +499,29 @@ const SOON_LABELS: Record<string, string> = {
                   <input [(ngModel)]="draft.imageTag" placeholder="latest" />
                 </div>
                 <div class="field">
-                  <label>Container port</label>
+                  <label>Container listen port</label>
                   <input type="number" [(ngModel)]="draft.containerPort" min="1" max="65535" />
-                  <p class="empty-sub" style="margin:6px 0 0">Port the process listens on inside the container (Nginx = 80). A random public URL is assigned automatically.</p>
+                  <p class="empty-sub" style="margin:6px 0 0">Port inside this container only (Nginx/Hello = 80, Grafana = 3000). Not a host port — many services can all use 80 safely. Public access is via a random HTTPS URL.</p>
+                </div>
+                <div class="field">
+                  <label>Start command <span class="muted">(optional)</span></label>
+                  <input
+                    [(ngModel)]="draft.startCommand"
+                    placeholder="Leave empty to use image default"
+                    autocomplete="off"
+                    spellcheck="false"
+                    style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px"
+                  />
                 </div>
               }
 
               @if (createKind() === 'database') {
                 <div class="field">
                   <label>Database Type</label>
-                  <select [(ngModel)]="draft.dbType" (ngModelChange)="onDbTypeChange($event)">
-                    @for (t of dbTypes; track t) {
-                      <option [value]="t">{{ dbPreset(t).label }}</option>
-                    }
-                  </select>
+                  <app-database-type-select
+                    [value]="draft.dbType"
+                    (valueChange)="onDbTypeChange($event)"
+                  />
                   <p class="empty-sub" style="margin:6px 0 0">{{ dbPreset(draft.dbType).hint }}</p>
                 </div>
                 <div class="field">
@@ -518,8 +561,9 @@ const SOON_LABELS: Record<string, string> = {
               }
               @if (draft.useVolume || createKind() === 'database') {
                 <div class="field">
-                  <label>Mount Path</label>
+                  <label>Mount Path <span class="muted" style="font-weight:400">(inside container only)</span></label>
                   <input [(ngModel)]="draft.mountPath" [placeholder]="createKind() === 'database' ? dbPreset(draft.dbType).mountPath : '/data'" />
+                  <small class="muted">Host disk path is fixed by CloudBase. Example: /data or /var/lib/postgresql/data</small>
                 </div>
                 <div class="field">
                   <label>Storage (GB)</label>
@@ -564,11 +608,7 @@ const SOON_LABELS: Record<string, string> = {
           </div>
           <div class="field" style="margin-bottom:18px">
             <label>Environment</label>
-            <select [(ngModel)]="editEnvironment">
-              <option value="production">production</option>
-              <option value="staging">staging</option>
-              <option value="development">development</option>
-            </select>
+            <app-environment-select [(value)]="editEnvironment" />
           </div>
           <div class="modal-actions">
             <button type="button" class="btn btn-ghost" (click)="closeEdit()" [disabled]="savingEdit()">Cancel</button>
@@ -578,6 +618,19 @@ const SOON_LABELS: Record<string, string> = {
           </div>
         </div>
       </div>
+    }
+
+    @if (deleteTarget(); as target) {
+      <app-confirm-delete-dialog
+        title="Delete project"
+        [confirmName]="target.name"
+        [busy]="deleting()"
+        [error]="deleteError()"
+        confirmLabel="Delete project permanently"
+        warning="Deletes this project and everything under it: all services, deployments, shared variables, vanity/custom domains, Portainer stacks/containers/volumes, NPM proxies, and the project Docker network. If Portainer does not confirm, CloudBase will not delete anything."
+        (cancel)="closeDeleteDialog()"
+        (confirm)="executeDeleteProject()"
+      />
     }
   `
 })
@@ -605,6 +658,9 @@ export class DashboardPageComponent implements OnInit {
   readonly menuOpenId = signal<string | null>(null);
   readonly editOpen = signal(false);
   readonly savingEdit = signal(false);
+  readonly deleteTarget = signal<Project | null>(null);
+  readonly deleting = signal(false);
+  readonly deleteError = signal<string | null>(null);
   readonly editError = signal('');
 
   prompt = '';
@@ -613,7 +669,11 @@ export class DashboardPageComponent implements OnInit {
   emptyEnvironment: ProjectEnvironment = 'production';
   createEnvironment: ProjectEnvironment = 'production';
   searchQuery = '';
-  sortBy: 'name' | 'status' = 'name';
+  sortBy = 'name';
+  readonly sortOptions: StyledSelectOption[] = [
+    { label: 'Sort by: Name', value: 'name', icon: 'pi pi-sort-alpha-down' },
+    { label: 'Sort by: Status', value: 'status', icon: 'pi pi-chart-bar' }
+  ];
   showArchived = false;
   editProjectId = '';
   editName = '';
@@ -653,7 +713,13 @@ export class DashboardPageComponent implements OnInit {
   loadProjects() {
     this.loading.set(true);
     this.projectService.list().subscribe({
-      next: projects => { this.projects.set(projects); this.loading.set(false); },
+      next: projects => {
+        this.projects.set(projects);
+        this.loading.set(false);
+        if (this.onboardingComplete() && !this.auth.user()?.onboardingDismissed) {
+          this.dismissOnboarding();
+        }
+      },
       error: err => { this.message.set(err?.error?.message ?? 'Failed to load projects'); this.loading.set(false); }
     });
   }
@@ -740,10 +806,38 @@ export class DashboardPageComponent implements OnInit {
 
   deleteProject(project: Project) {
     this.menuOpenId.set(null);
-    if (!confirm(`Delete project "${project.name}" and all its services? This cannot be undone.`)) return;
+    if (!this.canDeploy()) {
+      this.message.set('Deploy access is locked. Delete is blocked.');
+      return;
+    }
+    this.deleteError.set(null);
+    this.deleting.set(false);
+    this.deleteTarget.set(project);
+  }
+
+  closeDeleteDialog() {
+    if (this.deleting()) return;
+    this.deleteTarget.set(null);
+    this.deleteError.set(null);
+  }
+
+  executeDeleteProject() {
+    const project = this.deleteTarget();
+    if (!project || this.deleting()) return;
+    this.deleting.set(true);
+    this.deleteError.set(null);
     this.projectService.delete(project.id).subscribe({
-      next: () => this.projects.update(list => list.filter(p => p.id !== project.id)),
-      error: err => this.message.set(err?.error?.message ?? 'Failed to delete project')
+      next: () => {
+        this.projects.update(list => list.filter(p => p.id !== project.id));
+        this.deleting.set(false);
+        this.deleteTarget.set(null);
+      },
+      error: err => {
+        this.deleting.set(false);
+        this.deleteError.set(
+          err?.error?.message ?? 'Delete failed. Nothing was removed from CloudBase until Portainer confirms.'
+        );
+      }
     });
   }
 
@@ -759,7 +853,24 @@ export class DashboardPageComponent implements OnInit {
   }
 
   showOnboarding(): boolean {
-    return !this.auth.user()?.onboardingDismissed && !this.isSuspended();
+    if (this.auth.user()?.onboardingDismissed || this.isSuspended()) {
+      return false;
+    }
+    // Already finished the checklist (e.g. has projects + deploy + URL) — don't keep nagging.
+    if (this.onboardingComplete()) {
+      return false;
+    }
+    return true;
+  }
+
+  /** True when every Getting started step is done. */
+  onboardingComplete(): boolean {
+    return (
+      this.auth.isGitHubConnected() &&
+      this.projects().length > 0 &&
+      this.hasAnyDeploy() &&
+      this.hasDomain()
+    );
   }
 
   dismissOnboarding() {
@@ -778,8 +889,8 @@ export class DashboardPageComponent implements OnInit {
     if (!this.canCreate()) {
       this.message.set(
         this.isSuspended()
-          ? 'Suspended users cannot create projects.'
-          : 'Deployment access is disabled for your account.'
+          ? 'Your account is suspended. All manage and deploy actions are blocked.'
+          : 'Deploy access is locked. An admin must enable Deploy before you can create or change anything.'
       );
       return;
     }
@@ -813,17 +924,17 @@ export class DashboardPageComponent implements OnInit {
   onPickerSelect(id: CreatePickerOptionId) {
     if (this.creating()) return;
 
-    // Template / Function / Bucket → coming soon message
-    if (SOON_OPTIONS.has(id)) {
-      this.createError.set(SOON_LABELS[id] ?? 'Coming soon.');
-      return;
-    }
-
     // Empty Project → ask for name
     if (id === 'empty') {
       this.createError.set('');
       this.emptyName = this.prompt.trim() ? this.slugify(this.prompt) : '';
       this.createStep.set('empty');
+      return;
+    }
+
+    // GitHub requires a connected GitHub account — send them to OAuth / Account
+    if (id === 'github' && !this.auth.isGitHubConnected()) {
+      this.redirectToGitHubConnect();
       return;
     }
 
@@ -834,11 +945,20 @@ export class DashboardPageComponent implements OnInit {
     }
   }
 
+  /** Close create flow and start GitHub login (or Account if OAuth is not configured). */
+  private redirectToGitHubConnect() {
+    this.createOpen.set(false);
+    this.createError.set('');
+    this.router.navigate(['/account'], { queryParams: { connect: 'github' } });
+  }
+
   openForm(kind: 'github' | 'docker' | 'database') {
     this.createKind.set(kind);
     this.draft = this.freshDraft();
     this.createEnvironment = 'production';
     this.draft.runtime = kind === 'database' ? 'other' : 'node';
+    this.draft.startCommand = kind === 'github' ? defaultStartCommand('node') : '';
+    this.startCommandTouched = false;
     this.selectedRepoFullName = '';
     this.githubRepos.set([]);
     this.reposError.set('');
@@ -956,8 +1076,12 @@ export class DashboardPageComponent implements OnInit {
     const value = this.prompt.trim();
     if (!value) return;
 
-    // Paste repo link → GitHub form
+    // Paste repo link → GitHub form (requires GitHub connected)
     if (value.includes('github.com') || /^https?:\/\//i.test(value)) {
+      if (!this.auth.isGitHubConnected()) {
+        this.redirectToGitHubConnect();
+        return;
+      }
       this.openForm('github');
       return;
     }
@@ -1054,6 +1178,18 @@ export class DashboardPageComponent implements OnInit {
     return ({ GITHUB: '⊙', DOCKER: '◈', DATABASE: '◉' } as Record<string, string>)[type] ?? '◌';
   }
 
+  envSeverity(env?: string): 'success' | 'info' | 'warning' | 'danger' | 'secondary' | 'contrast' {
+    switch (env) {
+      case 'staging':
+        return 'warning';
+      case 'development':
+        return 'info';
+      case 'production':
+      default:
+        return 'danger';
+    }
+  }
+
   sourceToTone(type: string): string {
     return ({ GITHUB: 'tone-github', DOCKER: 'tone-app', DATABASE: 'tone-db' } as Record<string, string>)[type] ?? '';
   }
@@ -1071,12 +1207,29 @@ export class DashboardPageComponent implements OnInit {
   }
 
   canDeploy() {
-    const user = this.auth.user();
-    return !!user && user.accountStatus === 'ACTIVE' && user.deploymentEnabled;
+    return this.auth.hasDeployAccess();
   }
 
   canCreate() {
-    return this.canDeploy() && !this.isSuspended();
+    if (!this.canDeploy() || this.isSuspended()) return false;
+    const u = this.usage();
+    const p = this.plan();
+    if (u && p) return this.auth.canCreateProject(u, p);
+    return true;
+  }
+
+  isOver(used: number | undefined, limit: number | undefined): boolean {
+    if (used == null || limit == null) return false;
+    return used > limit;
+  }
+
+  isOverPlan(): boolean {
+    const u = this.usage();
+    const p = this.plan();
+    if (!u || !p || this.auth.isAdmin()) return false;
+    return u.memoryMbUsed > u.memoryMbLimit
+      || u.storageGbUsed > u.storageGbLimit
+      || (u.cpuMilliUsed ?? 0) > (u.cpuMilliLimit ?? 2000);
   }
 
   private buildServicePayload(projectId: string, kind: CreateKind): CreateServiceRequest {
@@ -1089,14 +1242,16 @@ export class DashboardPageComponent implements OnInit {
         repositoryUrl: this.draft.repoUrl.trim(),
         branch: this.draft.branch.trim() || 'main',
         autoDeploy: this.draft.autoDeploy,
-        runtime: this.draft.runtime
+        runtime: this.draft.runtime,
+        startCommand: (this.draft.startCommand || defaultStartCommand(this.draft.runtime)).trim()
       };
     } else if (kind === 'docker') {
       sourceType = 'DOCKER';
       sourceDetails = {
         imageName: this.draft.imageName.trim(),
         imageTag: this.draft.imageTag.trim() || 'latest',
-        containerPort: Number(this.draft.containerPort) || guessContainerPort(this.draft.imageName)
+        containerPort: Number(this.draft.containerPort) || guessContainerPort(this.draft.imageName),
+        ...(this.draft.startCommand.trim() ? { startCommand: this.draft.startCommand.trim() } : {})
       };
     } else {
       const preset = DB_PRESETS[this.draft.dbType];
@@ -1131,6 +1286,7 @@ export class DashboardPageComponent implements OnInit {
     return {
       name: '',
       runtime: 'node' as ServiceRuntime,
+      startCommand: defaultStartCommand('node'),
       repoUrl: '',
       branch: 'main',
       autoDeploy: true,
@@ -1143,6 +1299,16 @@ export class DashboardPageComponent implements OnInit {
       mountPath: '/data',
       storageGb: 2,
     };
+  }
+
+  /** When false, changing runtime refreshes the suggested start command. */
+  startCommandTouched = false;
+
+  onRuntimeChange(runtime: ServiceRuntime) {
+    this.draft.runtime = runtime;
+    if (!this.startCommandTouched) {
+      this.draft.startCommand = defaultStartCommand(runtime);
+    }
   }
 
   private slugify(value: string): string {

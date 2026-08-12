@@ -11,7 +11,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -34,69 +36,89 @@ public class ResendEmailService implements EmailService {
 
     @Override
     public void sendRegistrationPending(String toEmail, String name) {
-        send(
-                toEmail,
-                "CloudBase — email verified",
-                """
-                <div style="font-family:Segoe UI,Arial,sans-serif;line-height:1.5;color:#0f172a">
-                  <h2>Welcome, %s</h2>
-                  <p>Your email is verified — you can <strong>sign in now</strong>.</p>
-                  <p>Deployment stays <strong>disabled</strong> until an administrator enables it for your account.</p>
-                  <p style="color:#64748b;font-size:13px">CloudBase · private cloud hosting</p>
-                </div>
-                """.formatted(escape(name))
+        String body = """
+                <p style="margin:0 0 12px;font-size:16px;color:#0f172a">Hi %s,</p>
+                <p style="margin:0 0 16px;font-size:15px;color:#334155;line-height:1.6">
+                  Your email is verified - you can <strong>sign in</strong> to CloudBase now.
+                </p>
+                <p style="margin:0 0 24px;font-size:14px;color:#64748b;line-height:1.6">
+                  Creating and deploying projects stays locked until an administrator approves deployment for your account. We'll email you as soon as you're cleared.
+                </p>
+                %s
+                """.formatted(
+                escape(name),
+                cta(properties.appBaseUrl() + "/auth?mode=login", "Sign in to CloudBase")
         );
+        send(toEmail, "CloudBase - email verified", wrap("Welcome", "You're verified", body));
     }
 
     @Override
     public void notifyAdminNewRegistration(String userName, String userEmail) {
         String admin = properties.adminNotify();
         if (admin == null || admin.isBlank()) {
-            log.info("Skipping admin notify — resend.admin-notify is empty");
+            log.info("Skipping admin notify - resend.admin-notify is empty");
             return;
         }
-        send(
-                admin,
-                "CloudBase — new user pending activation",
-                """
-                <div style="font-family:Segoe UI,Arial,sans-serif;line-height:1.5;color:#0f172a">
-                  <h2>New registration</h2>
-                  <p><strong>%s</strong> (&lt;%s&gt;) registered and awaits activation.</p>
-                  <p><a href="%s/admin">Open admin panel</a></p>
-                </div>
-                """.formatted(escape(userName), escape(userEmail), properties.appBaseUrl())
+        String body = """
+                <p style="margin:0 0 16px;font-size:15px;color:#334155;line-height:1.6">
+                  <strong>%s</strong> (&lt;%s&gt;) just verified their email and is waiting for deployment approval.
+                </p>
+                %s
+                """.formatted(
+                escape(userName),
+                escape(userEmail),
+                cta(properties.appBaseUrl() + "/admin", "Review in admin")
         );
+        send(admin, "CloudBase - new user awaiting approval", wrap("Admin alert", "New registration", body));
     }
 
     @Override
     public void sendAccountActivated(String toEmail, String name) {
-        send(
-                toEmail,
-                "CloudBase — account activated",
-                """
-                <div style="font-family:Segoe UI,Arial,sans-serif;line-height:1.5;color:#0f172a">
-                  <h2>You're in, %s</h2>
-                  <p>An administrator activated your CloudBase account. You can sign in and deploy now.</p>
-                  <p><a href="%s/auth?mode=login">Sign in to CloudBase</a></p>
-                </div>
-                """.formatted(escape(name), properties.appBaseUrl())
+        String body = """
+                <p style="margin:0 0 12px;font-size:16px;color:#0f172a">Hi %s,</p>
+                <p style="margin:0 0 24px;font-size:15px;color:#334155;line-height:1.6">
+                  An administrator marked your CloudBase account as <strong>active</strong>. You can sign in and explore the platform.
+                </p>
+                %s
+                """.formatted(
+                escape(name),
+                cta(properties.appBaseUrl() + "/auth?mode=login", "Sign in to CloudBase")
         );
+        send(toEmail, "CloudBase - account activated", wrap("Account", "Account activated", body));
+    }
+
+    @Override
+    public void sendDeploymentEnabled(String toEmail, String name) {
+        String body = """
+                <p style="margin:0 0 12px;font-size:16px;color:#0f172a">Good news, %s.</p>
+                <p style="margin:0 0 16px;font-size:15px;color:#334155;line-height:1.6">
+                  An administrator enabled <strong>deployment</strong> for your account. You're cleared to create projects, add services, and ship to your private cloud.
+                </p>
+                <p style="margin:0 0 24px;font-size:14px;color:#64748b;line-height:1.6">
+                  Open your dashboard to get started - Free plan limits apply to RAM, CPU, storage, and monthly deploys.
+                </p>
+                %s
+                """.formatted(
+                escape(name),
+                cta(properties.appBaseUrl() + "/dashboard", "Open dashboard")
+        );
+        send(toEmail, "CloudBase - you're ready to deploy", wrap("Deploy access", "Deployment unlocked", body));
     }
 
     @Override
     public void sendPasswordReset(String toEmail, String name, String resetUrl) {
-        send(
-                toEmail,
-                "CloudBase — reset your password",
-                """
-                <div style="font-family:Segoe UI,Arial,sans-serif;line-height:1.5;color:#0f172a">
-                  <h2>Password reset</h2>
-                  <p>Hi %s, click the link below to choose a new password (valid for 30 minutes):</p>
-                  <p><a href="%s">Reset password</a></p>
-                  <p style="color:#64748b;font-size:13px">If you didn’t request this, you can ignore this email.</p>
-                </div>
-                """.formatted(escape(name), resetUrl)
-        );
+        String body = """
+                <p style="margin:0 0 12px;font-size:16px;color:#0f172a">Hi %s,</p>
+                <p style="margin:0 0 24px;font-size:15px;color:#334155;line-height:1.6">
+                  We received a request to reset your CloudBase password. This link is valid for
+                  <strong>30 minutes</strong>.
+                </p>
+                %s
+                <p style="margin:24px 0 0;font-size:13px;color:#94a3b8;line-height:1.5">
+                  If you didn't ask for this, you can safely ignore this email - your password won't change.
+                </p>
+                """.formatted(escape(name), cta(resetUrl, "Reset password"));
+        send(toEmail, "CloudBase - reset your password", wrap("Security", "Password reset", body));
     }
 
     @Override
@@ -104,18 +126,53 @@ public class ResendEmailService implements EmailService {
         if (!isEnabled()) {
             log.info("Email verification code for {} ({}): {}", toEmail, name, code);
         }
-        send(
-                toEmail,
-                "CloudBase — your verification code",
-                """
-                <div style="font-family:Segoe UI,Arial,sans-serif;line-height:1.5;color:#0f172a">
-                  <h2>Verify your email</h2>
-                  <p>Hi %s, use this code to confirm your CloudBase account:</p>
-                  <p style="font-size:32px;letter-spacing:0.35em;font-weight:700;margin:20px 0">%s</p>
-                  <p style="color:#64748b;font-size:13px">The code expires in 15 minutes. If you didn’t sign up, ignore this email.</p>
+        String body = """
+                <p style="margin:0 0 12px;font-size:16px;color:#0f172a">Hi %s,</p>
+                <p style="margin:0 0 20px;font-size:15px;color:#334155;line-height:1.6">
+                  Use this code to confirm your CloudBase account:
+                </p>
+                <div style="margin:0 0 20px;padding:18px 20px;background:linear-gradient(135deg,#4f46e5 0%%,#7c3aed 55%%,#6366f1 100%%);border-radius:12px;text-align:center">
+                  <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:34px;letter-spacing:0.28em;font-weight:700;color:#f8fafc">%s</span>
                 </div>
-                """.formatted(escape(name), escape(code))
-        );
+                <p style="margin:0;font-size:13px;color:#94a3b8;line-height:1.5">
+                  Expires in 15 minutes. If you didn't sign up, ignore this email.
+                </p>
+                """.formatted(escape(name), escape(code));
+        send(toEmail, "CloudBase - your verification code", wrap("Verify email", "Confirm your address", body));
+    }
+
+    @Override
+    public Map<String, Object> sendPreviewTemplates(String toEmail) {
+        String target = toEmail == null || toEmail.isBlank() ? properties.adminNotify() : toEmail.trim();
+        if (target == null || target.isBlank()) {
+            throw new IllegalArgumentException("No destination email - pass ?to= or set resend.admin-notify");
+        }
+        String demoUrl = properties.appBaseUrl() + "/auth/reset-password?token=preview-demo-token";
+        List<String> sent = new ArrayList<>();
+
+        sendPasswordReset(target, "Eid", demoUrl);
+        sent.add("password-reset");
+
+        sendEmailVerificationCode(target, "Eid", "482913");
+        sent.add("verification-code");
+
+        sendRegistrationPending(target, "Eid");
+        sent.add("welcome-verified");
+
+        sendAccountActivated(target, "Eid");
+        sent.add("account-activated");
+
+        sendDeploymentEnabled(target, "Eid");
+        sent.add("deployment-enabled");
+
+        notifyAdminNewRegistration("Eid Rawaf", target);
+        sent.add("admin-new-registration");
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("to", target);
+        result.put("templates", sent);
+        result.put("count", sent.size());
+        return result;
     }
 
     @Override
@@ -139,6 +196,69 @@ public class ResendEmailService implements EmailService {
         }
     }
 
+    private static String wrap(String eyebrow, String title, String bodyHtml) {
+        // Brand tokens aligned with frontend/src/styles.scss
+        // --bg #020617 - --primary #6366f1 - --violet #8b5cf6 - --primary-light #a5b4fc
+        return """
+                <!DOCTYPE html>
+                <html lang="en">
+                <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+                <body style="margin:0;padding:0;background:#e8eaf6">
+                  <table role="presentation" width="100%%" cellspacing="0" cellpadding="0" style="background:#e8eaf6;padding:28px 12px">
+                    <tr><td align="center">
+                      <table role="presentation" width="100%%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid rgba(99,102,241,0.22)">
+                        <tr>
+                          <td style="padding:22px 28px;background:#020617;background-image:linear-gradient(135deg,#020617 0%%,#0d1526 55%%,#1e1b4b 100%%)">
+                            <table role="presentation" width="100%%" cellspacing="0" cellpadding="0">
+                              <tr>
+                                <td style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:18px;font-weight:700;color:#f8fafc;letter-spacing:-0.02em">
+                                  Cloud<span style="color:#a5b4fc">Base</span>
+                                </td>
+                                <td align="right" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:11px;color:#a5b4fc;text-transform:uppercase;letter-spacing:0.08em">
+                                  %s
+                                </td>
+                              </tr>
+                            </table>
+                          </td>
+                        </tr>
+                        <tr>
+                          <td style="padding:28px 28px 8px;font-family:Segoe UI,Helvetica,Arial,sans-serif">
+                            <h1 style="margin:0 0 18px;font-size:22px;line-height:1.3;color:#0f172a;font-weight:700">%s</h1>
+                            %s
+                          </td>
+                        </tr>
+                        <tr>
+                          <td style="padding:8px 28px 28px;font-family:Segoe UI,Helvetica,Arial,sans-serif">
+                            <div style="margin-top:20px;padding-top:18px;border-top:1px solid rgba(99,102,241,0.16)">
+                              <p style="margin:0;font-size:12px;color:#64748b;line-height:1.5">
+                                CloudBase - private cloud hosting<br>
+                                This message was sent by an automated system.
+                              </p>
+                            </div>
+                          </td>
+                        </tr>
+                      </table>
+                    </td></tr>
+                  </table>
+                </body>
+                </html>
+                """.formatted(escape(eyebrow), escape(title), bodyHtml);
+    }
+
+    private static String cta(String href, String label) {
+        return """
+                <table role="presentation" cellspacing="0" cellpadding="0" style="margin:0">
+                  <tr>
+                    <td style="border-radius:10px;background:#6366f1;background-image:linear-gradient(135deg,#4f46e5 0%%,#7c3aed 50%%,#6366f1 100%%)">
+                      <a href="%s" style="display:inline-block;padding:12px 22px;font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none">
+                        %s
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+                """.formatted(href, escape(label));
+    }
+
     private void send(String to, String subject, String html) {
         if (!isEnabled()) {
             log.info("Email skipped (Resend disabled): to={} subject={}", to, subject);
@@ -156,6 +276,7 @@ public class ResendEmailService implements EmailService {
             log.info("Email sent via Resend id={} to={}", data.getId(), to);
         } catch (ResendException e) {
             log.error("Resend send failed to={}: {}", to, e.getMessage());
+            throw new IllegalStateException("Failed to send email: " + e.getMessage(), e);
         }
     }
 

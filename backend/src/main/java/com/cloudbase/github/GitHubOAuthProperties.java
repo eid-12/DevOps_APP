@@ -21,7 +21,8 @@ public record GitHubOAuthProperties(
             redirectUri = "http://localhost:4200/auth/github/callback";
         }
         if (scopes == null || scopes.isBlank()) {
-            scopes = "read:user repo user:email";
+            // `workflow` is required to create/update .github/workflows/* (GitHub returns 404 without it).
+            scopes = "read:user repo user:email workflow";
         }
         if (successRedirect == null || successRedirect.isBlank()) {
             successRedirect = "http://localhost:4200/account?github=connected";

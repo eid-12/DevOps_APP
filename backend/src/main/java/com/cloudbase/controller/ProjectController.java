@@ -3,9 +3,12 @@ package com.cloudbase.controller;
 import com.cloudbase.dto.ProjectDtos.CreateProjectRequest;
 import com.cloudbase.dto.ProjectDtos.CreateServiceRequest;
 import com.cloudbase.dto.ProjectDtos.DeployServiceRequest;
+import com.cloudbase.dto.ProjectDtos.DomainCheckResponse;
 import com.cloudbase.dto.ProjectDtos.ExecRequest;
 import com.cloudbase.dto.ProjectDtos.SetCustomDomainRequest;
 import com.cloudbase.dto.ProjectDtos.SetSubdomainRequest;
+import com.cloudbase.dto.ProjectDtos.SetVanitySubdomainRequest;
+import com.cloudbase.dto.ProjectDtos.VanityStatusResponse;
 import com.cloudbase.dto.ProjectDtos.UpdateEnvVarsRequest;
 import com.cloudbase.dto.ProjectDtos.UpdateProjectRequest;
 import com.cloudbase.dto.ProjectDtos.UpdateServiceRequest;
@@ -137,6 +140,49 @@ public class ProjectController {
             @Valid @RequestBody SetSubdomainRequest request
     ) {
         return projectService.setSubdomain(serviceId, user, request);
+    }
+
+    @GetMapping("/services/{serviceId}/custom-domain/check")
+    public DomainCheckResponse checkCustomDomain(
+            @AuthenticationPrincipal UserEntity user,
+            @PathVariable String serviceId,
+            @RequestParam(required = false, defaultValue = "") String domain
+    ) {
+        return projectService.checkCustomDomain(serviceId, user, domain);
+    }
+
+    @GetMapping("/services/{serviceId}/vanity-subdomain")
+    public VanityStatusResponse vanityStatus(
+            @AuthenticationPrincipal UserEntity user,
+            @PathVariable String serviceId
+    ) {
+        return projectService.vanityStatus(serviceId, user);
+    }
+
+    @GetMapping("/services/{serviceId}/vanity-subdomain/check")
+    public DomainCheckResponse checkVanitySubdomain(
+            @AuthenticationPrincipal UserEntity user,
+            @PathVariable String serviceId,
+            @RequestParam(required = false, defaultValue = "") String slug
+    ) {
+        return projectService.checkVanitySubdomain(serviceId, user, slug);
+    }
+
+    @PutMapping("/services/{serviceId}/vanity-subdomain")
+    public ServiceEntity setVanitySubdomain(
+            @AuthenticationPrincipal UserEntity user,
+            @PathVariable String serviceId,
+            @Valid @RequestBody SetVanitySubdomainRequest request
+    ) {
+        return projectService.setVanitySubdomain(serviceId, user, request.slug());
+    }
+
+    @DeleteMapping("/services/{serviceId}/vanity-subdomain")
+    public ServiceEntity clearVanitySubdomain(
+            @AuthenticationPrincipal UserEntity user,
+            @PathVariable String serviceId
+    ) {
+        return projectService.clearVanitySubdomain(serviceId, user);
     }
 
     @PutMapping("/services/{serviceId}/custom-domain")

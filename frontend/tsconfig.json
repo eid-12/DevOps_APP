@@ -12,13 +12,22 @@
     "esModuleInterop": true,
     "experimentalDecorators": true,
     "moduleResolution": "bundler",
+    "importHelpers": true,
     "target": "ES2022",
     "module": "ES2022",
     "useDefineForClassFields": false,
-    "lib": ["ES2022", "dom"]
+    "lib": ["ES2022", "dom"],
+    "paths": {
+      "@app/*": ["src/app/*"],
+      "@core/*": ["src/app/core/*"],
+      "@shared/*": ["src/app/shared/*"],
+      "@features/*": ["src/app/features/*"],
+      "@env/*": ["src/environments/*"]
+    }
   },
   "angularCompilerOptions": {
     "strictInjectionParameters": true,
-    "strictTemplates": true
+    "strictTemplates": true,
+    "strictInputAccessModifiers": true
   }
 }

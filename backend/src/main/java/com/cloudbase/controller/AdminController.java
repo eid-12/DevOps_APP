@@ -3,6 +3,8 @@ package com.cloudbase.controller;
 import com.cloudbase.dto.AdminDtos.AccountStatusRequest;
 import com.cloudbase.dto.AdminDtos.AuditLogEntry;
 import com.cloudbase.dto.AdminDtos.DeploymentAccessRequest;
+import com.cloudbase.dto.AdminDtos.HostingSettingsResponse;
+import com.cloudbase.dto.AdminDtos.HostingSettingsUpdateRequest;
 import com.cloudbase.dto.AdminDtos.InfrastructureOverview;
 import com.cloudbase.dto.AdminDtos.RoleChangeRequest;
 import com.cloudbase.email.EmailService;
@@ -69,6 +71,19 @@ public class AdminController {
         return adminService.listAuditLogs();
     }
 
+    @GetMapping("/hosting-settings")
+    public HostingSettingsResponse hostingSettings(@AuthenticationPrincipal UserEntity admin) {
+        return adminService.getHostingSettings();
+    }
+
+    @PutMapping("/hosting-settings")
+    public HostingSettingsResponse updateHostingSettings(
+            @AuthenticationPrincipal UserEntity admin,
+            @RequestBody HostingSettingsUpdateRequest request
+    ) {
+        return adminService.updateHostingSettings(admin, request);
+    }
+
     @PostMapping("/users/{userId}/password-reset")
     public com.cloudbase.dto.AuthDtos.MessageResponse sendPasswordReset(
             @AuthenticationPrincipal UserEntity admin,
@@ -89,5 +104,14 @@ public class AdminController {
     @GetMapping("/email/status")
     public Map<String, Object> emailStatus(@AuthenticationPrincipal UserEntity admin) {
         return Map.of("enabled", emailService.isEnabled());
+    }
+
+    /** Send all branded email templates to an inbox for visual QA. */
+    @PostMapping("/email/preview")
+    public Map<String, Object> previewEmails(
+            @AuthenticationPrincipal UserEntity admin,
+            @RequestParam(required = false) String to
+    ) {
+        return emailService.sendPreviewTemplates(to);
     }
 }

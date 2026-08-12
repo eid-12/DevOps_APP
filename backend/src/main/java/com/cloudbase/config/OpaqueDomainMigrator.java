@@ -10,8 +10,8 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 
 /**
- * Rewrites vanity / name-based *.baseDomain hosts to opaque numeric URLs
- * and refreshes NPM proxy hosts (platform + optional custom domain).
+ * Ensures DATABASE services have no public hosts and refreshes NPM proxies.
+ * Preserves each account's one claimed vanity subdomain; other hosts stay opaque.
  */
 @Component
 public class OpaqueDomainMigrator implements ApplicationRunner {

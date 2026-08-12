@@ -5,12 +5,12 @@ import com.cloudbase.entity.DeploymentEntity;
 import com.cloudbase.entity.ServiceEntity;
 import com.cloudbase.model.ServiceSourceType;
 import com.cloudbase.repository.ServiceRepository;
+import com.cloudbase.service.PlatformSettingsService;
 import com.cloudbase.service.ProjectService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StreamUtils;
@@ -43,18 +43,22 @@ public class WebhookController {
     private final ServiceRepository serviceRepository;
     private final ProjectService projectService;
     private final ObjectMapper objectMapper;
-    private final String webhookSecret;
+    private final PlatformSettingsService platformSettings;
 
     public WebhookController(
             ServiceRepository serviceRepository,
             ProjectService projectService,
             ObjectMapper objectMapper,
-            @Value("${github.webhook-secret:}") String webhookSecret
+            PlatformSettingsService platformSettings
     ) {
         this.serviceRepository = serviceRepository;
         this.projectService = projectService;
         this.objectMapper = objectMapper;
-        this.webhookSecret = webhookSecret;
+        this.platformSettings = platformSettings;
+    }
+
+    private String webhookSecret() {
+        return platformSettings.get(PlatformSettingsService.GITHUB_WEBHOOK_SECRET);
     }
 
     @PostMapping("/github")
@@ -159,8 +163,9 @@ public class WebhookController {
     }
 
     private void verifySignature(String rawBody, String signatureHeader) {
+        String webhookSecret = webhookSecret();
         if (!StringUtils.hasText(webhookSecret)) {
-            log.warn("github.webhook-secret is empty — skipping signature verification (dev only)");
+            log.warn("github.webhook-secret is empty - skipping signature verification (dev only)");
             return;
         }
         if (!StringUtils.hasText(signatureHeader) || !signatureHeader.startsWith("sha256=")) {

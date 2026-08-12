@@ -42,6 +42,9 @@ export class MockStore {
     ['u-dev', 'Dev@2026']
   ]);
 
+  /** One vanity slug per user: userId → { slug, serviceId } */
+  private readonly vanityByUser = new Map<string, { slug: string; serviceId: string }>();
+
   users: UserAccount[] = [
     {
       id: 'u-admin',
@@ -457,6 +460,15 @@ export class MockStore {
   }
 
   deleteProject(projectId: string): void {
+    const project = this.getProject(projectId);
+    if (project) {
+      const serviceIds = new Set((project.services ?? []).map(s => s.id));
+      for (const [uid, claim] of [...this.vanityByUser.entries()]) {
+        if (serviceIds.has(claim.serviceId)) {
+          this.vanityByUser.delete(uid);
+        }
+      }
+    }
     this.projects = this.projects.filter(p => p.id !== projectId);
     this.deployments = this.deployments.filter(d => d.projectId !== projectId);
   }
@@ -513,6 +525,11 @@ export class MockStore {
   }
 
   deleteService(serviceId: string): void {
+    for (const [uid, claim] of [...this.vanityByUser.entries()]) {
+      if (claim.serviceId === serviceId) {
+        this.vanityByUser.delete(uid);
+      }
+    }
     for (const project of this.projects) {
       project.services = (project.services ?? []).filter(s => s.id !== serviceId);
     }
@@ -653,11 +670,11 @@ export class MockStore {
       projects: projects.length,
       services: services.length,
       runningServices: running.length,
-      cpuMilliUsed: Math.round(running.reduce((sum, s) => sum + s.quota.cpuMilli * (s.cpuUsage / 100), 0)),
+      cpuMilliUsed: services.reduce((sum, s) => sum + (s.quota?.cpuMilli ?? 500), 0),
       cpuMilliLimit: 2000,
-      memoryMbUsed: Math.round(running.reduce((sum, s) => sum + s.ramUsageMb, 0)),
+      memoryMbUsed: services.reduce((sum, s) => sum + (s.quota?.memorymb ?? 512), 0),
       memoryMbLimit: plan.memoryMbLimit,
-      storageGbUsed: services.reduce((sum, s) => sum + (s.volume?.sizeGb ?? s.quota.storageGb), 0),
+      storageGbUsed: services.reduce((sum, s) => sum + (s.volume?.sizeGb ?? 0), 0),
       storageGbLimit: plan.storageGbLimit,
       deploymentsThisMonth: this.deployments.filter(d =>
         services.some(s => s.id === d.serviceId)
@@ -748,10 +765,13 @@ export class MockStore {
       priceLabel: '$0 / month',
       projectsLimit: 2,
       servicesLimit: 3,
-      memoryMbLimit: 1024,
+      memoryMbLimit: 4096,
       storageGbLimit: 5,
-      deploymentsLimit: 20,
-      customDomains: false,
+      deploymentsLimit: 100,
+      projectsUnlimited: true,
+      servicesUnlimited: true,
+      deploymentsUnlimited: true,
+      customDomains: true,
       prioritySupport: false
     };
   }
@@ -768,20 +788,12 @@ export class MockStore {
   ): void {
     const plan = this.getPlan(user);
     const usage = this.usageFor(user);
-    if (usage.projects + (opts.extraProjects ?? 0) > plan.projectsLimit) {
-      throw new Error(`Free plan limit: ${plan.projectsLimit} projects. See Billing.`);
-    }
-    if (usage.services + (opts.extraServices ?? 0) > plan.servicesLimit) {
-      throw new Error(`Free plan limit: ${plan.servicesLimit} services. See Billing.`);
-    }
+    // Project, service, and deploy counts are open — only resource pool is hard-capped
     if (usage.storageGbUsed + (opts.extraStorageGb ?? 0) > plan.storageGbLimit) {
       throw new Error(`Free plan limit: ${plan.storageGbLimit} GB storage. See Billing.`);
     }
     if (usage.memoryMbUsed + (opts.extraMemoryMb ?? 0) > plan.memoryMbLimit) {
       throw new Error(`Free plan limit: ${plan.memoryMbLimit} MB RAM. See Billing.`);
-    }
-    if (usage.deploymentsThisMonth + (opts.extraDeployments ?? 0) > plan.deploymentsLimit) {
-      throw new Error(`Free plan limit: ${plan.deploymentsLimit} deploys this month. See Billing.`);
     }
   }
 
@@ -899,8 +911,8 @@ export class MockStore {
       service.cpuUsage = 8 + Math.random() * 20;
       service.ramUsageMb = 120 + Math.floor(Math.random() * 300);
       if (!service.subdomain && service.sourceType !== 'DATABASE') {
-        const n = String(Math.floor(100_000_000_000 + Math.random() * 900_000_000_000));
-        service.subdomain = `${n}.cloudbase.website`;
+        const n = String(Math.floor(1000 + Math.random() * 9000));
+        service.subdomain = `cloudbase${n}.cloudbase.website`;
       }
       if (ownerId) {
         this.pushInbox(
@@ -1120,29 +1132,164 @@ export class MockStore {
     return this.setCustomDomain(serviceId, subdomain);
   }
 
-  setCustomDomain(serviceId: string, domain: string): Service {
+  checkCustomDomain(serviceId: string, domain: string): { domain: string; available: boolean; reason: string } {
     const service = this.findService(serviceId);
     if (!service) throw new Error('Service not found');
+    if (service.sourceType === 'DATABASE') {
+      return { domain: '', available: false, reason: 'Databases are not publicly routed' };
+    }
     let clean = (domain ?? '')
       .toLowerCase()
       .replace(/^https?:\/\//, '')
       .replace(/\/.*$/, '')
       .replace(/[^a-z0-9.-]/g, '');
     if (!clean) {
+      return { domain: '', available: true, reason: 'Empty value clears the custom domain' };
+    }
+    if (clean === 'cloudbase.website' || clean.endsWith('.cloudbase.website')) {
+      return {
+        domain: clean,
+        available: false,
+        reason: 'Platform domains are assigned automatically. Bring your own domain (e.g. app.example.com).'
+      };
+    }
+    if (!clean.includes('.') || clean.startsWith('.') || clean.endsWith('.') || clean.includes('..')) {
+      return { domain: clean, available: false, reason: 'Enter a full hostname like app.example.com' };
+    }
+    if ((service.customDomain ?? '').toLowerCase() === clean) {
+      return { domain: clean, available: true, reason: 'Already assigned to this service' };
+    }
+    const taken = this.projects.some(p =>
+      p.services.some(
+        s =>
+          s.id !== serviceId &&
+          ((s.customDomain ?? '').toLowerCase() === clean || (s.subdomain ?? '').toLowerCase() === clean)
+      )
+    );
+    if (taken) {
+      return { domain: clean, available: false, reason: 'Domain already in use' };
+    }
+    return { domain: clean, available: true, reason: 'Available' };
+  }
+
+  setCustomDomain(serviceId: string, domain: string): Service {
+    const service = this.findService(serviceId);
+    if (!service) throw new Error('Service not found');
+    const check = this.checkCustomDomain(serviceId, domain);
+    let clean = check.domain;
+    if (!clean) {
       service.customDomain = undefined;
       return service;
     }
-    if (clean === 'cloudbase.website' || clean.endsWith('.cloudbase.website')) {
-      throw new Error('Platform domains are assigned automatically. Bring your own domain (e.g. app.example.com).');
-    }
-    if (!clean.includes('.')) {
-      throw new Error('Enter a full hostname like app.example.com');
+    if (!check.available) {
+      throw new Error(check.reason);
     }
     service.customDomain = clean;
     if (!service.subdomain) {
-      const n = String(Math.floor(100_000_000_000 + Math.random() * 900_000_000_000));
-      service.subdomain = `${n}.cloudbase.website`;
+      const n = String(Math.floor(1000 + Math.random() * 9000));
+      service.subdomain = `cloudbase${n}.cloudbase.website`;
     }
+    return service;
+  }
+
+  vanityStatus(serviceId: string, userId: string) {
+    const service = this.findService(serviceId);
+    if (!service) throw new Error('Service not found');
+    const claim = this.vanityByUser.get(userId);
+    const baseDomain = 'cloudbase.website';
+    return {
+      baseDomain,
+      limitPerAccount: 1,
+      claimedSlug: claim?.slug ?? null,
+      claimedFqdn: claim ? `${claim.slug}.${baseDomain}` : null,
+      claimedServiceId: claim?.serviceId ?? null,
+      thisServiceHoldsVanity: !!claim && claim.serviceId === serviceId
+    };
+  }
+
+  checkVanitySubdomain(
+    serviceId: string,
+    userId: string,
+    rawSlug: string
+  ): { domain: string; available: boolean; reason: string } {
+    const service = this.findService(serviceId);
+    if (!service) throw new Error('Service not found');
+    if (service.sourceType === 'DATABASE') {
+      return { domain: '', available: false, reason: 'Databases are not publicly routed' };
+    }
+    let slug = (rawSlug ?? '').trim().toLowerCase().replace(/^https?:\/\//, '');
+    if (slug.includes('.')) slug = slug.slice(0, slug.indexOf('.'));
+    slug = slug.replace(/[^a-z0-9-]/g, '');
+    const baseDomain = 'cloudbase.website';
+    const fqdn = `${slug}.${baseDomain}`;
+    if (slug.length < 3 || slug.length > 30) {
+      return { domain: slug, available: false, reason: 'Slug must be 3–30 characters' };
+    }
+    if (!/^[a-z][a-z0-9-]{1,28}[a-z0-9]$/.test(slug) || slug.includes('--')) {
+      return { domain: slug, available: false, reason: 'Invalid slug format' };
+    }
+    const reserved = new Set(['admin', 'api', 'www', 'app', 'mail', 'cloudbase', 'manage', 'npm', 'login']);
+    if (reserved.has(slug) || /^cloudbase\d{4}$/.test(slug)) {
+      return { domain: fqdn, available: false, reason: 'This subdomain is reserved' };
+    }
+    const claim = this.vanityByUser.get(userId);
+    if (claim?.slug === slug && claim.serviceId === serviceId) {
+      return { domain: fqdn, available: true, reason: 'Already claimed on this service' };
+    }
+    for (const [uid, c] of this.vanityByUser) {
+      if (uid !== userId && c.slug === slug) {
+        return { domain: fqdn, available: false, reason: 'Subdomain already taken' };
+      }
+    }
+    const taken = this.projects.some(p =>
+      p.services.some(
+        s =>
+          s.id !== serviceId &&
+          ((s.subdomain ?? '').toLowerCase() === fqdn || (s.customDomain ?? '').toLowerCase() === fqdn)
+      )
+    );
+    if (taken) return { domain: fqdn, available: false, reason: 'Subdomain already in use' };
+    if (claim && claim.serviceId !== serviceId && claim.slug !== slug) {
+      return {
+        domain: fqdn,
+        available: false,
+        reason: `This account already claimed \`${claim.slug}.${baseDomain}\` on another service. Release it first, or move that same slug here.`
+      };
+    }
+    return { domain: fqdn, available: true, reason: 'Available' };
+  }
+
+  setVanitySubdomain(serviceId: string, userId: string, rawSlug: string): Service {
+    const check = this.checkVanitySubdomain(serviceId, userId, rawSlug);
+    if (!check.available) throw new Error(check.reason);
+    const service = this.findService(serviceId);
+    if (!service) throw new Error('Service not found');
+    const claim = this.vanityByUser.get(userId);
+    if (claim && claim.serviceId !== serviceId) {
+      const prev = this.findService(claim.serviceId);
+      if (prev) {
+        const n = String(Math.floor(1000 + Math.random() * 9000));
+        prev.subdomain = `cloudbase${n}.cloudbase.website`;
+      }
+    }
+    let slug = (rawSlug ?? '').trim().toLowerCase();
+    if (slug.includes('.')) slug = slug.slice(0, slug.indexOf('.'));
+    slug = slug.replace(/[^a-z0-9-]/g, '');
+    this.vanityByUser.set(userId, { slug, serviceId });
+    service.subdomain = `${slug}.cloudbase.website`;
+    return service;
+  }
+
+  clearVanitySubdomain(serviceId: string, userId: string): Service {
+    const service = this.findService(serviceId);
+    if (!service) throw new Error('Service not found');
+    const claim = this.vanityByUser.get(userId);
+    if (!claim || claim.serviceId !== serviceId) {
+      throw new Error('This service does not hold your vanity subdomain');
+    }
+    this.vanityByUser.delete(userId);
+    const n = String(Math.floor(1000 + Math.random() * 9000));
+    service.subdomain = `cloudbase${n}.cloudbase.website`;
     return service;
   }
 

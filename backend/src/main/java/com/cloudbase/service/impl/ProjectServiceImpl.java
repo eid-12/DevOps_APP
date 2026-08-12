@@ -1,8 +1,11 @@
 package com.cloudbase.service.impl;
 
+import com.cloudbase.dto.ProjectDtos.DomainCheckResponse;
+import com.cloudbase.dto.ProjectDtos.VanityStatusResponse;
 import com.cloudbase.dto.ProjectDtos.CreateProjectRequest;
 import com.cloudbase.dto.ProjectDtos.CreateServiceRequest;
 import com.cloudbase.dto.ProjectDtos.DeployServiceRequest;
+import com.cloudbase.dto.ProjectDtos.DomainCheckResponse;
 import com.cloudbase.dto.ProjectDtos.ExecRequest;
 import com.cloudbase.dto.ProjectDtos.SetCustomDomainRequest;
 import com.cloudbase.dto.ProjectDtos.SetSubdomainRequest;
@@ -14,6 +17,7 @@ import com.cloudbase.entity.DeploymentEntity;
 import com.cloudbase.entity.ProjectEntity;
 import com.cloudbase.entity.ServiceEntity;
 import com.cloudbase.entity.UserEntity;
+import com.cloudbase.model.AccountStatus;
 import com.cloudbase.model.DatabaseType;
 import com.cloudbase.model.DeploymentStatus;
 import com.cloudbase.model.EnvironmentVariable;
@@ -25,10 +29,15 @@ import com.cloudbase.portainer.ComposeGenerator;
 import com.cloudbase.repository.DeploymentRepository;
 import com.cloudbase.repository.ProjectRepository;
 import com.cloudbase.repository.ServiceRepository;
+import com.cloudbase.repository.UserRepository;
 import com.cloudbase.service.CiBootstrapService;
 import com.cloudbase.service.ContainerRuntimeService;
 import com.cloudbase.service.DeploymentOrchestrator;
+import com.cloudbase.service.PlanQuotaService;
 import com.cloudbase.service.ProjectService;
+import com.cloudbase.service.StartCommandValidator;
+import com.cloudbase.service.VanitySubdomainService;
+import com.cloudbase.service.VolumeMountValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -57,6 +66,9 @@ public class ProjectServiceImpl implements ProjectService {
     private final DeploymentOrchestrator orchestrator;
     private final CiBootstrapService ciBootstrapService;
     private final ContainerRuntimeService containerRuntime;
+    private final PlanQuotaService planQuotaService;
+    private final UserRepository userRepository;
+    private final VanitySubdomainService vanitySubdomainService;
 
     public ProjectServiceImpl(
             ProjectRepository projectRepository,
@@ -65,7 +77,10 @@ public class ProjectServiceImpl implements ProjectService {
             ComposeGenerator composeGenerator,
             DeploymentOrchestrator orchestrator,
             CiBootstrapService ciBootstrapService,
-            ContainerRuntimeService containerRuntime
+            ContainerRuntimeService containerRuntime,
+            PlanQuotaService planQuotaService,
+            UserRepository userRepository,
+            VanitySubdomainService vanitySubdomainService
     ) {
         this.projectRepository = projectRepository;
         this.serviceRepository = serviceRepository;
@@ -74,6 +89,9 @@ public class ProjectServiceImpl implements ProjectService {
         this.orchestrator = orchestrator;
         this.ciBootstrapService = ciBootstrapService;
         this.containerRuntime = containerRuntime;
+        this.planQuotaService = planQuotaService;
+        this.userRepository = userRepository;
+        this.vanitySubdomainService = vanitySubdomainService;
     }
 
     @Override
@@ -81,7 +99,10 @@ public class ProjectServiceImpl implements ProjectService {
         List<ProjectEntity> projects = user.getRole() == UserRole.ADMIN
                 ? projectRepository.findAll()
                 : projectRepository.findByOwnerId(user.getId());
-        projects.forEach(p -> p.getServices().size()); // initialize lazy collection for JSON
+        projects.forEach(p -> {
+            p.getServices().size();
+            syncServicesQuietly(p);
+        });
         return projects;
     }
 
@@ -91,12 +112,30 @@ public class ProjectServiceImpl implements ProjectService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
         requireOwnerOrAdmin(project.getOwnerId(), user);
         project.getServices().size();
+        syncServicesQuietly(project);
         return project;
+    }
+
+    private void syncServicesQuietly(ProjectEntity project) {
+        if (project.getServices() == null) return;
+        for (ServiceEntity s : project.getServices()) {
+            try {
+                ServiceStatus live = containerRuntime.resolveLiveStatus(s);
+                if (live != s.getStatus()) {
+                    s.setStatus(live);
+                    serviceRepository.save(s);
+                }
+            } catch (Exception ignored) {
+                // keep stored status
+            }
+        }
     }
 
     @Override
     public ProjectEntity createProject(UserEntity user, CreateProjectRequest request) {
         requireDeploymentEnabled(user);
+        planQuotaService.assertNotAlreadyOver(user);
+        planQuotaService.assertCanCreateProject(user);
 
         ProjectEntity project = ProjectEntity.builder()
                 .id("proj-" + UUID.randomUUID().toString().substring(0, 8))
@@ -112,11 +151,31 @@ public class ProjectServiceImpl implements ProjectService {
 
     @Override
     public void deleteProject(String projectId, UserEntity user) {
+        requireDeploymentEnabled(user);
         ProjectEntity project = getProject(projectId, user);
-        for (ServiceEntity service : serviceRepository.findByProject_Id(projectId)) {
+        List<ServiceEntity> services = serviceRepository.findByProject_Id(projectId);
+        for (ServiceEntity service : services) {
+            assertNotActivelyDeploying(service);
+        }
+
+        // 1) Tear down every service in Portainer/NPM first
+        for (ServiceEntity service : services) {
+            cancelActiveDeploymentsQuietly(service.getId());
             orchestrator.removeInfrastructure(service);
         }
+
+        // 2) Project-level leftovers (shared volume folder + project Docker network)
+        orchestrator.removeProjectLeftovers(project.getOwnerId(), projectId);
+
+        // 3) DB: deployments → vanity → services → project (shared vars live on project row)
+        deploymentRepository.deleteByProjectId(projectId);
+        for (ServiceEntity service : services) {
+            vanitySubdomainService.clearIfServiceDeleted(service.getId(), project.getOwnerId());
+            serviceRepository.delete(service);
+        }
         projectRepository.delete(project);
+        log.info("Deleted project {} with {} services (deployments, shared vars, infra)",
+                projectId, services.size());
     }
 
     @Override
@@ -127,6 +186,13 @@ public class ProjectServiceImpl implements ProjectService {
         int memoryMb = request.quota() != null ? request.quota().memoryMb() : 512;
         int cpuMilli = request.quota() != null ? request.quota().cpuMilli() : 500;
         int storageGb = request.quota() != null ? request.quota().storageGb() : 2;
+        int volumeGb = request.volume() != null ? Math.max(0, request.volume().sizeGb()) : 0;
+
+        planQuotaService.assertNotAlreadyOver(user);
+        planQuotaService.assertCanAddService(user, memoryMb, volumeGb, cpuMilli);
+        if (request.sourceType() != ServiceSourceType.GITHUB) {
+            planQuotaService.assertCanDeploy(user);
+        }
 
         Map<String, Object> details = request.sourceDetails() != null
                 ? new HashMap<>(request.sourceDetails())
@@ -150,10 +216,32 @@ public class ProjectServiceImpl implements ProjectService {
 
         if (request.sourceType() != ServiceSourceType.DATABASE) {
             service.setSubdomain(orchestrator.allocateOpaqueFqdn(service.getId()));
+            if (request.sourceType() == ServiceSourceType.GITHUB) {
+                Object existing = details.get("startCommand");
+                if (existing == null || String.valueOf(existing).isBlank() || "null".equals(String.valueOf(existing))) {
+                    String runtime = String.valueOf(details.getOrDefault("runtime", "node"));
+                    details.put("startCommand", defaultStartCommand(runtime));
+                }
+                String sanitized = StartCommandValidator.sanitizeForStorage(String.valueOf(details.get("startCommand")));
+                if (sanitized != null) {
+                    details.put("startCommand", sanitized);
+                } else {
+                    details.remove("startCommand");
+                }
+                service.setSourceDetails(details);
+            } else if (request.sourceType() == ServiceSourceType.DOCKER && details.get("startCommand") != null) {
+                String sanitized = StartCommandValidator.sanitizeForStorage(String.valueOf(details.get("startCommand")));
+                if (sanitized != null) {
+                    details.put("startCommand", sanitized);
+                } else {
+                    details.remove("startCommand");
+                }
+                service.setSourceDetails(details);
+            }
         }
 
         if (request.volume() != null) {
-            service.setVolumeMountPath(request.volume().mountPath());
+            service.setVolumeMountPath(VolumeMountValidator.normalizeAndValidate(request.volume().mountPath()));
             service.setVolumeSizeGb(request.volume().sizeGb());
         }
         if (request.envVars() != null && !request.envVars().isEmpty()) {
@@ -190,19 +278,71 @@ public class ProjectServiceImpl implements ProjectService {
         ServiceEntity service = serviceRepository.findById(serviceId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Service not found"));
         requireOwnerOrAdmin(service.getProject().getOwnerId(), user);
+        ServiceStatus live = containerRuntime.resolveLiveStatus(service);
+        if (live != service.getStatus()) {
+            service.setStatus(live);
+            service = serviceRepository.save(service);
+        }
         return service;
     }
 
     @Override
     public void deleteService(String serviceId, UserEntity user) {
+        requireDeploymentEnabled(user);
         ServiceEntity service = getService(serviceId, user);
+        assertNotActivelyDeploying(service);
+        String ownerId = service.getProject().getOwnerId();
+        cancelActiveDeploymentsQuietly(serviceId);
+        // Portainer must succeed first — do not clear vanity / DB if teardown fails
         orchestrator.removeInfrastructure(service);
+        vanitySubdomainService.clearIfServiceDeleted(serviceId, ownerId);
+        deploymentRepository.deleteByServiceId(serviceId);
         serviceRepository.delete(service);
+    }
+
+    private void assertNotActivelyDeploying(ServiceEntity service) {
+        ServiceStatus st = service.getStatus();
+        if (st == ServiceStatus.BUILDING || st == ServiceStatus.DEPLOYING) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Stop or wait for the active deploy on \"" + service.getName()
+                            + "\" before deleting. CloudBase will not delete mid-deploy.");
+        }
+    }
+
+    private void cancelActiveDeploymentsQuietly(String serviceId) {
+        Instant now = Instant.now();
+        for (DeploymentEntity dep : deploymentRepository.findByServiceIdOrderByStartedAtDesc(serviceId)) {
+            if (dep.getStatus() == DeploymentStatus.QUEUED
+                    || dep.getStatus() == DeploymentStatus.BUILDING
+                    || dep.getStatus() == DeploymentStatus.DEPLOYING) {
+                dep.setStatus(DeploymentStatus.CANCELLED);
+                dep.setFinishedAt(now);
+                dep.setLogs((dep.getLogs() == null ? "" : dep.getLogs() + "\n") + "Cancelled by delete");
+                deploymentRepository.save(dep);
+            } else {
+                break;
+            }
+        }
     }
 
     @Override
     public ServiceEntity stopService(String serviceId, UserEntity user) {
+        requireDeploymentEnabled(user);
         ServiceEntity service = getService(serviceId, user);
+        // Abort in-flight deploys so UI cannot stick on DEPLOYING forever
+        Instant now = Instant.now();
+        for (DeploymentEntity dep : deploymentRepository.findByServiceIdOrderByStartedAtDesc(serviceId)) {
+            if (dep.getStatus() == DeploymentStatus.QUEUED
+                    || dep.getStatus() == DeploymentStatus.BUILDING
+                    || dep.getStatus() == DeploymentStatus.DEPLOYING) {
+                dep.setStatus(DeploymentStatus.CANCELLED);
+                dep.setFinishedAt(now);
+                dep.setLogs((dep.getLogs() == null ? "" : dep.getLogs() + "\n") + "Cancelled by stop");
+                deploymentRepository.save(dep);
+            } else {
+                break;
+            }
+        }
         try {
             containerRuntime.stop(service);
         } catch (Exception e) {
@@ -235,6 +375,7 @@ public class ProjectServiceImpl implements ProjectService {
     @Override
     public DeploymentEntity deploy(String serviceId, UserEntity user, DeployServiceRequest request) {
         requireDeploymentEnabled(user);
+        planQuotaService.assertCanDeploy(user);
         ServiceEntity service = getService(serviceId, user);
         return orchestrator.startDeploy(service, user.getEmail(), request, null);
     }
@@ -243,12 +384,19 @@ public class ProjectServiceImpl implements ProjectService {
     public DeploymentEntity deployAsSystem(String serviceId, String triggeredBy, DeployServiceRequest request) {
         ServiceEntity service = serviceRepository.findById(serviceId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Service not found"));
+        String ownerId = service.getProject().getOwnerId();
+        UserEntity owner = userRepository.findById(ownerId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Service owner not found"));
+        // Webhooks must not bypass lockouts — same rules as interactive deploy
+        requireDeploymentEnabled(owner);
+        planQuotaService.assertCanDeploy(owner);
         return orchestrator.startDeploy(service, triggeredBy, request, null);
     }
 
     @Override
     public DeploymentEntity rollback(String serviceId, String deploymentId, UserEntity user) {
         requireDeploymentEnabled(user);
+        planQuotaService.assertCanDeploy(user);
         ServiceEntity service = getService(serviceId, user);
         DeploymentEntity source = deploymentRepository.findById(deploymentId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Deployment not found"));
@@ -279,7 +427,7 @@ public class ProjectServiceImpl implements ProjectService {
         service.setEnvVars(toEnvMap(request.envVars()));
         service.setEnvPendingDeploy(true);
         ServiceEntity saved = serviceRepository.save(service);
-        log.info("Env vars updated for {} — pending deploy", serviceId);
+        log.info("Env vars updated for {} - pending deploy", serviceId);
         return saved;
     }
 
@@ -287,6 +435,60 @@ public class ProjectServiceImpl implements ProjectService {
     public ServiceEntity setSubdomain(String serviceId, UserEntity user, SetSubdomainRequest request) {
         // Legacy endpoint: only accepts bring-your-own domains (not vanity *.baseDomain).
         return setCustomDomain(serviceId, user, new SetCustomDomainRequest(request.subdomain()));
+    }
+
+    @Override
+    public DomainCheckResponse checkCustomDomain(String serviceId, UserEntity user, String domain) {
+        ServiceEntity service = getService(serviceId, user);
+        if (service.getSourceType() == ServiceSourceType.DATABASE) {
+            return new DomainCheckResponse("", false, "Databases are not publicly routed");
+        }
+
+        String raw = normalizeHostname(domain);
+        if (raw.isBlank()) {
+            return new DomainCheckResponse("", true, "Empty value clears the custom domain");
+        }
+
+        String invalid = validateCustomHostname(raw);
+        if (invalid != null) {
+            return new DomainCheckResponse(raw, false, invalid);
+        }
+
+        if (raw.equalsIgnoreCase(nullToEmpty(service.getCustomDomain()))) {
+            return new DomainCheckResponse(raw, true, "Already assigned to this service");
+        }
+
+        if (isHostnameTakenByOther(raw, serviceId)) {
+            return new DomainCheckResponse(raw, false, "Domain already in use");
+        }
+
+        return new DomainCheckResponse(raw, true, "Available");
+    }
+
+    @Override
+    public VanityStatusResponse vanityStatus(String serviceId, UserEntity user) {
+        getService(serviceId, user);
+        return vanitySubdomainService.status(user, serviceId);
+    }
+
+    @Override
+    public DomainCheckResponse checkVanitySubdomain(String serviceId, UserEntity user, String slug) {
+        getService(serviceId, user);
+        return vanitySubdomainService.check(user, serviceId, slug);
+    }
+
+    @Override
+    public ServiceEntity setVanitySubdomain(String serviceId, UserEntity user, String slug) {
+        requireDeploymentEnabled(user);
+        getService(serviceId, user);
+        return vanitySubdomainService.claim(user, serviceId, slug);
+    }
+
+    @Override
+    public ServiceEntity clearVanitySubdomain(String serviceId, UserEntity user) {
+        requireDeploymentEnabled(user);
+        getService(serviceId, user);
+        return vanitySubdomainService.release(user, serviceId);
     }
 
     @Override
@@ -299,11 +501,7 @@ public class ProjectServiceImpl implements ProjectService {
 
         orchestrator.ensureOpaquePlatformDomain(service);
 
-        String raw = request.domain() == null ? "" : request.domain().trim().toLowerCase();
-        raw = raw.replaceFirst("^https?://", "");
-        raw = raw.replaceAll("/.*$", "");
-        raw = raw.replaceAll("[^a-z0-9.-]", "");
-
+        String raw = normalizeHostname(request.domain());
         if (raw.isBlank()) {
             service.setCustomDomain(null);
             ServiceEntity saved = serviceRepository.save(service);
@@ -311,27 +509,13 @@ public class ProjectServiceImpl implements ProjectService {
             return saved;
         }
 
-        String base = orchestrator.getBaseDomain();
-        if (raw.equals(base) || raw.endsWith("." + base)) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Platform domains are assigned automatically as random numbers. Bring your own domain (e.g. app.example.com)."
-            );
+        String invalid = validateCustomHostname(raw);
+        if (invalid != null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, invalid);
         }
-        if (!raw.contains(".") || raw.startsWith(".") || raw.endsWith(".") || raw.contains("..")) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Enter a full hostname like app.example.com");
+        if (isHostnameTakenByOther(raw, serviceId)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Domain already in use");
         }
-
-        serviceRepository.findByCustomDomainIgnoreCase(raw)
-                .filter(other -> !other.getId().equals(serviceId))
-                .ifPresent(other -> {
-                    throw new ResponseStatusException(HttpStatus.CONFLICT, "Domain already in use");
-                });
-        serviceRepository.findBySubdomainIgnoreCase(raw)
-                .filter(other -> !other.getId().equals(serviceId))
-                .ifPresent(other -> {
-                    throw new ResponseStatusException(HttpStatus.CONFLICT, "Domain already in use");
-                });
 
         service.setCustomDomain(raw);
         if (service.getContainerName() == null) {
@@ -343,6 +527,42 @@ public class ProjectServiceImpl implements ProjectService {
         ServiceEntity saved = serviceRepository.save(service);
         orchestrator.ensureProxyHost(saved);
         return saved;
+    }
+
+    private static String normalizeHostname(String domain) {
+        String raw = domain == null ? "" : domain.trim().toLowerCase();
+        raw = raw.replaceFirst("^https?://", "");
+        raw = raw.replaceAll("/.*$", "");
+        raw = raw.replaceAll("[^a-z0-9.-]", "");
+        return raw;
+    }
+
+    /** @return error message, or null if valid */
+    private String validateCustomHostname(String raw) {
+        String base = orchestrator.getBaseDomain();
+        if (raw.equals(base) || raw.endsWith("." + base)) {
+            return "Use Custom domain for your own hostname, or claim your one vanity subdomain on the platform domain.";
+        }
+        if (!raw.contains(".") || raw.startsWith(".") || raw.endsWith(".") || raw.contains("..")) {
+            return "Enter a full hostname like app.example.com";
+        }
+        return null;
+    }
+
+    private boolean isHostnameTakenByOther(String raw, String serviceId) {
+        boolean takenCustom = serviceRepository.findByCustomDomainIgnoreCase(raw)
+                .filter(other -> !other.getId().equals(serviceId))
+                .isPresent();
+        if (takenCustom) {
+            return true;
+        }
+        return serviceRepository.findBySubdomainIgnoreCase(raw)
+                .filter(other -> !other.getId().equals(serviceId))
+                .isPresent();
+    }
+
+    private static String nullToEmpty(String value) {
+        return value == null ? "" : value;
     }
 
     @Override
@@ -514,6 +734,7 @@ public class ProjectServiceImpl implements ProjectService {
 
     @Override
     public ProjectEntity updateProject(String projectId, UserEntity user, UpdateProjectRequest request) {
+        requireDeploymentEnabled(user);
         ProjectEntity project = getProject(projectId, user);
         if (request.name() != null && !request.name().isBlank()) {
             project.setName(request.name().trim());
@@ -535,7 +756,21 @@ public class ProjectServiceImpl implements ProjectService {
             service.setName(request.name().trim());
         }
         if (request.sourceDetails() != null) {
-            Map<String, Object> details = new HashMap<>(request.sourceDetails());
+            Map<String, Object> details = service.getSourceDetails() != null
+                    ? new HashMap<>(service.getSourceDetails())
+                    : new HashMap<>();
+            details.putAll(request.sourceDetails());
+            if (request.sourceDetails().get("runtime") != null) {
+                details.put("runtime", request.sourceDetails().get("runtime"));
+            }
+            if (details.containsKey("startCommand")) {
+                String sanitized = StartCommandValidator.sanitizeForStorage(String.valueOf(details.get("startCommand")));
+                if (sanitized != null) {
+                    details.put("startCommand", sanitized);
+                } else {
+                    details.remove("startCommand");
+                }
+            }
             service.setSourceDetails(details);
             if (details.get("containerPort") instanceof Number n) {
                 service.setContainerPort(n.intValue());
@@ -543,7 +778,17 @@ public class ProjectServiceImpl implements ProjectService {
                 service.setContainerPort(composeGenerator.resolveContainerPort(service));
             }
         }
+        if (request.runtime() != null && !request.runtime().isBlank()) {
+            Map<String, Object> details = service.getSourceDetails() != null
+                    ? new HashMap<>(service.getSourceDetails())
+                    : new HashMap<>();
+            details.put("runtime", request.runtime().trim());
+            service.setSourceDetails(details);
+        }
         if (request.quota() != null) {
+            int memDelta = request.quota().memoryMb() - service.getQuotaMemoryMb();
+            int cpuDelta = request.quota().cpuMilli() - service.getQuotaCpuMilli();
+            planQuotaService.assertCanUpdateQuotas(user, memDelta, 0, cpuDelta);
             service.setQuotaMemoryMb(request.quota().memoryMb());
             service.setQuotaCpuMilli(request.quota().cpuMilli());
             service.setQuotaStorageGb(request.quota().storageGb());
@@ -552,7 +797,10 @@ public class ProjectServiceImpl implements ProjectService {
             service.setVolumeMountPath(null);
             service.setVolumeSizeGb(null);
         } else if (request.volume() != null) {
-            service.setVolumeMountPath(request.volume().mountPath());
+            int oldVol = service.getVolumeSizeGb() != null ? service.getVolumeSizeGb() : 0;
+            int newVol = request.volume().sizeGb();
+            planQuotaService.assertCanUpdateQuotas(user, 0, newVol - oldVol, 0);
+            service.setVolumeMountPath(VolumeMountValidator.normalizeAndValidate(request.volume().mountPath()));
             service.setVolumeSizeGb(request.volume().sizeGb());
         }
         return serviceRepository.save(service);
@@ -560,6 +808,7 @@ public class ProjectServiceImpl implements ProjectService {
 
     @Override
     public DeploymentEntity cancelDeployment(String serviceId, String deploymentId, UserEntity user) {
+        requireDeploymentEnabled(user);
         getService(serviceId, user);
         DeploymentEntity dep = deploymentRepository.findById(deploymentId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Deployment not found"));
@@ -574,7 +823,17 @@ public class ProjectServiceImpl implements ProjectService {
         dep.setStatus(DeploymentStatus.CANCELLED);
         dep.setFinishedAt(Instant.now());
         dep.setLogs((dep.getLogs() == null ? "" : dep.getLogs() + "\n") + "Cancelled by user");
-        return deploymentRepository.save(dep);
+        DeploymentEntity saved = deploymentRepository.save(dep);
+
+        serviceRepository.findById(serviceId).ifPresent(s -> {
+            if (s.getStatus() == ServiceStatus.DEPLOYING
+                    || s.getStatus() == ServiceStatus.BUILDING
+                    || s.getStatus() == ServiceStatus.PENDING) {
+                s.setStatus(ServiceStatus.STOPPED);
+                serviceRepository.save(s);
+            }
+        });
+        return saved;
     }
 
     private static String envValue(ServiceEntity service, String key) {
@@ -600,9 +859,35 @@ public class ProjectServiceImpl implements ProjectService {
         return map;
     }
 
+    private static String defaultStartCommand(String runtime) {
+        String r = runtime == null ? "node" : runtime.toLowerCase(java.util.Locale.ROOT);
+        return switch (r) {
+            case "java" -> "java -jar /app/app.jar";
+            case "python" -> "python -m uvicorn main:app --host 0.0.0.0 --port 8000";
+            case "go" -> "/app/app";
+            case "dotnet" -> "dotnet App.dll";
+            case "php" -> "apache2-foreground";
+            case "rust" -> "/app/app";
+            case "node" -> "nginx -g \"daemon off;\"";
+            default -> "";
+        };
+    }
+
+    /**
+     * Hard gate for all mutating / deploy actions.
+     * Admins are exempt. Everyone else must be ACTIVE with deploymentEnabled.
+     */
     private void requireDeploymentEnabled(UserEntity user) {
+        if (user.getRole() == UserRole.ADMIN) {
+            return;
+        }
+        if (user.getAccountStatus() != AccountStatus.ACTIVE) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Account is suspended. Deploy and manage actions are blocked.");
+        }
         if (!user.isDeploymentEnabled()) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Deployment access is not enabled for your account");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Deployment access is disabled. An admin must enable Deploy before you can manage projects or services.");
         }
     }
 

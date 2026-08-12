@@ -19,6 +19,8 @@ import {
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { finalize } from 'rxjs/operators';
 import { AuthService } from '../core/auth.service';
+import { isSafeReturnUrl } from '../core/auth.guard';
+import { environment } from '../../environments/environment';
 
 type AuthMode = 'login' | 'register' | 'forgot' | 'reset' | 'verify';
 type FieldName = 'name' | 'email' | 'password' | 'confirmPassword' | 'code';
@@ -69,19 +71,21 @@ function passwordMatchValidator(passwordKey: string, confirmKey: string): Valida
             Sign in to manage deployments, monitor containers, and access your private cloud dashboard.
           </p>
 
-          <div class="auth-demo-list">
-            <p class="field-label">Demo accounts</p>
-            @for (account of demos; track account.id) {
-              <button type="button" class="auth-demo-row" (click)="fillDemo(account)">
-                <span class="pill" [class]="account.pill">{{ account.label }}</span>
-                <span class="auth-demo-creds">
-                  <code>{{ account.email }}</code>
-                  <span class="muted"> / </span>
-                  <code>{{ account.password }}</code>
-                </span>
-              </button>
-            }
-          </div>
+          @if (showDemoAccounts) {
+            <div class="auth-demo-list">
+              <p class="field-label">Demo accounts</p>
+              @for (account of demos; track account.id) {
+                <button type="button" class="auth-demo-row" (click)="fillDemo(account)">
+                  <span class="pill" [class]="account.pill">{{ account.label }}</span>
+                  <span class="auth-demo-creds">
+                    <code>{{ account.email }}</code>
+                    <span class="muted"> / </span>
+                    <code>{{ account.password }}</code>
+                  </span>
+                </button>
+              }
+            </div>
+          }
         </aside>
 
         <section class="panel auth-form-panel">
@@ -248,7 +252,11 @@ function passwordMatchValidator(passwordKey: string, confirmKey: string): Valida
               </div>
             }
 
-            <button type="submit" class="btn btn-primary auth-submit" [disabled]="loading()">
+            <button
+              type="submit"
+              class="btn btn-primary auth-submit"
+              [disabled]="loading() || (mode() === 'forgot' && emailCooldown() > 0)"
+            >
               {{ submitLabel() }}
             </button>
 
@@ -256,10 +264,14 @@ function passwordMatchValidator(passwordKey: string, confirmKey: string): Valida
               <button
                 type="button"
                 class="btn btn-ghost auth-submit"
-                [disabled]="loading()"
+                [disabled]="loading() || emailCooldown() > 0"
                 (click)="resendCode()"
               >
-                Resend code
+                @if (emailCooldown() > 0) {
+                  Resend code ({{ emailCooldown() }}s)
+                } @else {
+                  Resend code
+                }
               </button>
             }
           </form>
@@ -453,6 +465,10 @@ export class AuthPageComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
 
+  readonly showDemoAccounts =
+    !!(environment as { showDemoAccounts?: boolean }).showDemoAccounts
+    || !(environment as { useApi?: boolean }).useApi;
+
   readonly modes: ReadonlyArray<{ id: AuthMode; label: string }> = [
     { id: 'login', label: 'Sign in' },
     { id: 'register', label: 'Sign up' },
@@ -483,6 +499,19 @@ export class AuthPageComponent implements OnInit {
   readonly resetToken = signal('');
   readonly showPassword = signal(false);
   readonly showConfirmPassword = signal(false);
+  /** Seconds left before another verification / reset email can be requested. */
+  readonly emailCooldown = signal(0);
+
+  private emailCooldownTimer: ReturnType<typeof setInterval> | null = null;
+
+  constructor() {
+    this.destroyRef.onDestroy(() => {
+      if (this.emailCooldownTimer) {
+        clearInterval(this.emailCooldownTimer);
+        this.emailCooldownTimer = null;
+      }
+    });
+  }
 
   readonly form = this.fb.nonNullable.group(
     {
@@ -527,6 +556,9 @@ export class AuthPageComponent implements OnInit {
 
   readonly submitLabel = computed(() => {
     if (this.loading()) return 'Please wait…';
+    if (this.mode() === 'forgot' && this.emailCooldown() > 0) {
+      return `Wait ${this.emailCooldown()}s`;
+    }
     switch (this.mode()) {
       case 'register':
         return 'Create account';
@@ -558,6 +590,12 @@ export class AuthPageComponent implements OnInit {
       }
       if (requested === 'login' || requested === 'register' || requested === 'forgot') {
         this.applyMode(requested, false);
+        if (requested === 'login' && params.get('reason') === 'expired') {
+          this.feedback.set({
+            kind: 'error',
+            text: 'Your session expired after the time limit. Please sign in again.'
+          });
+        }
       } else {
         this.syncValidators('login');
       }
@@ -641,7 +679,7 @@ export class AuthPageComponent implements OnInit {
 
   resendCode(): void {
     const email = this.form.controls.email.value;
-    if (!email) return;
+    if (!email || this.emailCooldown() > 0) return;
     this.loading.set(true);
     this.feedback.set(null);
     this.auth
@@ -651,8 +689,14 @@ export class AuthPageComponent implements OnInit {
         finalize(() => this.loading.set(false))
       )
       .subscribe({
-        next: (res) => this.feedback.set({ kind: 'success', text: res.message }),
-        error: (err) => this.feedback.set({ kind: 'error', text: this.readError(err) })
+        next: (res) => {
+          this.feedback.set({ kind: 'success', text: res.message });
+          this.startEmailCooldown(60);
+        },
+        error: (err) => {
+          this.feedback.set({ kind: 'error', text: this.readError(err) });
+          this.applyCooldownFromError(err);
+        }
       });
   }
 
@@ -671,6 +715,10 @@ export class AuthPageComponent implements OnInit {
     this.loading.set(true);
 
     if (this.mode() === 'forgot') {
+      if (this.emailCooldown() > 0) {
+        this.loading.set(false);
+        return;
+      }
       this.auth
         .forgotPassword(email)
         .pipe(
@@ -678,8 +726,14 @@ export class AuthPageComponent implements OnInit {
           finalize(() => this.loading.set(false))
         )
         .subscribe({
-          next: (res) => this.feedback.set({ kind: 'success', text: res.message }),
-          error: (err) => this.feedback.set({ kind: 'error', text: this.readError(err) })
+          next: (res) => {
+            this.feedback.set({ kind: 'success', text: res.message });
+            this.startEmailCooldown(60);
+          },
+          error: (err) => {
+            this.feedback.set({ kind: 'error', text: this.readError(err) });
+            this.applyCooldownFromError(err);
+          }
         });
       return;
     }
@@ -738,11 +792,18 @@ export class AuthPageComponent implements OnInit {
         next: (response) => {
           this.feedback.set({ kind: 'success', text: response.message });
           if (response.token) {
-            const target = response.user.role === 'ADMIN' ? '/admin' : '/dashboard';
+            const returnUrl = this.route.snapshot.queryParamMap.get('returnUrl');
+            const target =
+              returnUrl && isSafeReturnUrl(returnUrl)
+                ? returnUrl
+                : response.user.role === 'ADMIN'
+                  ? '/admin'
+                  : '/dashboard';
             window.setTimeout(() => this.router.navigateByUrl(target), 400);
           } else if (this.mode() === 'register') {
             this.form.patchValue({ code: '' });
             this.applyMode('verify', true);
+            this.startEmailCooldown(60);
           } else {
             this.applyMode('login', true);
           }
@@ -818,8 +879,42 @@ export class AuthPageComponent implements OnInit {
     this.form.updateValueAndValidity({ emitEvent: false });
   }
 
+  private startEmailCooldown(seconds: number): void {
+    if (this.emailCooldownTimer) {
+      clearInterval(this.emailCooldownTimer);
+      this.emailCooldownTimer = null;
+    }
+    this.emailCooldown.set(Math.max(0, Math.floor(seconds)));
+    if (this.emailCooldown() <= 0) return;
+    this.emailCooldownTimer = setInterval(() => {
+      const next = this.emailCooldown() - 1;
+      this.emailCooldown.set(next);
+      if (next <= 0 && this.emailCooldownTimer) {
+        clearInterval(this.emailCooldownTimer);
+        this.emailCooldownTimer = null;
+      }
+    }, 1000);
+  }
+
+  private applyCooldownFromError(error: unknown): void {
+    const text = this.readError(error);
+    const match = text.match(/wait\s+(\d+)\s+seconds/i);
+    if (match) {
+      this.startEmailCooldown(Number(match[1]));
+    }
+  }
+
   private readError(error: unknown): string {
-    const err = error as { error?: { message?: string }; message?: string };
-    return err?.error?.message ?? err?.message ?? 'Request failed';
+    const err = error as {
+      status?: number;
+      error?: { message?: string; error?: string } | string;
+      message?: string;
+    };
+    if (typeof err?.error === 'string' && err.error.trim()) return err.error;
+    if (err?.error && typeof err.error === 'object') {
+      if (err.error.message) return err.error.message;
+      if (err.error.error) return err.error.error;
+    }
+    return err?.message ?? 'Request failed';
   }
 }

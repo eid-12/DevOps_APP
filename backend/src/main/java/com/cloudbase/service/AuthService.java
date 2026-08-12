@@ -14,7 +14,7 @@ public interface AuthService {
     UserEntity resolveEntity(String token);
     UserAccount resolveUserFromId(String userId);
 
-    /** Persist GitHub connection on the authenticated user (Step 1 stub — keep for tests). */
+    /** Persist GitHub connection on the authenticated user (Step 1 stub - keep for tests). */
     UserAccount connectGitHub(UserEntity user, ConnectGitHubRequest request);
 
     /** Clear GitHub fields on the authenticated user. */
@@ -51,4 +51,31 @@ public interface AuthService {
 
     /** Send a fresh verification code (if the account is still unverified). */
     com.cloudbase.dto.AuthDtos.MessageResponse resendVerificationCode(String email);
+
+    /** Free plan ceilings (same for all non-admin users today). */
+    java.util.Map<String, Object> getPlan();
+
+    /** Current resource usage for the authenticated user. */
+    java.util.Map<String, Object> getUsage(UserEntity user);
+
+    /** Update display name (email stays fixed). */
+    UserAccount updateProfile(UserEntity user, String name);
+
+    /** Change password after verifying the current one. */
+    com.cloudbase.dto.AuthDtos.MessageResponse changePassword(
+            UserEntity user,
+            String currentPassword,
+            String newPassword
+    );
+
+    /** Persist onboarding dismissed flag. */
+    UserAccount dismissOnboarding(UserEntity user);
+
+    /** Update email notification preferences. */
+    UserAccount updateNotificationPrefs(
+            UserEntity user,
+            boolean emailDeployments,
+            boolean emailFailures,
+            boolean emailWeeklyUsage
+    );
 }

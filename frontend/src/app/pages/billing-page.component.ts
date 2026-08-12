@@ -36,12 +36,12 @@ import { PlanInfo, UsageSummary } from '../core/models';
           </div>
 
           <ul class="plan-features">
-            <li>Up to <strong>{{ p.projectsLimit }}</strong> projects</li>
-            <li>Up to <strong>{{ p.servicesLimit }}</strong> services</li>
-            <li><strong>{{ p.memoryMbLimit }} MB</strong> RAM pool</li>
-            <li><strong>{{ p.storageGbLimit }} GB</strong> storage</li>
-            <li><strong>{{ p.deploymentsLimit }}</strong> deploys / month</li>
-            <li>Random *.cloudbase.website URLs + custom domains</li>
+            <li>Up to <strong>{{ p.projectsLimit }}</strong> projects — count is open</li>
+            <li>Up to <strong>{{ p.servicesLimit }}</strong> services — count is open</li>
+            <li><strong>{{ p.memoryMbLimit }} MB</strong> RAM pool (enforced)</li>
+            <li><strong>{{ p.storageGbLimit }} GB</strong> storage (enforced)</li>
+            <li>Deploys / month — count is open</li>
+            <li>Random cloudbase*.cloudbase.website URLs + custom domains</li>
             <li>Community support</li>
           </ul>
 
@@ -58,16 +58,14 @@ import { PlanInfo, UsageSummary } from '../core/models';
             <div class="billing-usage-row">
               <div>
                 <span class="metric-label">Projects</span>
-                <strong>{{ u.projects }} / {{ plan()?.projectsLimit }}</strong>
+                <strong>{{ u.projects }}</strong>
               </div>
-              <div class="meter"><span [style.width.%]="pct(u.projects, plan()?.projectsLimit)"></span></div>
             </div>
             <div class="billing-usage-row">
               <div>
                 <span class="metric-label">Services</span>
-                <strong>{{ u.services }} / {{ plan()?.servicesLimit }}</strong>
+                <strong>{{ u.services }}</strong>
               </div>
-              <div class="meter"><span [style.width.%]="pct(u.services, plan()?.servicesLimit)"></span></div>
             </div>
             <div class="billing-usage-row">
               <div>
@@ -86,9 +84,8 @@ import { PlanInfo, UsageSummary } from '../core/models';
             <div class="billing-usage-row">
               <div>
                 <span class="metric-label">Deployments this month</span>
-                <strong>{{ u.deploymentsThisMonth }} / {{ plan()?.deploymentsLimit }}</strong>
+                <strong>{{ u.deploymentsThisMonth }}</strong>
               </div>
-              <div class="meter"><span [style.width.%]="pct(u.deploymentsThisMonth, plan()?.deploymentsLimit)"></span></div>
             </div>
           </div>
         } @else {

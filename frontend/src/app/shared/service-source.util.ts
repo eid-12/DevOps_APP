@@ -35,12 +35,47 @@ export const DB_PRESETS: Record<
   }
 };
 
+/** User-facing demo apps only — never platform/infra tools (Portainer, etc.). */
 export const DOCKER_IMAGE_PRESETS = [
   { image: 'nginxdemos/hello', tag: 'latest', port: 80, label: 'Hello (demo)' },
   { image: 'nginx', tag: 'alpine', port: 80, label: 'Nginx' },
   { image: 'traefik/whoami', tag: 'latest', port: 80, label: 'Whoami' },
-  { image: 'httpd', tag: 'alpine', port: 80, label: 'Apache' }
+  { image: 'httpd', tag: 'alpine', port: 80, label: 'Apache' },
+  { image: 'ghost', tag: 'alpine', port: 2368, label: 'Ghost' }
 ] as const;
+
+/** Default process start command shown/edited like Railway/Render (overrideable). */
+export function defaultStartCommand(runtime: string | undefined | null): string {
+  switch ((runtime || 'node').toLowerCase()) {
+    case 'java':
+      return 'java -jar /app/app.jar';
+    case 'python':
+      return 'python -m uvicorn main:app --host 0.0.0.0 --port 8000';
+    case 'go':
+      return '/app/app';
+    case 'dotnet':
+      return 'dotnet App.dll';
+    case 'php':
+      return 'apache2-foreground';
+    case 'rust':
+      return '/app/app';
+    case 'node':
+      return 'nginx -g "daemon off;"';
+    default:
+      return '';
+  }
+}
+
+/** Client-side hint checks (server enforces the real rules). */
+export function startCommandLooksUnsafe(cmd: string): string | null {
+  const t = (cmd || '').trim();
+  if (!t) return null;
+  if (t.length > 400) return 'Max 400 characters';
+  if (/[|&=`$<>\\]/.test(t) || /\$\(|\$\{/.test(t)) return 'Shell operators are not allowed';
+  if (/[\r\n\t]/.test(t)) return 'Single line only';
+  if (/(^|\s)(curl|wget|bash|sh|sudo|docker|nc|ncat)\b/i.test(t)) return 'Blocked binary';
+  return null;
+}
 
 export function parseDockerImageRef(value: string): { imageName: string; imageTag: string } {
   const raw = (value || '').trim();
@@ -62,8 +97,12 @@ export function guessContainerPort(imageName: string): number {
   if (n.includes('mysql') || n.includes('mariadb')) return 3306;
   if (n.includes('redis')) return 6379;
   if (n.includes('mongo')) return 27017;
+  if (n.includes('grafana')) return 3000;
+  if (n.includes('ghost')) return 2368;
+  if (n.includes('portainer')) return 9000;
+  if (n.includes('jenkins')) return 8080;
   if (n.includes('nginx') || n.includes('httpd') || n.includes('whoami') || n.includes('hello')) return 80;
-  if (n.includes('traefik')) return 80;
+  if (n.includes('traefik') && !n.includes('whoami')) return 80;
   return 8080;
 }
 

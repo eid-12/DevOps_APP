@@ -3,15 +3,23 @@ import { CommonModule } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '../core/auth.service';
 import { InAppNotification } from '../core/models';
+import { TimeAgoPipe } from './pipes/time-ago.pipe';
+import { PressableDirective } from './directives/pressable.directive';
 
 @Component({
   selector: 'app-notification-bell',
   standalone: true,
-  imports: [CommonModule, RouterLink],
+  imports: [CommonModule, RouterLink, TimeAgoPipe, PressableDirective],
   template: `
     <div class="notif-bell" (click)="$event.stopPropagation()">
-      <button type="button" class="btn btn-ghost btn-sm notif-bell-btn" (click)="toggle()" aria-label="Notifications">
-        <span aria-hidden="true">🔔</span>
+      <button
+        type="button"
+        class="btn btn-ghost btn-sm notif-bell-btn"
+        appPressable
+        (click)="toggle()"
+        aria-label="Notifications"
+      >
+        <i class="pi pi-bell" aria-hidden="true"></i>
         @if (unread() > 0) {
           <span class="notif-badge">{{ unread() > 9 ? '9+' : unread() }}</span>
         }
@@ -21,19 +29,24 @@ import { InAppNotification } from '../core/models';
         <div class="notif-panel panel">
           <div class="notif-panel-head">
             <strong>Notifications</strong>
-            <button type="button" class="btn btn-ghost btn-sm" (click)="markAll()">Mark all read</button>
+            <button type="button" class="btn btn-ghost btn-sm" appPressable (click)="markAll()">Mark all read</button>
           </div>
-          <div class="notif-list">
-            @for (n of items(); track n.id) {
-              <button type="button" class="notif-item" [class.unread]="!n.read" (click)="openItem(n)">
-                <strong>{{ n.title }}</strong>
-                <span>{{ n.body }}</span>
-                <time>{{ n.createdAt | date:'short' }}</time>
-              </button>
-            } @empty {
-              <p class="muted" style="padding:12px">No notifications</p>
-            }
-          </div>
+          <!-- @defer: load list only when the panel is open -->
+          @defer (when open(); prefetch on idle) {
+            <div class="notif-list">
+              @for (n of items(); track n.id) {
+                <button type="button" class="notif-item" [class.unread]="!n.read" appPressable (click)="openItem(n)">
+                  <strong>{{ n.title }}</strong>
+                  <span>{{ n.body }}</span>
+                  <time [attr.title]="n.createdAt | date:'medium'">{{ n.createdAt | timeAgo }}</time>
+                </button>
+              } @empty {
+                <p class="muted" style="padding:12px">Deployments and service alerts appear here.</p>
+              }
+            </div>
+          } @placeholder {
+            <p class="muted" style="padding:12px">Loading…</p>
+          }
         </div>
       }
     </div>
@@ -73,7 +86,10 @@ export class NotificationBellComponent implements OnInit, OnDestroy {
       this.unread.set(0);
       return;
     }
-    this.unread.set(this.auth.unreadCount());
+    this.auth.refreshUnread().subscribe({
+      next: n => this.unread.set(n),
+      error: () => this.unread.set(0)
+    });
     this.auth.listInbox().subscribe({
       next: list => this.items.set(list.slice(0, 12)),
       error: () => {}

@@ -37,4 +37,60 @@ public final class AdminDtos {
             String details
     ) {
     }
+
+    /** Secrets are never echoed; blank secret fields on update mean "keep current". */
+    public record HostingSettingsResponse(
+            String portainerUrl,
+            boolean portainerApiKeyConfigured,
+            String portainerApiKeyHint,
+            String portainerEndpointId,
+            boolean npmEnabled,
+            String npmUrl,
+            String npmEmail,
+            boolean npmPasswordConfigured,
+            String npmPasswordHint,
+            String npmCertificateId,
+            boolean npmSslForced,
+            String githubClientId,
+            boolean githubClientSecretConfigured,
+            String githubClientSecretHint,
+            String githubRedirectUri,
+            String githubScopes,
+            boolean githubWebhookSecretConfigured,
+            String githubWebhookSecretHint,
+            String dockerHubUsername,
+            boolean dockerHubTokenConfigured,
+            String dockerHubTokenHint,
+            String dockerHubNamespace,
+            String baseDomain,
+            String publicApiUrl,
+            String dockerNetwork,
+            String volumeRoot
+    ) {
+    }
+
+    public record HostingSettingsUpdateRequest(
+            String portainerUrl,
+            String portainerApiKey,
+            String portainerEndpointId,
+            Boolean npmEnabled,
+            String npmUrl,
+            String npmEmail,
+            String npmPassword,
+            String npmCertificateId,
+            Boolean npmSslForced,
+            String githubClientId,
+            String githubClientSecret,
+            String githubRedirectUri,
+            String githubScopes,
+            String githubWebhookSecret,
+            String dockerHubUsername,
+            String dockerHubToken,
+            String dockerHubNamespace,
+            String baseDomain,
+            String publicApiUrl,
+            String dockerNetwork,
+            String volumeRoot
+    ) {
+    }
 }

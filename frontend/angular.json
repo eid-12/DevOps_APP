@@ -23,6 +23,18 @@
               "node_modules/primeng/resources/primeng.min.css",
               "node_modules/primeflex/primeflex.css",
               "src/styles.scss"
+            ],
+            "budgets": [
+              {
+                "type": "initial",
+                "maximumWarning": "1.5mb",
+                "maximumError": "3mb"
+              },
+              {
+                "type": "anyComponentStyle",
+                "maximumWarning": "16kb",
+                "maximumError": "32kb"
+              }
             ]
           }
         },

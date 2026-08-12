@@ -68,9 +68,33 @@ public final class ProjectDtos {
     ) {
     }
 
-    /** Bring-your-own hostname (not *.cloudbase.website). Pass empty string to clear. */
+    /** Bring-your-own hostname (not *.baseDomain). Pass empty string to clear. */
     public record SetCustomDomainRequest(
             String domain
+    ) {
+    }
+
+    public record SetVanitySubdomainRequest(
+            @NotBlank String slug
+    ) {
+    }
+
+    /** Account vanity slot status for the Network UI. */
+    public record VanityStatusResponse(
+            String baseDomain,
+            int limitPerAccount,
+            String claimedSlug,
+            String claimedFqdn,
+            String claimedServiceId,
+            boolean thisServiceHoldsVanity
+    ) {
+    }
+
+    /** Pre-save availability check for a custom hostname. */
+    public record DomainCheckResponse(
+            String domain,
+            boolean available,
+            String reason
     ) {
     }
 
@@ -98,6 +122,7 @@ public final class ProjectDtos {
     public record UpdateServiceRequest(
             String name,
             Map<String, Object> sourceDetails,
+            String runtime,
             ResourceQuota quota,
             VolumeMount volume,
             Boolean removeVolume

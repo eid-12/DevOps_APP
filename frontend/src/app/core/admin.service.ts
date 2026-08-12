@@ -3,7 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { delay, Observable, of, throwError } from 'rxjs';
 import { AuthService } from './auth.service';
 import { MockStore } from './mock-store';
-import { AccountStatus, AuditLogEntry, InfrastructureOverview, UserAccount, UserRole } from './models';
+import { AccountStatus, AuditLogEntry, HostingSettings, HostingSettingsUpdate, InfrastructureOverview, UserAccount, UserRole } from './models';
 import { environment } from '../../environments/environment';
 
 @Injectable({ providedIn: 'root' })
@@ -103,5 +103,50 @@ export class AdminService {
       return this.http.get<AuditLogEntry[]>(`${this.apiBase}/admin/audit-logs`);
     }
     return of(this.store.listAuditLogs()).pipe(delay(200));
+  }
+
+  hostingSettings(): Observable<HostingSettings> {
+    const denied = this.requireAdmin();
+    if (denied) return denied;
+    if (this.useApi) {
+      return this.http.get<HostingSettings>(`${this.apiBase}/admin/hosting-settings`);
+    }
+    return of({
+      portainerUrl: 'http://localhost:9000',
+      portainerApiKeyConfigured: false,
+      portainerApiKeyHint: '',
+      portainerEndpointId: '1',
+      npmEnabled: false,
+      npmUrl: 'http://localhost:81',
+      npmEmail: '',
+      npmPasswordConfigured: false,
+      npmPasswordHint: '',
+      npmCertificateId: '0',
+      npmSslForced: false,
+      githubClientId: '',
+      githubClientSecretConfigured: false,
+      githubClientSecretHint: '',
+      githubRedirectUri: 'http://localhost:4200/auth/github/callback',
+      githubScopes: 'read:user repo user:email workflow',
+      githubWebhookSecretConfigured: false,
+      githubWebhookSecretHint: '',
+      dockerHubUsername: '',
+      dockerHubTokenConfigured: false,
+      dockerHubTokenHint: '',
+      dockerHubNamespace: 'cloudbase',
+      baseDomain: 'cloudbase.website',
+      publicApiUrl: '',
+      dockerNetwork: 'cloudbase',
+      volumeRoot: '/var/lib/cloudbase/users'
+    }).pipe(delay(150));
+  }
+
+  updateHostingSettings(payload: HostingSettingsUpdate): Observable<HostingSettings> {
+    const denied = this.requireAdmin();
+    if (denied) return denied;
+    if (this.useApi) {
+      return this.http.put<HostingSettings>(`${this.apiBase}/admin/hosting-settings`, payload);
+    }
+    return this.hostingSettings();
   }
 }

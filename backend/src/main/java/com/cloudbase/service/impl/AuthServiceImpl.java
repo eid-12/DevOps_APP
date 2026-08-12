@@ -5,6 +5,7 @@ import com.cloudbase.dto.AuthDtos.ConnectGitHubRequest;
 import com.cloudbase.dto.AuthDtos.LoginRequest;
 import com.cloudbase.dto.AuthDtos.MessageResponse;
 import com.cloudbase.dto.AuthDtos.RegisterRequest;
+import com.cloudbase.email.EmailRateLimiter;
 import com.cloudbase.email.EmailService;
 import com.cloudbase.email.ResendProperties;
 import com.cloudbase.entity.UserEntity;
@@ -18,6 +19,7 @@ import com.cloudbase.model.UserRole;
 import com.cloudbase.repository.UserRepository;
 import com.cloudbase.security.JwtService;
 import com.cloudbase.service.AuthService;
+import com.cloudbase.service.PlanQuotaService;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -46,7 +48,9 @@ public class AuthServiceImpl implements AuthService {
     private final GitHubOAuthClient gitHubOAuthClient;
     private final GitHubOAuthService gitHubOAuthService;
     private final EmailService emailService;
+    private final EmailRateLimiter emailRateLimiter;
     private final ResendProperties resendProperties;
+    private final PlanQuotaService planQuotaService;
     private final String oauthSuccessRedirect;
     private final String oauthFailureRedirect;
 
@@ -58,7 +62,9 @@ public class AuthServiceImpl implements AuthService {
             GitHubOAuthService gitHubOAuthService,
             GitHubOAuthProperties gitHubOAuthProperties,
             EmailService emailService,
-            ResendProperties resendProperties
+            EmailRateLimiter emailRateLimiter,
+            ResendProperties resendProperties,
+            PlanQuotaService planQuotaService
     ) {
         this.userRepository = userRepository;
         this.jwtService = jwtService;
@@ -66,7 +72,9 @@ public class AuthServiceImpl implements AuthService {
         this.gitHubOAuthClient = gitHubOAuthClient;
         this.gitHubOAuthService = gitHubOAuthService;
         this.emailService = emailService;
+        this.emailRateLimiter = emailRateLimiter;
         this.resendProperties = resendProperties;
+        this.planQuotaService = planQuotaService;
         this.oauthSuccessRedirect = gitHubOAuthProperties.successRedirect();
         this.oauthFailureRedirect = gitHubOAuthProperties.failureRedirect();
     }
@@ -91,7 +99,14 @@ public class AuthServiceImpl implements AuthService {
         }
 
         String token = jwtService.generateToken(user.getId(), user.getRole().name());
-        return new AuthResponse(token, toModel(user), "Login successful");
+        var exp = jwtService.getExpiration(token);
+        return new AuthResponse(
+                token,
+                toModel(user),
+                "Login successful",
+                exp.toInstant().toString(),
+                jwtService.getExpiresInSeconds()
+        );
     }
 
     @Override
@@ -116,6 +131,7 @@ public class AuthServiceImpl implements AuthService {
 
         userRepository.save(user);
         emailService.sendEmailVerificationCode(user.getEmail(), user.getName(), code);
+        emailRateLimiter.recordSend(EmailRateLimiter.Action.VERIFICATION, user.getEmail());
         return new AuthResponse(
                 null,
                 toModel(user),
@@ -125,11 +141,13 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public MessageResponse verifyEmail(String email, String code) {
+        emailRateLimiter.checkVerifyAllowed(email);
+
         UserEntity user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid email or code"));
 
         if (user.isEmailVerified()) {
-            return new MessageResponse("Email already verified. You can sign in — deployment stays locked until an admin enables it.");
+            return new MessageResponse("Email already verified. You can sign in - deployment stays locked until an admin enables it.");
         }
 
         if (user.getEmailVerificationCode() == null
@@ -139,9 +157,20 @@ public class AuthServiceImpl implements AuthService {
         }
 
         if (!user.getEmailVerificationCode().equals(code.trim())) {
+            boolean locked = emailRateLimiter.recordVerifyFailure(email);
+            if (locked) {
+                user.setEmailVerificationCode(null);
+                user.setEmailVerificationExpiresAt(null);
+                userRepository.save(user);
+                throw new ResponseStatusException(
+                        HttpStatus.TOO_MANY_REQUESTS,
+                        "Too many wrong codes. Request a new verification code."
+                );
+            }
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid verification code");
         }
 
+        emailRateLimiter.clearVerifyFailures(email);
         user.setEmailVerified(true);
         user.setEmailVerificationCode(null);
         user.setEmailVerificationExpiresAt(null);
@@ -158,6 +187,8 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public MessageResponse resendVerificationCode(String email) {
+        emailRateLimiter.checkCanSend(EmailRateLimiter.Action.VERIFICATION, email);
+
         UserEntity user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "If the account exists, a code will be sent."));
 
@@ -170,12 +201,16 @@ public class AuthServiceImpl implements AuthService {
         user.setEmailVerificationExpiresAt(Instant.now().plus(CODE_TTL_MINUTES, ChronoUnit.MINUTES));
         userRepository.save(user);
         emailService.sendEmailVerificationCode(user.getEmail(), user.getName(), code);
+        emailRateLimiter.recordSend(EmailRateLimiter.Action.VERIFICATION, user.getEmail());
+        emailRateLimiter.clearVerifyFailures(user.getEmail());
         return new MessageResponse("A new verification code was sent to your email.");
     }
 
     @Override
     public MessageResponse forgotPassword(String email) {
         String generic = "If an account exists for that email, a reset link has been sent.";
+        // Always rate-limit by submitted address (even if no account) to stop spam.
+        emailRateLimiter.checkCanSend(EmailRateLimiter.Action.PASSWORD_RESET, email);
         userRepository.findByEmail(email).ifPresent(user -> {
             String token = jwtService.generatePasswordResetToken(user.getId());
             String resetUrl = UriComponentsBuilder
@@ -187,6 +222,7 @@ public class AuthServiceImpl implements AuthService {
                     .toUriString();
             emailService.sendPasswordReset(user.getEmail(), user.getName(), resetUrl);
         });
+        emailRateLimiter.recordSend(EmailRateLimiter.Action.PASSWORD_RESET, email);
         return new MessageResponse(generic);
     }
 
@@ -378,8 +414,97 @@ public class AuthServiceImpl implements AuthService {
                 entity.getAccountStatus(),
                 entity.isDeploymentEnabled(),
                 entity.isEmailVerified(),
-                toGitHub(entity)
+                toGitHub(entity),
+                entity.isOnboardingDismissed(),
+                new com.cloudbase.model.NotificationPrefs(
+                        entity.isNotifyEmailDeployments(),
+                        entity.isNotifyEmailFailures(),
+                        entity.isNotifyEmailWeeklyUsage()
+                )
         );
+    }
+
+    @Override
+    public java.util.Map<String, Object> getPlan() {
+        return planQuotaService.planInfo();
+    }
+
+    @Override
+    public java.util.Map<String, Object> getUsage(UserEntity user) {
+        return planQuotaService.usageFor(user);
+    }
+
+    @Override
+    public UserAccount updateProfile(UserEntity user, String name) {
+        UserEntity managed = userRepository.findById(user.getId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
+        String trimmed = name == null ? "" : name.trim();
+        if (trimmed.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Name is required");
+        }
+        if (trimmed.length() > 120) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Name is too long");
+        }
+        managed.setName(trimmed);
+        return toModel(userRepository.save(managed));
+    }
+
+    @Override
+    public MessageResponse changePassword(UserEntity user, String currentPassword, String newPassword) {
+        UserEntity managed = userRepository.findById(user.getId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
+        if (currentPassword == null || currentPassword.isBlank()
+                || newPassword == null || newPassword.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Current and new password are required");
+        }
+        if (!isStrongPassword(newPassword)) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Password must be at least 8 characters and include upper, lower, digit, and special character"
+            );
+        }
+        if (!passwordEncoder.matches(currentPassword, managed.getPasswordHash())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Current password is incorrect");
+        }
+        managed.setPasswordHash(passwordEncoder.encode(newPassword));
+        userRepository.save(managed);
+        return new MessageResponse("Password changed");
+    }
+
+    @Override
+    public UserAccount dismissOnboarding(UserEntity user) {
+        UserEntity managed = userRepository.findById(user.getId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
+        managed.setOnboardingDismissed(true);
+        return toModel(userRepository.save(managed));
+    }
+
+    @Override
+    public UserAccount updateNotificationPrefs(
+            UserEntity user,
+            boolean emailDeployments,
+            boolean emailFailures,
+            boolean emailWeeklyUsage
+    ) {
+        UserEntity managed = userRepository.findById(user.getId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
+        managed.setNotifyEmailDeployments(emailDeployments);
+        managed.setNotifyEmailFailures(emailFailures);
+        managed.setNotifyEmailWeeklyUsage(emailWeeklyUsage);
+        return toModel(userRepository.save(managed));
+    }
+
+    private static boolean isStrongPassword(String password) {
+        if (password == null || password.length() < 8) return false;
+        boolean upper = false, lower = false, digit = false, special = false;
+        for (int i = 0; i < password.length(); i++) {
+            char c = password.charAt(i);
+            if (Character.isUpperCase(c)) upper = true;
+            else if (Character.isLowerCase(c)) lower = true;
+            else if (Character.isDigit(c)) digit = true;
+            else special = true;
+        }
+        return upper && lower && digit && special;
     }
 
     private static String generateVerificationCode() {

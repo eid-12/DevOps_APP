@@ -5,6 +5,7 @@ import {
   OnDestroy,
   OnInit,
   ViewChild,
+  computed,
   inject,
   signal
 } from '@angular/core';
@@ -23,17 +24,40 @@ import {
   ServiceRuntime,
   ServiceSourceType,
   SharedVariable,
-  TerminalLine
+  TerminalLine,
+  UsageSummary,
+  PlanInfo
 } from '../core/models';
-import { DB_PRESETS, guessContainerPort } from '../shared/service-source.util';
+import { DB_PRESETS, defaultStartCommand, guessContainerPort } from '../shared/service-source.util';
 import { publicHost, publicUrl } from '../shared/public-host.util';
+import { ConfirmDeleteDialogComponent } from '../shared/confirm-delete-dialog.component';
+import { RuntimeSelectComponent } from '../shared/runtime-select.component';
+import { DatabaseTypeSelectComponent } from '../shared/database-type-select.component';
+import { StyledSelectComponent, StyledSelectOption } from '../shared/styled-select.component';
 
 type ServiceTab = 'overview' | 'deployments' | 'metrics' | 'logs' | 'terminal' | 'variables' | 'network' | 'settings';
+type MetricsRange = '1h' | '6h' | '1d' | '7d' | '30d';
+
+interface MetricSeries {
+  label: string;
+  points: string;
+  area: string;
+  maxLabel: string;
+  currentLabel: string;
+  ticks: string[];
+}
+
+interface MetricSample {
+  t: number;
+  cpu: number;
+  memMb: number;
+  memPct: number;
+}
 
 @Component({
   selector: 'app-service-detail-page',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink],
+  imports: [CommonModule, FormsModule, RouterLink, RuntimeSelectComponent, DatabaseTypeSelectComponent, StyledSelectComponent, ConfirmDeleteDialogComponent],
   template: `
 <div class="page railway-page svc-page">
   <div class="container">
@@ -53,13 +77,13 @@ type ServiceTab = 'overview' | 'deployments' | 'metrics' | 'logs' | 'terminal' |
           @if (showDeployChrome()) {
             <div class="deploy-chrome svc-header-deploy">
               <div class="deploy-timeline" aria-label="Deployment progress">
-                @for (step of deployTimelineSteps; track step; let i = $index) {
+                @for (step of deployTimelineSteps(); track step; let i = $index) {
                   <span
                     class="deploy-step"
                     [class.done]="i < headerDeployStep()"
                     [class.active]="i === headerDeployStep()"
                   >{{ step }}</span>
-                  @if (i < deployTimelineSteps.length - 1) {
+                  @if (i < deployTimelineSteps().length - 1) {
                     <span class="deploy-step-sep">→</span>
                   }
                 }
@@ -75,10 +99,24 @@ type ServiceTab = 'overview' | 'deployments' | 'metrics' | 'logs' | 'terminal' |
 
       <div class="railway-topbar-actions svc-actions">
         @if (service(); as svc) {
-          @if (svc.status === 'PENDING' || svc.status === 'STOPPED' || svc.status === 'FAILED') {
-            <button type="button" class="btn btn-primary btn-sm" (click)="deploy()" [disabled]="busy() || !canManage()">
-              {{ busy() ? 'Deploying…' : 'Deploy' }}
+          @if (svc.status === 'PENDING' || svc.status === 'STOPPED' || svc.status === 'FAILED'
+              || svc.status === 'BUILDING' || svc.status === 'DEPLOYING') {
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              (click)="deploy()"
+              [disabled]="!canDeployNow()"
+              [title]="busy() || showDeployChrome() ? 'Retry deploy if stuck' : ''"
+            >
+              {{ (busy() || showDeployChrome()) ? 'Redeploy' : 'Deploy' }}
             </button>
+            <button
+              type="button"
+              class="btn btn-sm btn-danger-soft"
+              (click)="stop()"
+              [disabled]="!canManage()"
+              title="Stop / cancel stuck deploy"
+            >Stop</button>
           }
           @if (svc.status === 'RUNNING') {
             <button type="button" class="btn btn-ghost btn-sm" (click)="setTab('terminal')">Terminal</button>
@@ -87,13 +125,19 @@ type ServiceTab = 'overview' | 'deployments' | 'metrics' | 'logs' | 'terminal' |
               {{ busy() ? '…' : 'Restart' }}
             </button>
             <button type="button" class="btn btn-sm btn-danger-soft" (click)="stop()" [disabled]="busy() || !canManage()">Stop</button>
-            <button type="button" class="btn btn-primary btn-sm" (click)="deploy()" [disabled]="busy() || !canManage()">
-              {{ busy() ? '…' : 'Redeploy' }}
+            <button type="button" class="btn btn-primary btn-sm" (click)="deploy()" [disabled]="!canDeployNow()">
+              Redeploy
             </button>
           }
         }
       </div>
     </header>
+
+    @if (!canManage() && service()) {
+      <div class="pill pill-red railway-alert" style="margin-bottom:14px">
+        Deploy access is locked. Deploy, restart, stop, env/network changes, and delete are blocked until an admin enables Deploy.
+      </div>
+    }
 
     @if (message()) {
       <div class="pill" [class]="messageTone() === 'error' ? 'pill-red' : 'pill-green'" style="margin-bottom:14px">
@@ -120,7 +164,11 @@ type ServiceTab = 'overview' | 'deployments' | 'metrics' | 'logs' | 'terminal' |
         </div>
       </div>
     } @else if (!service()) {
-      <div class="railway-empty panel"><p>Service not found.</p></div>
+      <div class="railway-empty panel">
+        <p>Service not found.</p>
+        <p class="empty-sub">It may have been deleted or you lack access.</p>
+        <button type="button" class="btn btn-ghost btn-sm" style="margin-top:10px" (click)="goBack()">← Back to project</button>
+      </div>
     } @else {
       <nav class="svc-tabs" role="tablist">
         @for (t of tabs; track t.id) {
@@ -141,13 +189,13 @@ type ServiceTab = 'overview' | 'deployments' | 'metrics' | 'logs' | 'terminal' |
             <div class="metric-row">
               <div class="metric">
                 <span class="metric-label">CPU</span>
-                <strong>{{ service()!.cpuUsage | number:'1.1-1' }}%</strong>
+                <strong>{{ liveCpuLabel() }}</strong>
                 <div class="meter"><span [style.width.%]="cpuPct()"></span></div>
                 <small>{{ service()!.quota.cpuMilli }}m limit</small>
               </div>
               <div class="metric">
                 <span class="metric-label">Memory</span>
-                <strong>{{ service()!.ramUsageMb }} MB</strong>
+                <strong>{{ liveRamLabel() }}</strong>
                 <div class="meter"><span [style.width.%]="ramPct()"></span></div>
                 <small>{{ service()!.quota.memorymb }} MB limit</small>
               </div>
@@ -164,24 +212,39 @@ type ServiceTab = 'overview' | 'deployments' | 'metrics' | 'logs' | 'terminal' |
             <h3>Quick info</h3>
             <dl class="svc-dl">
               <div><dt>Source</dt><dd>{{ service()!.sourceType }}</dd></div>
-              <div><dt>Runtime</dt><dd>{{ runtimeLabel(service()!.runtime) }}</dd></div>
+              @if (service()!.sourceType === 'GITHUB') {
+                <div><dt>Runtime</dt><dd>{{ runtimeLabel(service()!.runtime) }}</dd></div>
+              }
+              @if (service()!.sourceType === 'DATABASE') {
+                <div><dt>Engine</dt><dd>{{ sourceSummary() }}</dd></div>
+              }
+              @if (service()!.sourceType === 'DOCKER') {
+                <div><dt>Image</dt><dd>{{ sourceSummary() }}</dd></div>
+              }
               <div><dt>Health</dt><dd>
                 <span class="pill" [class]="service()!.status === 'RUNNING' ? 'pill-green' : 'pill-amber'">
                   {{ service()!.status === 'RUNNING' ? 'Healthy' : service()!.status }}
                 </span>
               </dd></div>
               <div><dt>Created</dt><dd>{{ service()!.createdAt | date:'medium' }}</dd></div>
-              <div>
-                <dt>Public URL</dt>
-                <dd>
-                  @if (publicUrl(service()!)) {
-                    <a [href]="publicUrl(service()!)" target="_blank" rel="noopener">{{ publicHost(service()!) }}</a>
-                    <button type="button" class="btn btn-ghost btn-sm" style="margin-left:6px" (click)="copyText(publicUrl(service()!)!)">Copy</button>
-                  } @else {
-                    <span class="muted">Not assigned</span>
-                  }
-                </dd>
-              </div>
+              @if (service()!.sourceType !== 'DATABASE') {
+                <div>
+                  <dt>Public URL</dt>
+                  <dd>
+                    @if (publicUrl(service()!)) {
+                      <a [href]="publicUrl(service()!)" target="_blank" rel="noopener">{{ publicHost(service()!) }}</a>
+                      <button type="button" class="btn btn-ghost btn-sm" style="margin-left:6px" (click)="copyText(publicUrl(service()!)!)">Copy</button>
+                    } @else {
+                      <span class="muted">Not assigned</span>
+                    }
+                  </dd>
+                </div>
+              } @else {
+                <div>
+                  <dt>Private host</dt>
+                  <dd class="mono">{{ service()!.containerName || ('cb-' + service()!.id) }}</dd>
+                </div>
+              }
               <div><dt>Latest deploy</dt><dd>{{ service()!.latestDeploymentId || '—' }}</dd></div>
             </dl>
 
@@ -217,7 +280,7 @@ type ServiceTab = 'overview' | 'deployments' | 'metrics' | 'logs' | 'terminal' |
         <section class="panel svc-panel">
           <div class="svc-panel-head">
             <h3>Deployments</h3>
-            <button type="button" class="btn btn-primary btn-sm" (click)="deploy()" [disabled]="busy() || !canManage()">Deploy Now</button>
+            <button type="button" class="btn btn-primary btn-sm" (click)="deploy()" [disabled]="busy() || !canDeployNow()">Deploy Now</button>
           </div>
 
           @if (activeDeploy(); as active) {
@@ -228,13 +291,13 @@ type ServiceTab = 'overview' | 'deployments' | 'metrics' | 'logs' | 'terminal' |
                   @if (active.rollbackOf) { Rolling back… } @else { Deploy in progress }
                 </strong>
                 <div class="deploy-timeline" aria-label="Deployment progress">
-                  @for (step of deployTimelineSteps; track step; let i = $index) {
+                  @for (step of deployTimelineSteps(); track step; let i = $index) {
                     <span
                       class="deploy-step"
                       [class.done]="i < deployStepIndex(active.status)"
                       [class.active]="i === deployStepIndex(active.status)"
                     >{{ step }}</span>
-                    @if (i < deployTimelineSteps.length - 1) {
+                    @if (i < deployTimelineSteps().length - 1) {
                       <span class="deploy-step-sep">→</span>
                     }
                   }
@@ -253,7 +316,11 @@ type ServiceTab = 'overview' | 'deployments' | 'metrics' | 'logs' | 'terminal' |
           }
 
           @if (!deployments().length) {
-            <p class="muted">No deployments yet.</p>
+            <div class="railway-empty" style="padding:20px 8px">
+              <p>No deployments yet.</p>
+              <p class="empty-sub">Click Deploy Now to pull/build and start this service.</p>
+              <button type="button" class="btn btn-primary btn-sm" style="margin-top:10px" (click)="deploy()" [disabled]="busy() || !canDeployNow()">Deploy Now</button>
+            </div>
           } @else {
             <div class="dep-list">
               @for (d of deployments(); track d.id) {
@@ -273,7 +340,7 @@ type ServiceTab = 'overview' | 'deployments' | 'metrics' | 'logs' | 'terminal' |
                         <button type="button" class="btn btn-ghost btn-sm" (click)="cancelDeploy(d.id)" [disabled]="!canManage()">Cancel</button>
                       }
                       @if (d.status === 'SUCCESS' && isLiveDeploy(d)) {
-                        <button type="button" class="btn btn-ghost btn-sm" (click)="deploy()" [disabled]="busy() || !canManage()">Redeploy</button>
+                        <button type="button" class="btn btn-ghost btn-sm" (click)="deploy()" [disabled]="busy() || !canDeployNow()">Redeploy</button>
                       }
                       @if (canRollback(d)) {
                         <button
@@ -354,13 +421,11 @@ type ServiceTab = 'overview' | 'deployments' | 'metrics' | 'logs' | 'terminal' |
           <div class="svc-panel-head">
             <h3>Logs</h3>
             <div class="logs-toolbar">
-              <select [(ngModel)]="logFilter" (ngModelChange)="noop()">
-                <option value="all">All levels</option>
-                <option value="info">Info</option>
-                <option value="warn">Warn</option>
-                <option value="error">Error</option>
-                <option value="debug">Debug</option>
-              </select>
+              <app-styled-select
+                [compact]="true"
+                [(value)]="logFilter"
+                [options]="logFilterOptions"
+              />
               <label class="toggle-inline">
                 <input type="checkbox" [(ngModel)]="liveLogs" (ngModelChange)="toggleLiveLogs($event)" />
                 Live
@@ -377,7 +442,9 @@ type ServiceTab = 'overview' | 'deployments' | 'metrics' | 'logs' | 'terminal' |
                 <span class="log-msg">{{ line.message }}</span>
               </div>
             } @empty {
-              <div class="muted" style="padding:16px">No log lines.</div>
+              <div class="muted" style="padding:16px">
+                No log lines yet. Deploy the service, then Refresh or enable Live to stream container output.
+              </div>
             }
           </div>
         </section>
@@ -414,12 +481,9 @@ type ServiceTab = 'overview' | 'deployments' | 'metrics' | 'logs' | 'terminal' |
             </form>
           </div>
           <div class="term-hints">
-            <button type="button" class="term-chip" (click)="runHint('help')">help</button>
-            <button type="button" class="term-chip" (click)="runHint('ls')">ls</button>
-            <button type="button" class="term-chip" (click)="runHint('env')">env</button>
-            <button type="button" class="term-chip" (click)="runHint('top')">top</button>
-            <button type="button" class="term-chip" (click)="runHint('ps')">ps</button>
-            <button type="button" class="term-chip" (click)="runHint('curl -s http://127.0.0.1:' + serviceContainerPort() + '/')">curl localhost</button>
+            @for (hint of terminalHints(); track hint.cmd) {
+              <button type="button" class="term-chip" (click)="runHint(hint.cmd)" [title]="hint.cmd">{{ hint.label }}</button>
+            }
           </div>
         </section>
       }
@@ -524,7 +588,7 @@ type ServiceTab = 'overview' | 'deployments' | 'metrics' | 'logs' | 'terminal' |
               {{ saving() ? 'Saving…' : 'Save Variables' }}
             </button>
             @if (service()?.envPendingDeploy) {
-              <button type="button" class="btn btn-ghost" (click)="deploy()" [disabled]="busy() || !canManage()">
+              <button type="button" class="btn btn-ghost" (click)="deploy()" [disabled]="busy() || !canDeployNow()">
                 Redeploy to apply
               </button>
             }
@@ -536,13 +600,23 @@ type ServiceTab = 'overview' | 'deployments' | 'metrics' | 'logs' | 'terminal' |
       @if (tab() === 'metrics') {
         <section class="metrics-section">
           <div class="metrics-toolbar">
-            <span class="muted" style="font-size:12px">Live stats from the running container (Portainer)</span>
+            <div class="metrics-ranges">
+              <span class="muted" style="font-size:12px;margin-right:8px;align-self:center">Live (this session)</span>
+              @for (r of metricsRanges; track r) {
+                <button
+                  type="button"
+                  class="metrics-range-btn"
+                  [class.active]="metricsRange() === r"
+                  (click)="setMetricsRange(r)"
+                >{{ r }}</button>
+              }
+            </div>
             <button type="button" class="btn btn-ghost btn-sm" (click)="refreshLiveMetrics()" [disabled]="metricsLoading()">
               {{ metricsLoading() ? 'Refreshing…' : 'Refresh' }}
             </button>
           </div>
 
-          @if (metricsLoading()) {
+          @if (metricsLoading() && !cpuSeries().points) {
             <div class="metrics-grid">
               @for (i of [1,2]; track i) {
                 <article class="panel metrics-card skeleton-card">
@@ -551,7 +625,7 @@ type ServiceTab = 'overview' | 'deployments' | 'metrics' | 'logs' | 'terminal' |
                 </article>
               }
             </div>
-          } @else if (!liveMetrics()?.['available']) {
+          } @else if (!liveMetrics()?.['available'] && !cpuSeries().points) {
             <div class="panel svc-panel">
               <p class="muted">{{ liveMetrics()?.['error'] || 'Metrics unavailable — deploy the service and keep it RUNNING.' }}</p>
             </div>
@@ -560,25 +634,46 @@ type ServiceTab = 'overview' | 'deployments' | 'metrics' | 'logs' | 'terminal' |
               <article class="panel metrics-card">
                 <div class="metrics-card-head">
                   <h3>CPU</h3>
-                  <strong>{{ liveMetrics()!['cpuPercent'] }}%</strong>
+                  <strong>{{ cpuSeries().currentLabel }}</strong>
                 </div>
-                <div class="meter" style="height:10px;margin:18px 0 8px">
-                  <span [style.width.%]="metricBarPct(liveMetrics()!['cpuPercent'])"></span>
+                <svg class="metrics-chart" viewBox="0 0 360 140" preserveAspectRatio="none" aria-hidden="true">
+                  <line class="metrics-gridline" x1="0" y1="35" x2="360" y2="35"></line>
+                  <line class="metrics-gridline" x1="0" y1="70" x2="360" y2="70"></line>
+                  <line class="metrics-gridline" x1="0" y1="105" x2="360" y2="105"></line>
+                  <path class="metrics-area metrics-area-cpu" [attr.d]="cpuSeries().area"></path>
+                  <polyline class="metrics-line metrics-line-cpu" fill="none" [attr.points]="cpuSeries().points"></polyline>
+                </svg>
+                <div class="metrics-axis">
+                  <span>{{ cpuSeries().ticks[0] }}</span>
+                  <span>{{ cpuSeries().ticks[1] }}</span>
+                  <span>{{ cpuSeries().ticks[2] }}</span>
                 </div>
                 <div class="metrics-legend">
-                  <span class="muted">Limit {{ service()!.quota.cpuMilli }}m</span>
+                  <span><i class="dot dot-cpu"></i> Usage</span>
+                  <span class="muted">{{ cpuSeries().maxLabel }} peak</span>
                 </div>
               </article>
+
               <article class="panel metrics-card">
                 <div class="metrics-card-head">
                   <h3>Memory</h3>
-                  <strong>{{ liveMetrics()!['memoryUsageMb'] }} MB</strong>
+                  <strong>{{ memSeries().currentLabel }}</strong>
                 </div>
-                <div class="meter" style="height:10px;margin:18px 0 8px">
-                  <span [style.width.%]="metricBarPct(liveMetrics()!['memoryPercent'])"></span>
+                <svg class="metrics-chart" viewBox="0 0 360 140" preserveAspectRatio="none" aria-hidden="true">
+                  <line class="metrics-gridline" x1="0" y1="35" x2="360" y2="35"></line>
+                  <line class="metrics-gridline" x1="0" y1="70" x2="360" y2="70"></line>
+                  <line class="metrics-gridline" x1="0" y1="105" x2="360" y2="105"></line>
+                  <path class="metrics-area metrics-area-mem" [attr.d]="memSeries().area"></path>
+                  <polyline class="metrics-line metrics-line-mem" fill="none" [attr.points]="memSeries().points"></polyline>
+                </svg>
+                <div class="metrics-axis">
+                  <span>{{ memSeries().ticks[0] }}</span>
+                  <span>{{ memSeries().ticks[1] }}</span>
+                  <span>{{ memSeries().ticks[2] }}</span>
                 </div>
                 <div class="metrics-legend">
-                  <span class="muted">Limit {{ liveMetrics()!['memoryLimitMb'] || service()!.quota.memorymb }} MB</span>
+                  <span><i class="dot dot-mem"></i> Usage</span>
+                  <span class="muted">{{ memSeries().maxLabel }} peak</span>
                 </div>
               </article>
             </div>
@@ -590,57 +685,163 @@ type ServiceTab = 'overview' | 'deployments' | 'metrics' | 'logs' | 'terminal' |
       @if (tab() === 'network') {
         <section class="panel svc-panel">
           <h3>Networking</h3>
-          <p class="muted" style="margin-bottom:16px">
-            Public HTTP via Cloudflare Tunnel + Nginx Proxy Manager.
-            Platform hosts are random numbers (not guessable). Bring your own domain for a branded URL.
-          </p>
+          @if (service()!.sourceType === 'DATABASE') {
+            <p class="muted" style="margin-bottom:16px">
+              Databases stay on the private Docker network — no public URL or custom domain.
+              Other services in this project connect by container name and port.
+            </p>
+          } @else {
+            <p class="muted" style="margin-bottom:16px">
+              Public HTTP via Cloudflare Tunnel + Nginx Proxy Manager.
+              Platform hosts are random numbers (not guessable). Bring your own domain for a branded URL.
+            </p>
 
-          <div class="field" style="margin-bottom:18px">
-            <label>Platform URL (read-only)</label>
-            @if (service()!.subdomain) {
-              <p class="svc-live-url" style="margin:8px 0 0">
-                <a [href]="'https://' + service()!.subdomain" target="_blank" rel="noopener">
-                  https://{{ service()!.subdomain }}
-                </a>
-                <button type="button" class="btn btn-ghost btn-sm" style="margin-left:6px" (click)="copyText('https://' + service()!.subdomain!)">Copy</button>
+            <div class="field" style="margin-bottom:18px">
+              <label>Platform URL (read-only)</label>
+              @if (service()!.subdomain) {
+                <p class="svc-live-url" style="margin:8px 0 0">
+                  <a [href]="'https://' + service()!.subdomain" target="_blank" rel="noopener">
+                    https://{{ service()!.subdomain }}
+                  </a>
+                  <button type="button" class="btn btn-ghost btn-sm" style="margin-left:6px" (click)="copyText('https://' + service()!.subdomain!)">Copy</button>
+                </p>
+                <p class="muted" style="margin-top:8px;font-size:13px">
+                  @if (vanityStatus()?.thisServiceHoldsVanity) {
+                    This service holds your <strong>one</strong> vanity subdomain. Other services stay on random URLs.
+                  } @else {
+                    Random platform URL by default. Each account may claim <strong>exactly one</strong> vanity name below.
+                  }
+                </p>
+              } @else {
+                <p class="muted">Assigned on first deploy.</p>
+              }
+            </div>
+
+            <div class="field" style="margin-bottom:22px">
+              <label>Vanity subdomain (1 per account)</label>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                <input
+                  style="flex:1;min-width:140px;max-width:220px"
+                  [(ngModel)]="vanityDraft"
+                  (ngModelChange)="onVanityDraftChange($event)"
+                  placeholder="myapp"
+                  autocomplete="off"
+                  [disabled]="!canManage()"
+                />
+                <span class="muted">.{{ vanityStatus()?.baseDomain || 'cloudbase.website' }}</span>
+                <button
+                  type="button"
+                  class="btn btn-ghost"
+                  (click)="checkVanity()"
+                  [disabled]="checkingVanity() || !canManage() || !vanityDraft.trim()"
+                >
+                  {{ checkingVanity() ? 'Checking…' : 'Check' }}
+                </button>
+              </div>
+              @if (vanityCheck(); as vcheck) {
+                <p
+                  class="muted"
+                  style="margin-top:8px;font-size:13px"
+                  [style.color]="vcheck.available ? 'var(--ok, #3d9a6a)' : 'var(--danger, #c44)'"
+                >
+                  {{ vcheck.available ? '✓' : '✗' }} {{ vcheck.reason }}
+                  @if (vcheck.domain) {
+                    <span> — <code>{{ vcheck.domain }}</code></span>
+                  }
+                </p>
+              } @else if (vanityStatus()?.claimedSlug && !vanityStatus()?.thisServiceHoldsVanity) {
+                <p class="muted" style="margin-top:8px;font-size:13px;color:var(--danger, #c44)">
+                  Account already uses <code>{{ vanityStatus()?.claimedFqdn }}</code> on another service.
+                  Release it there, or claim the <em>same</em> slug here to move it.
+                </p>
+              }
+              <p class="muted" style="margin-top:8px;font-size:13px">
+                Rules: 3–30 chars, lowercase, start with a letter, no reserved names (admin, api, www…).
+                All other services keep random <code>cloudbase####</code> URLs.
               </p>
-              <p class="muted" style="margin-top:8px;font-size:13px">Assigned automatically — cannot be renamed.</p>
-            } @else {
-              <p class="muted">Assigned on first deploy.</p>
-            }
-          </div>
+              <div class="modal-actions" style="margin-top:12px;gap:8px;display:flex;flex-wrap:wrap">
+                <button
+                  type="button"
+                  class="btn btn-primary"
+                  (click)="claimVanity()"
+                  [disabled]="saving() || !canManage() || vanityClaimBlocked()"
+                >
+                  {{ saving() ? 'Saving…' : vanityStatus()?.thisServiceHoldsVanity ? 'Update vanity' : 'Claim on this service' }}
+                </button>
+                @if (vanityStatus()?.thisServiceHoldsVanity) {
+                  <button type="button" class="btn btn-ghost" (click)="releaseVanity()" [disabled]="saving() || !canManage()">
+                    Release → random URL
+                  </button>
+                }
+              </div>
+            </div>
 
-          <div class="field">
-            <label>Custom domain</label>
-            <input [(ngModel)]="domainDraft" placeholder="app.example.com" autocomplete="off" />
-            <p class="muted" style="margin-top:8px;font-size:13px">
-              Point a CNAME (or ALIAS) for this hostname to <code>cloudbase.website</code>, then save.
-              Leave empty and save to remove.
-            </p>
-          </div>
-          @if (service()!.customDomain) {
-            <p class="svc-live-url">
-              Live custom:
-              <a [href]="'https://' + service()!.customDomain" target="_blank" rel="noopener">
-                https://{{ service()!.customDomain }}
-              </a>
-            </p>
-          }
-          <div class="modal-actions" style="margin-top:16px;gap:8px;display:flex;flex-wrap:wrap">
-            <button type="button" class="btn btn-primary" (click)="saveDomain()" [disabled]="saving() || !canManage()">
-              {{ saving() ? 'Saving…' : 'Save custom domain' }}
-            </button>
+            <div class="field">
+              <label>Custom domain</label>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                <input
+                  style="flex:1;min-width:200px"
+                  [(ngModel)]="domainDraft"
+                  (ngModelChange)="onDomainDraftChange($event)"
+                  placeholder="app.example.com"
+                  autocomplete="off"
+                />
+                <button
+                  type="button"
+                  class="btn btn-ghost"
+                  (click)="checkDomain()"
+                  [disabled]="checkingDomain() || !canManage() || !domainDraft.trim()"
+                >
+                  {{ checkingDomain() ? 'Checking…' : 'Check availability' }}
+                </button>
+              </div>
+              @if (domainCheck(); as check) {
+                <p
+                  class="muted"
+                  style="margin-top:8px;font-size:13px"
+                  [style.color]="check.available ? 'var(--ok, #3d9a6a)' : 'var(--danger, #c44)'"
+                >
+                  {{ check.available ? '✓' : '✗' }} {{ check.reason }}
+                  @if (check.domain) {
+                    <span> — <code>{{ check.domain }}</code></span>
+                  }
+                </p>
+              }
+              <p class="muted" style="margin-top:8px;font-size:13px">
+                Point a CNAME (or ALIAS) for this hostname to <code>cloudbase.website</code>, then save.
+                Leave empty and save to remove. Use Check before saving a new hostname.
+              </p>
+            </div>
             @if (service()!.customDomain) {
-              <button type="button" class="btn btn-ghost" (click)="clearCustomDomain()" [disabled]="saving() || !canManage()">
-                Remove
-              </button>
+              <p class="svc-live-url">
+                Live custom:
+                <a [href]="'https://' + service()!.customDomain" target="_blank" rel="noopener">
+                  https://{{ service()!.customDomain }}
+                </a>
+              </p>
             }
-          </div>
+            <div class="modal-actions" style="margin-top:16px;gap:8px;display:flex;flex-wrap:wrap">
+              <button
+                type="button"
+                class="btn btn-primary"
+                (click)="saveDomain()"
+                [disabled]="saving() || !canManage() || domainSaveBlocked()"
+              >
+                {{ saving() ? 'Saving…' : domainSaveBlocked() ? 'Check domain first' : 'Save custom domain' }}
+              </button>
+              @if (service()!.customDomain) {
+                <button type="button" class="btn btn-ghost" (click)="clearCustomDomain()" [disabled]="saving() || !canManage()">
+                  Remove
+                </button>
+              }
+            </div>
+          }
 
           <div class="net-ports" style="margin-top:24px">
             <h4>Ports</h4>
             @if (service()!.sourceType === 'DATABASE') {
               <div class="port-row"><span>TCP</span><code>{{ serviceContainerPort() }}</code><span class="pill pill-amber">private network</span></div>
+              <div class="port-row"><span>Container</span><code>{{ service()!.containerName || ('cb-' + service()!.id) }}</code><span class="pill pill-indigo">internal</span></div>
             } @else {
               <div class="port-row"><span>HTTP</span><code>{{ serviceContainerPort() }} → 443</code><span class="pill pill-green">public</span></div>
               <div class="port-row"><span>Container</span><code>{{ service()!.containerName || ('cb-' + service()!.id) }}</code><span class="pill pill-indigo">internal</span></div>
@@ -661,16 +862,22 @@ type ServiceTab = 'overview' | 'deployments' | 'metrics' | 'logs' | 'terminal' |
           @if (service()!.sourceType === 'GITHUB') {
             <div class="field" style="margin-bottom:14px">
               <label>Runtime / Language</label>
-              <select [(ngModel)]="runtimeDraft">
-                <option value="node">Node.js</option>
-                <option value="java">Java</option>
-                <option value="python">Python</option>
-                <option value="go">Go</option>
-                <option value="dotnet">.NET</option>
-                <option value="php">PHP</option>
-                <option value="rust">Rust</option>
-                <option value="other">Other</option>
-              </select>
+              <app-runtime-select [value]="runtimeDraft" (valueChange)="onSettingsRuntimeChange($event)" />
+            </div>
+            <div class="field" style="margin-bottom:14px">
+              <label>Start command</label>
+              <input
+                [(ngModel)]="startCommandDraft"
+                (ngModelChange)="startCommandTouched = true"
+                placeholder="java -jar /app/app.jar"
+                autocomplete="off"
+                spellcheck="false"
+                style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px"
+              />
+              <p class="empty-sub" style="margin:6px 0 0">
+                Locked down: allowlisted binaries only, no shell (<code>$ | ; &amp;</code>). Example:
+                <code>java -Xmx512m -jar /app/app.jar</code>. Redeploy to apply.
+              </p>
             </div>
           }
 
@@ -680,7 +887,7 @@ type ServiceTab = 'overview' | 'deployments' | 'metrics' | 'logs' | 'terminal' |
             <label class="toggle-field"><input type="checkbox" [(ngModel)]="sourceDraft.autoDeploy" /><span>Auto deploy on push</span></label>
             @if (githubCiMessage()) {
               <div class="pill" [class.pill-emerald]="githubCiOk()" [class.pill-amber]="!githubCiOk()" style="margin-top:12px;display:block;white-space:normal;line-height:1.4">
-                <strong>CI (B2):</strong> {{ githubCiMessage() }}
+                <strong>GitHub Actions:</strong> {{ githubCiMessage() }}
                 @if (githubImageName()) {
                   <div style="margin-top:6px;opacity:.85">Image: <code>{{ githubImageName() }}</code></div>
                 }
@@ -691,18 +898,28 @@ type ServiceTab = 'overview' | 'deployments' | 'metrics' | 'logs' | 'terminal' |
             <div class="field"><label>Image Name</label><input [(ngModel)]="sourceDraft.imageName" (ngModelChange)="onSettingsImageChange($event)" /></div>
             <div class="field"><label>Image Tag</label><input [(ngModel)]="sourceDraft.imageTag" /></div>
             <div class="field">
-              <label>Container port</label>
+              <label>Container listen port</label>
               <input type="number" [(ngModel)]="sourceDraft.containerPort" min="1" max="65535" />
+              <p class="empty-sub" style="margin:6px 0 0">Inside the container only — not a shared host port.</p>
+            </div>
+            <div class="field">
+              <label>Start command <span class="muted">(optional)</span></label>
+              <input
+                [(ngModel)]="startCommandDraft"
+                placeholder="Leave empty for image default"
+                autocomplete="off"
+                spellcheck="false"
+                style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px"
+              />
             </div>
           }
           @if (service()!.sourceType === 'DATABASE') {
             <div class="field">
               <label>Database Type</label>
-              <select [(ngModel)]="sourceDraft.dbType" (ngModelChange)="onSettingsDbTypeChange($event)">
-                @for (t of dbTypes; track t) {
-                  <option [value]="t">{{ dbPreset(t).label }}</option>
-                }
-              </select>
+              <app-database-type-select
+                [value]="sourceDraft.dbType"
+                (valueChange)="onSettingsDbTypeChange($event)"
+              />
               <p class="empty-sub" style="margin:6px 0 0">{{ dbPreset(sourceDraft.dbType).hint }}</p>
             </div>
             <div class="field">
@@ -739,8 +956,9 @@ type ServiceTab = 'overview' | 'deployments' | 'metrics' | 'logs' | 'terminal' |
           @if (useVolume) {
             <div class="settings-grid">
               <div class="field">
-                <label>Mount Path</label>
+                <label>Mount Path <span class="muted" style="font-weight:400">(inside container)</span></label>
                 <input [(ngModel)]="volumePath" placeholder="/data" />
+                <small class="muted">Does not change host disk path — only where data appears in the container.</small>
               </div>
               <div class="field">
                 <label>Volume Size (GB)</label>
@@ -756,8 +974,8 @@ type ServiceTab = 'overview' | 'deployments' | 'metrics' | 'logs' | 'terminal' |
 
           <div class="danger-zone">
             <h4>Danger zone</h4>
-            <p class="muted">Deleting a service removes its container, volume config, and deployments.</p>
-            <button type="button" class="btn btn-danger-soft" (click)="deleteService()" [disabled]="!canManage()">
+            <p class="muted">Deleting removes the Portainer stack, containers (<code>cb-&#123;serviceId&#125;</code> + Watchtower), volume data, NPM proxy, and deployment history. You must type the service name. If Portainer does not confirm, CloudBase keeps the service.</p>
+            <button type="button" class="btn btn-danger-soft" (click)="openDeleteService()" [disabled]="!canManage()">
               Delete Service
             </button>
           </div>
@@ -766,6 +984,19 @@ type ServiceTab = 'overview' | 'deployments' | 'metrics' | 'logs' | 'terminal' |
     }
   </div>
 </div>
+
+@if (deleteTarget(); as svc) {
+  <app-confirm-delete-dialog
+    title="Delete service"
+    [confirmName]="svc.name"
+    [busy]="deleting()"
+    [error]="deleteError()"
+    confirmLabel="Delete service permanently"
+    warning="Removes Portainer stack, containers, volume data, proxy, and history. Delete is blocked until Portainer confirms teardown."
+    (cancel)="closeDeleteDialog()"
+    (confirm)="executeDeleteService()"
+  />
+}
   `
 })
 export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewChecked {
@@ -790,6 +1021,16 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
   ];
 
   readonly liveMetrics = signal<Record<string, unknown> | null>(null);
+  readonly metricsRanges: MetricsRange[] = ['1h', '6h', '1d', '7d', '30d'];
+  readonly metricsRange = signal<MetricsRange>('1h');
+  readonly cpuSeries = signal<MetricSeries>({
+    label: 'CPU', points: '', area: '', maxLabel: '0%', currentLabel: '0%', ticks: ['', '', '']
+  });
+  readonly memSeries = signal<MetricSeries>({
+    label: 'Memory', points: '', area: '', maxLabel: '0 MB', currentLabel: '0 MB', ticks: ['', '', '']
+  });
+  private metricHistory: MetricSample[] = [];
+  private metricsPollTimer: ReturnType<typeof setInterval> | null = null;
 
   readonly project = signal<Project | null>(null);
   readonly service = signal<Service | null>(null);
@@ -801,6 +1042,21 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
   readonly rollbackBusy = signal(false);
   readonly busy = signal(false);
   readonly saving = signal(false);
+  readonly deleteTarget = signal<Service | null>(null);
+  readonly deleting = signal(false);
+  readonly deleteError = signal<string | null>(null);
+  readonly checkingDomain = signal(false);
+  readonly domainCheck = signal<{ domain: string; available: boolean; reason: string } | null>(null);
+  readonly checkingVanity = signal(false);
+  readonly vanityCheck = signal<{ domain: string; available: boolean; reason: string } | null>(null);
+  readonly vanityStatus = signal<{
+    baseDomain: string;
+    limitPerAccount: number;
+    claimedSlug?: string | null;
+    claimedFqdn?: string | null;
+    claimedServiceId?: string | null;
+    thisServiceHoldsVanity: boolean;
+  } | null>(null);
   readonly termBusy = signal(false);
   readonly tab = signal<ServiceTab>('overview');
   readonly message = signal('');
@@ -814,16 +1070,29 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
   readonly refInsertIndex = signal(0);
   readonly refPlaceholder = 'value or ${{Service.KEY}}';
   readonly metricsLoading = signal(false);
-  readonly deployTimelineSteps = ['Queued', 'Building', 'Deploying', 'Success'] as const;
+  domainDraft = '';
+  vanityDraft = '';
+  private domainCheckTimer: ReturnType<typeof setTimeout> | null = null;
+  private domainCheckSeq = 0;
+  private vanityCheckTimer: ReturnType<typeof setTimeout> | null = null;
+  private vanityCheckSeq = 0;
+  readonly deployTimelineSteps = computed(() => {
+    const type = this.service()?.sourceType;
+    if (type === 'DOCKER' || type === 'DATABASE') {
+      return ['Queued', 'Starting', 'Success'] as const;
+    }
+    return ['Queued', 'Building', 'Deploying', 'Success'] as const;
+  });
   private metricsLoadTimer: ReturnType<typeof setTimeout> | null = null;
   private deployPollTimers: Array<ReturnType<typeof setTimeout>> = [];
-  domainDraft = '';
   quotaDraft = { memorymb: 512, cpuMilli: 500, storageGb: 2 };
   useVolume = false;
   volumePath = '/data';
   volumeSize = 2;
   nameDraft = '';
   runtimeDraft: ServiceRuntime = 'node';
+  startCommandDraft = '';
+  startCommandTouched = false;
   sourceDraft = {
     repoUrl: '',
     branch: 'main',
@@ -834,7 +1103,14 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
     dbType: 'POSTGRESQL' as DatabaseType
   };
   readonly dbTypes: DatabaseType[] = ['POSTGRESQL', 'MYSQL', 'REDIS', 'MONGODB'];
-  logFilter: 'all' | 'info' | 'warn' | 'error' | 'debug' = 'all';
+  logFilter = 'all';
+  readonly logFilterOptions: StyledSelectOption[] = [
+    { label: 'All levels', value: 'all', icon: 'pi pi-list' },
+    { label: 'Info', value: 'info', icon: 'pi pi-info-circle' },
+    { label: 'Warn', value: 'warn', icon: 'pi pi-exclamation-triangle' },
+    { label: 'Error', value: 'error', icon: 'pi pi-times-circle' },
+    { label: 'Debug', value: 'debug', icon: 'pi pi-code' }
+  ];
   liveLogs = false;
   termCmd = '';
   private termHistory: string[] = [];
@@ -843,19 +1119,27 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
   private shouldScrollLogs = false;
   projectId = '';
   private serviceId = '';
+  readonly usage = signal<UsageSummary | null>(null);
+  readonly plan = signal<PlanInfo | null>(null);
 
   ngOnInit() {
     this.projectId = this.route.snapshot.paramMap.get('projectId')!;
     this.serviceId = this.route.snapshot.paramMap.get('serviceId')!;
     const tabParam = this.route.snapshot.queryParamMap.get('tab') as ServiceTab | null;
     if (tabParam && this.tabs.some(t => t.id === tabParam)) this.tab.set(tabParam);
+    this.auth.usage().subscribe({ next: u => this.usage.set(u) });
+    this.auth.getPlan().subscribe({ next: p => this.plan.set(p) });
     this.load();
+    if (this.tab() === 'metrics') this.startMetricsPoll();
   }
 
   ngOnDestroy() {
     this.stopLiveLogs();
     this.clearDeployPolls();
+    this.stopMetricsPoll();
     if (this.metricsLoadTimer) clearTimeout(this.metricsLoadTimer);
+    if (this.domainCheckTimer) clearTimeout(this.domainCheckTimer);
+    if (this.vanityCheckTimer) clearTimeout(this.vanityCheckTimer);
   }
 
   ngAfterViewChecked() {
@@ -879,6 +1163,7 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
         this.loadDeployments();
         this.refreshLogs();
         this.bootTerminal();
+        this.loadVanityStatus();
         if (service.sourceType === 'DATABASE') {
           this.projectService.dbConnection(service.id).subscribe({
             next: info => this.dbConn.set(info),
@@ -901,12 +1186,17 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
     this.varsDirty.set(false);
     this.refPickerOpen.set(false);
     this.domainDraft = service.customDomain ?? '';
+    this.domainCheck.set(null);
+    this.vanityCheck.set(null);
     this.quotaDraft = { ...service.quota };
     this.useVolume = !!service.volume;
     this.volumePath = service.volume?.mountPath ?? '/data';
     this.volumeSize = service.volume?.sizeGb ?? 2;
     this.nameDraft = service.name;
     this.runtimeDraft = service.runtime ?? 'node';
+    const d0 = service.sourceDetails as unknown as Record<string, unknown>;
+    this.startCommandDraft = String(d0['startCommand'] ?? defaultStartCommand(this.runtimeDraft));
+    this.startCommandTouched = !!d0['startCommand'];
     const d = service.sourceDetails as unknown as Record<string, unknown>;
     this.sourceDraft = {
       repoUrl: String(d['repositoryUrl'] ?? ''),
@@ -1026,6 +1316,22 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
   }
 
   deployStepIndex(status: string): number {
+    const short = this.deployTimelineSteps().length === 3;
+    if (short) {
+      switch (status) {
+        case 'QUEUED':
+        case 'PENDING':
+          return 0;
+        case 'BUILDING':
+        case 'DEPLOYING':
+          return 1;
+        case 'SUCCESS':
+        case 'RUNNING':
+          return 2;
+        default:
+          return 0;
+      }
+    }
     switch (status) {
       case 'QUEUED':
       case 'PENDING':
@@ -1043,7 +1349,10 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
   }
 
   deployProgressPct(status: string): number {
-    return [18, 42, 72, 100][this.deployStepIndex(status)] ?? 18;
+    const steps = this.deployTimelineSteps().length;
+    const idx = this.deployStepIndex(status);
+    if (steps === 3) return [22, 65, 100][idx] ?? 22;
+    return [18, 42, 72, 100][idx] ?? 18;
   }
 
   showDeployChrome(): boolean {
@@ -1139,6 +1448,14 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
       this.shouldScrollTerm = true;
     }
     if (id === 'metrics' || id === 'overview') this.refreshLiveMetrics();
+    if (id === 'metrics') this.startMetricsPoll();
+    else this.stopMetricsPoll();
+    if (id === 'network') this.loadVanityStatus();
+  }
+
+  setMetricsRange(range: MetricsRange) {
+    this.metricsRange.set(range);
+    this.rebuildMetricCharts();
   }
 
   refreshLiveMetrics() {
@@ -1151,7 +1468,9 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
         if (m['available']) {
           const cpu = Number(m['cpuPercent'] ?? 0);
           const mem = Number(m['memoryUsageMb'] ?? 0);
+          const memPct = Number(m['memoryPercent'] ?? 0);
           this.service.update(s => s ? { ...s, cpuUsage: cpu, ramUsageMb: Math.round(mem) } : s);
+          this.pushMetricSample({ t: Date.now(), cpu, memMb: mem, memPct });
         }
         this.metricsLoading.set(false);
       },
@@ -1160,6 +1479,108 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
         this.metricsLoading.set(false);
       }
     });
+  }
+
+  private startMetricsPoll() {
+    this.stopMetricsPoll();
+    this.refreshLiveMetrics();
+    this.metricsPollTimer = setInterval(() => {
+      if (this.tab() === 'metrics') this.refreshLiveMetrics();
+    }, 5000);
+  }
+
+  private stopMetricsPoll() {
+    if (this.metricsPollTimer) {
+      clearInterval(this.metricsPollTimer);
+      this.metricsPollTimer = null;
+    }
+  }
+
+  private pushMetricSample(sample: MetricSample) {
+    this.metricHistory.push(sample);
+    const maxKeep = 500;
+    if (this.metricHistory.length > maxKeep) {
+      this.metricHistory = this.metricHistory.slice(-maxKeep);
+    }
+    this.rebuildMetricCharts();
+  }
+
+  private rebuildMetricCharts() {
+    const windowMs =
+      this.metricsRange() === '1h' ? 3600_000 :
+      this.metricsRange() === '6h' ? 6 * 3600_000 :
+      this.metricsRange() === '1d' ? 24 * 3600_000 :
+      this.metricsRange() === '7d' ? 7 * 24 * 3600_000 :
+      30 * 24 * 3600_000;
+    const cutoff = Date.now() - windowMs;
+    let samples = this.metricHistory.filter(s => s.t >= cutoff);
+    if (samples.length === 0 && this.liveMetrics()?.['available']) {
+      const cpu = Number(this.liveMetrics()!['cpuPercent'] ?? 0);
+      const mem = Number(this.liveMetrics()!['memoryUsageMb'] ?? 0);
+      const memPct = Number(this.liveMetrics()!['memoryPercent'] ?? 0);
+      samples = [{ t: Date.now(), cpu, memMb: mem, memPct }];
+    }
+    // Need at least 2 points for a visible area; pad with flat history if first sample
+    if (samples.length === 1) {
+      samples = [
+        { ...samples[0], t: samples[0].t - 60_000 },
+        samples[0]
+      ];
+    }
+    this.cpuSeries.set(this.buildSeries(
+      samples.map(s => s.cpu),
+      samples.map(s => s.t),
+      v => `${v.toFixed(1)}%`,
+      Math.max(100, ...samples.map(s => s.cpu), 1)
+    ));
+    const memLimit = Number(this.liveMetrics()?.['memoryLimitMb'] ?? this.service()?.quota.memorymb ?? 512);
+    this.memSeries.set(this.buildSeries(
+      samples.map(s => s.memMb),
+      samples.map(s => s.t),
+      v => `${Math.round(v)} MB`,
+      Math.max(memLimit, ...samples.map(s => s.memMb), 1)
+    ));
+  }
+
+  private buildSeries(
+    values: number[],
+    times: number[],
+    format: (v: number) => string,
+    scaleMax: number
+  ): MetricSeries {
+    const w = 360;
+    const h = 140;
+    const pad = 6;
+    const n = Math.max(values.length, 1);
+    const pts: string[] = [];
+    const areaPts: string[] = [`${pad},${h - pad}`];
+    for (let i = 0; i < n; i++) {
+      const x = pad + (i / Math.max(n - 1, 1)) * (w - pad * 2);
+      const y = h - pad - (Math.min(values[i], scaleMax) / scaleMax) * (h - pad * 2);
+      pts.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+      areaPts.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+    }
+    areaPts.push(`${w - pad},${h - pad}`);
+    const current = values[values.length - 1] ?? 0;
+    const peak = Math.max(...values, 0);
+    const ticks = [
+      this.formatTick(times[0] ?? Date.now()),
+      this.formatTick(times[Math.floor((times.length - 1) / 2)] ?? Date.now()),
+      this.formatTick(times[times.length - 1] ?? Date.now())
+    ];
+    return {
+      label: '',
+      points: pts.join(' '),
+      area: `M ${areaPts.join(' L ')} Z`,
+      maxLabel: format(peak),
+      currentLabel: format(current),
+      ticks
+    };
+  }
+
+  private formatTick(ts: number): string {
+    const d = new Date(ts);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
 
   metricBarPct(value: unknown): number {
@@ -1173,8 +1594,15 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
   }
 
   canManage(): boolean {
-    const user = this.auth.user();
-    return !!user && user.accountStatus === 'ACTIVE' && user.deploymentEnabled;
+    return this.auth.hasDeployAccess();
+  }
+
+  canDeployNow(): boolean {
+    if (!this.canManage()) return false;
+    const u = this.usage();
+    const p = this.plan();
+    if (u && p) return this.auth.canStartDeploy(u, p);
+    return true;
   }
 
   sourceIcon(type?: ServiceSourceType): string {
@@ -1218,16 +1646,34 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
     return d?.['imageName'] ? String(d['imageName']) : '';
   }
 
+  liveCpuLabel(): string {
+    const m = this.liveMetrics();
+    if (!m?.['available']) return '—';
+    return `${Number(m['cpuPercent'] ?? 0).toFixed(1)}%`;
+  }
+
+  liveRamLabel(): string {
+    const m = this.liveMetrics();
+    if (!m?.['available']) return '—';
+    return `${Math.round(Number(m['memoryUsageMb'] ?? 0))} MB`;
+  }
+
   cpuPct(): number {
+    const m = this.liveMetrics();
+    if (!m?.['available']) return 0;
     const s = this.service();
     if (!s) return 0;
-    return Math.min(100, (s.cpuUsage / Math.max(1, s.quota.cpuMilli / 10)) * 100);
+    const cpu = Number(m['cpuPercent'] ?? 0);
+    return Math.min(100, (cpu / Math.max(1, s.quota.cpuMilli / 10)) * 100);
   }
 
   ramPct(): number {
+    const m = this.liveMetrics();
+    if (!m?.['available']) return 0;
     const s = this.service();
     if (!s) return 0;
-    return Math.min(100, (s.ramUsageMb / Math.max(1, s.quota.memorymb)) * 100);
+    const mem = Number(m['memoryUsageMb'] ?? 0);
+    return Math.min(100, (mem / Math.max(1, s.quota.memorymb)) * 100);
   }
 
   filteredLogs(): ServiceLogLine[] {
@@ -1314,6 +1760,63 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
     this.submitTerm();
   }
 
+  /** Console shortcut chips — tailored to DB engine or app container. */
+  terminalHints(): { label: string; cmd: string }[] {
+    const svc = this.service();
+    if (!svc) return [];
+    if (svc.sourceType === 'DATABASE') {
+      const dbType = String((svc.sourceDetails as unknown as Record<string, unknown>)['dbType'] ?? '');
+      switch (dbType) {
+        case 'MYSQL':
+          return [
+            { label: 'help', cmd: 'help' },
+            { label: 'databases', cmd: `mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" -e 'SHOW DATABASES;'` },
+            { label: 'tables', cmd: `mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -e 'SHOW TABLES;'` },
+            { label: 'version', cmd: `mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" -e 'SELECT VERSION();'` },
+            { label: 'status', cmd: `mysqladmin -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" status` },
+            { label: 'mysql env', cmd: `printenv | grep -E '^MYSQL_|^HOSTNAME='` }
+          ];
+        case 'POSTGRESQL':
+          return [
+            { label: 'help', cmd: 'help' },
+            { label: 'databases', cmd: `psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c '\\l'` },
+            { label: 'tables', cmd: `psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c '\\dt'` },
+            { label: 'version', cmd: `psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c 'SELECT version();'` },
+            { label: 'roles', cmd: `psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c '\\du'` },
+            { label: 'pg env', cmd: `printenv | grep -E '^POSTGRES_|^HOSTNAME='` }
+          ];
+        case 'REDIS':
+          return [
+            { label: 'help', cmd: 'help' },
+            { label: 'ping', cmd: `redis-cli -a "$REDIS_PASSWORD" --no-auth-warning PING` },
+            { label: 'info', cmd: `redis-cli -a "$REDIS_PASSWORD" --no-auth-warning INFO server` },
+            { label: 'keys', cmd: `redis-cli -a "$REDIS_PASSWORD" --no-auth-warning DBSIZE` },
+            { label: 'clients', cmd: `redis-cli -a "$REDIS_PASSWORD" --no-auth-warning CLIENT LIST` },
+            { label: 'redis env', cmd: `printenv | grep -E '^REDIS_|^HOSTNAME='` }
+          ];
+        case 'MONGODB':
+          return [
+            { label: 'help', cmd: 'help' },
+            { label: 'ping', cmd: `mongosh -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --quiet --eval 'db.runCommand({ ping: 1 })'` },
+            { label: 'databases', cmd: `mongosh -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --quiet --eval 'db.adminCommand({ listDatabases: 1 })'` },
+            { label: 'version', cmd: `mongosh -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --quiet --eval 'db.version()'` },
+            { label: 'mongo env', cmd: `printenv | grep -E '^MONGO_|^HOSTNAME='` }
+          ];
+        default:
+          break;
+      }
+    }
+    const port = this.serviceContainerPort();
+    return [
+      { label: 'help', cmd: 'help' },
+      { label: 'ls', cmd: 'ls' },
+      { label: 'env', cmd: 'env' },
+      { label: 'top', cmd: 'top -b -n 1 | head -20' },
+      { label: 'ps', cmd: 'ps aux' },
+      { label: 'curl localhost', cmd: `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:${port}/ || true` }
+    ];
+  }
+
   submitTerm() {
     const cmd = this.termCmd.trim();
     if (!cmd || this.termBusy()) return;
@@ -1359,7 +1862,11 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
   }
 
   deploy() {
-    if (!this.canManage()) return;
+    if (!this.canDeployNow()) {
+      this.message.set('Free plan deploy limit reached for this month. See Billing.');
+      this.messageTone.set('error');
+      return;
+    }
     this.busy.set(true);
     this.clearDeployPolls();
     this.projectService.deploy(this.serviceId).subscribe({
@@ -1369,6 +1876,7 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
         this.messageTone.set('ok');
         this.loadDeployments();
         this.pollDeployProgress();
+        this.auth.usage().subscribe({ next: u => this.usage.set(u) });
       },
       error: e => {
         this.message.set(e?.error?.message ?? 'Deploy failed');
@@ -1407,6 +1915,7 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
   stop() {
     if (!this.canManage()) return;
     this.busy.set(true);
+    this.clearDeployPolls();
     this.projectService.stopService(this.serviceId).subscribe({
       next: svc => {
         this.applyService(svc);
@@ -1414,6 +1923,7 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
         this.message.set('Service stopped');
         this.messageTone.set('ok');
         this.stopLiveLogs();
+        this.loadDeployments();
       },
       error: e => {
         this.message.set(e?.error?.message ?? 'Stop failed');
@@ -1479,6 +1989,13 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
     this.markVarsDirty();
   }
 
+  onSettingsRuntimeChange(runtime: ServiceRuntime) {
+    this.runtimeDraft = runtime;
+    if (!this.startCommandTouched) {
+      this.startCommandDraft = defaultStartCommand(runtime);
+    }
+  }
+
   saveIdentity() {
     const svc = this.service();
     if (!svc || !this.canManage() || !this.nameDraft.trim()) return;
@@ -1488,13 +2005,16 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
       sourceDetails = {
         repositoryUrl: this.sourceDraft.repoUrl.trim(),
         branch: this.sourceDraft.branch.trim() || 'main',
-        autoDeploy: this.sourceDraft.autoDeploy
+        autoDeploy: this.sourceDraft.autoDeploy,
+        runtime: this.runtimeDraft,
+        startCommand: (this.startCommandDraft || defaultStartCommand(this.runtimeDraft)).trim()
       };
     } else if (svc.sourceType === 'DOCKER') {
       sourceDetails = {
         imageName: this.sourceDraft.imageName.trim(),
         imageTag: this.sourceDraft.imageTag.trim() || 'latest',
-        containerPort: Number(this.sourceDraft.containerPort) || guessContainerPort(this.sourceDraft.imageName)
+        containerPort: Number(this.sourceDraft.containerPort) || guessContainerPort(this.sourceDraft.imageName),
+        ...(this.startCommandDraft.trim() ? { startCommand: this.startCommandDraft.trim() } : {})
       };
     } else {
       sourceDetails = {
@@ -1560,8 +2080,160 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
     });
   }
 
+  onDomainDraftChange(_value: string) {
+    this.domainCheck.set(null);
+    if (this.domainCheckTimer) clearTimeout(this.domainCheckTimer);
+    const trimmed = this.domainDraft.trim();
+    if (!trimmed) return;
+    this.domainCheckTimer = setTimeout(() => this.checkDomain(), 450);
+  }
+
+  loadVanityStatus() {
+    if (this.service()?.sourceType === 'DATABASE') {
+      this.vanityStatus.set(null);
+      return;
+    }
+    this.projectService.vanityStatus(this.serviceId).subscribe({
+      next: s => {
+        this.vanityStatus.set(s);
+        if (s.thisServiceHoldsVanity && s.claimedSlug) {
+          this.vanityDraft = s.claimedSlug;
+        } else if (!this.vanityDraft && s.claimedSlug && !s.thisServiceHoldsVanity) {
+          // leave draft empty so user must type same slug to move
+        }
+      },
+      error: () => this.vanityStatus.set(null)
+    });
+  }
+
+  onVanityDraftChange(_value: string) {
+    this.vanityCheck.set(null);
+    if (this.vanityCheckTimer) clearTimeout(this.vanityCheckTimer);
+    const trimmed = this.vanityDraft.trim();
+    if (!trimmed) return;
+    this.vanityCheckTimer = setTimeout(() => this.checkVanity(), 450);
+  }
+
+  vanityClaimBlocked(): boolean {
+    const draft = this.vanityDraft.trim().toLowerCase();
+    if (!draft) return true;
+    const check = this.vanityCheck();
+    if (!check || (check.domain || '').split('.')[0].toLowerCase() !== draft) return true;
+    return !check.available;
+  }
+
+  checkVanity() {
+    if (!this.canManage()) return;
+    if (this.service()?.sourceType === 'DATABASE') return;
+    const draft = this.vanityDraft.trim();
+    if (!draft) {
+      this.vanityCheck.set({ domain: '', available: false, reason: 'Enter a subdomain slug (3–30 characters)' });
+      return;
+    }
+    const seq = ++this.vanityCheckSeq;
+    this.checkingVanity.set(true);
+    this.projectService.checkVanitySubdomain(this.serviceId, draft).subscribe({
+      next: result => {
+        if (seq !== this.vanityCheckSeq) return;
+        this.vanityCheck.set(result);
+        this.checkingVanity.set(false);
+      },
+      error: e => {
+        if (seq !== this.vanityCheckSeq) return;
+        this.vanityCheck.set({
+          domain: draft,
+          available: false,
+          reason: e?.error?.message ?? 'Could not check subdomain'
+        });
+        this.checkingVanity.set(false);
+      }
+    });
+  }
+
+  claimVanity() {
+    if (!this.canManage() || this.vanityClaimBlocked()) return;
+    this.saving.set(true);
+    this.projectService.setVanitySubdomain(this.serviceId, this.vanityDraft.trim()).subscribe({
+      next: svc => {
+        this.applyService(svc);
+        this.loadVanityStatus();
+        this.saving.set(false);
+        this.message.set('Vanity subdomain claimed');
+        this.messageTone.set('ok');
+      },
+      error: e => {
+        this.message.set(e?.error?.message ?? 'Claim failed');
+        this.messageTone.set('error');
+        this.saving.set(false);
+        this.checkVanity();
+      }
+    });
+  }
+
+  releaseVanity() {
+    if (!this.canManage()) return;
+    if (!confirm('Release vanity subdomain? This service will get a new random platform URL.')) return;
+    this.saving.set(true);
+    this.projectService.clearVanitySubdomain(this.serviceId).subscribe({
+      next: svc => {
+        this.applyService(svc);
+        this.vanityDraft = '';
+        this.vanityCheck.set(null);
+        this.loadVanityStatus();
+        this.saving.set(false);
+        this.message.set('Vanity released — random URL assigned');
+        this.messageTone.set('ok');
+      },
+      error: e => {
+        this.message.set(e?.error?.message ?? 'Release failed');
+        this.messageTone.set('error');
+        this.saving.set(false);
+      }
+    });
+  }
+
+  domainSaveBlocked(): boolean {
+    const draft = this.domainDraft.trim().toLowerCase();
+    if (!draft) return false; // clearing is always ok
+    const current = (this.service()?.customDomain ?? '').trim().toLowerCase();
+    if (draft === current) return false; // unchanged
+    const check = this.domainCheck();
+    if (!check || (check.domain || '').toLowerCase() !== draft) return true; // must check first
+    return !check.available;
+  }
+
+  checkDomain() {
+    if (!this.canManage()) return;
+    if (this.service()?.sourceType === 'DATABASE') return;
+    const draft = this.domainDraft.trim();
+    if (!draft) {
+      this.domainCheck.set({ domain: '', available: true, reason: 'Empty value clears the custom domain' });
+      return;
+    }
+    const seq = ++this.domainCheckSeq;
+    this.checkingDomain.set(true);
+    this.projectService.checkCustomDomain(this.serviceId, draft).subscribe({
+      next: result => {
+        if (seq !== this.domainCheckSeq) return;
+        this.domainCheck.set(result);
+        this.checkingDomain.set(false);
+      },
+      error: e => {
+        if (seq !== this.domainCheckSeq) return;
+        this.domainCheck.set({
+          domain: draft,
+          available: false,
+          reason: e?.error?.message ?? 'Could not check domain'
+        });
+        this.checkingDomain.set(false);
+      }
+    });
+  }
+
   saveDomain() {
     if (!this.canManage()) return;
+    if (this.service()?.sourceType === 'DATABASE') return;
+    if (this.domainSaveBlocked()) return;
     this.saving.set(true);
     this.projectService.setCustomDomain(this.serviceId, this.domainDraft.trim()).subscribe({
       next: svc => {
@@ -1574,6 +2246,7 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
         this.message.set(e?.error?.message ?? 'Domain update failed');
         this.messageTone.set('error');
         this.saving.set(false);
+        this.checkDomain();
       }
     });
   }
@@ -1581,6 +2254,7 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
   clearCustomDomain() {
     if (!this.canManage()) return;
     this.domainDraft = '';
+    this.domainCheck.set(null);
     this.saveDomain();
   }
 
@@ -1612,15 +2286,32 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
     });
   }
 
-  deleteService() {
+  openDeleteService() {
     const svc = this.service();
     if (!svc || !this.canManage()) return;
-    if (!confirm(`Delete service "${svc.name}"? This cannot be undone.`)) return;
+    this.deleteError.set(null);
+    this.deleting.set(false);
+    this.deleteTarget.set(svc);
+  }
+
+  closeDeleteDialog() {
+    if (this.deleting()) return;
+    this.deleteTarget.set(null);
+    this.deleteError.set(null);
+  }
+
+  executeDeleteService() {
+    const svc = this.deleteTarget();
+    if (!svc || this.deleting()) return;
+    this.deleting.set(true);
+    this.deleteError.set(null);
     this.projectService.deleteService(svc.id).subscribe({
       next: () => this.router.navigate(['/projects', this.projectId]),
       error: e => {
-        this.message.set(e?.error?.message ?? 'Delete failed');
-        this.messageTone.set('error');
+        this.deleting.set(false);
+        this.deleteError.set(
+          e?.error?.message ?? 'Delete failed. Service kept because Portainer did not confirm removal.'
+        );
       }
     });
   }

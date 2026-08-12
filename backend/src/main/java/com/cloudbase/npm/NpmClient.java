@@ -2,13 +2,13 @@ package com.cloudbase.npm;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
+import com.cloudbase.service.PlatformSettingsService;
 
 import java.util.HashMap;
 import java.util.List;
@@ -26,30 +26,38 @@ public class NpmClient {
     private static final ParameterizedTypeReference<Map<String, Object>> MAP_TYPE =
             new ParameterizedTypeReference<>() {};
 
-    private final WebClient webClient;
-    private final String identity;
-    private final String secret;
-    private final boolean enabled;
-    private final Integer certificateId;
-    private final boolean sslForced;
+    private final WebClient.Builder webClientBuilder;
+    private final PlatformSettingsService settings;
+    private volatile WebClient webClient;
+    private volatile String identity;
+    private volatile String secret;
+    private volatile boolean enabled;
+    private volatile Integer certificateId;
+    private volatile boolean sslForced;
     private final AtomicReference<String> cachedToken = new AtomicReference<>();
 
     public NpmClient(
-            @Value("${npm.url:http://localhost:81}") String npmUrl,
-            @Value("${npm.email:}") String identity,
-            @Value("${npm.password:}") String secret,
-            @Value("${npm.enabled:false}") boolean enabled,
-            @Value("${npm.certificate-id:0}") Integer certificateId,
-            // Behind Cloudflare, Force SSL causes ERR_TOO_MANY_REDIRECTS — keep false by default.
-            @Value("${npm.ssl-forced:false}") boolean sslForced,
+            PlatformSettingsService settings,
             WebClient.Builder webClientBuilder
     ) {
-        this.identity = identity;
-        this.secret = secret;
-        this.enabled = enabled;
-        this.certificateId = certificateId == null ? 0 : certificateId;
-        this.sslForced = sslForced;
-        this.webClient = webClientBuilder.baseUrl(npmUrl).build();
+        this.settings = settings;
+        this.webClientBuilder = webClientBuilder;
+        reloadFromSettings();
+        settings.addChangeListener(this::reloadFromSettings);
+    }
+
+    public void reloadFromSettings() {
+        String npmUrl = settings.get(PlatformSettingsService.NPM_URL);
+        this.identity = settings.get(PlatformSettingsService.NPM_EMAIL);
+        this.secret = settings.get(PlatformSettingsService.NPM_PASSWORD);
+        this.enabled = settings.getBoolean(PlatformSettingsService.NPM_ENABLED);
+        this.certificateId = settings.getInt(PlatformSettingsService.NPM_CERTIFICATE_ID, 0);
+        this.sslForced = settings.getBoolean(PlatformSettingsService.NPM_SSL_FORCED);
+        this.webClient = webClientBuilder.clone()
+                .baseUrl(npmUrl == null || npmUrl.isBlank() ? "http://localhost:81" : npmUrl)
+                .build();
+        cachedToken.set(null);
+        log.info("NPM client reloaded (enabled={})", this.enabled);
     }
 
     public boolean isEnabled() {
@@ -90,7 +98,7 @@ public class NpmClient {
             int forwardPort
     ) {
         if (!isEnabled()) {
-            log.warn("NPM disabled — skipping proxy host for {}", fqdns);
+            log.warn("NPM disabled - skipping proxy host for {}", fqdns);
             return Mono.empty();
         }
         if (fqdns == null || fqdns.isEmpty()) {

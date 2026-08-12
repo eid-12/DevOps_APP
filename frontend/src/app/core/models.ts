@@ -83,6 +83,10 @@ export interface AuthResponse {
   token: string;
   user: UserAccount;
   message: string;
+  /** ISO-8601 absolute expiry when the server issued a token. */
+  expiresAt?: string | null;
+  /** Seconds until expiry at login time. */
+  expiresInSeconds?: number;
 }
 
 /** A Project is a logical canvas that contains multiple Services */
@@ -127,6 +131,9 @@ export interface PlanInfo {
   memoryMbLimit: number;
   storageGbLimit: number;
   deploymentsLimit: number;
+  projectsUnlimited?: boolean;
+  servicesUnlimited?: boolean;
+  deploymentsUnlimited?: boolean;
   customDomains: boolean;
   prioritySupport: boolean;
 }
@@ -144,6 +151,8 @@ export interface GitHubSourceDetails {
   branch: string;
   autoDeploy: boolean;
   runtime?: ServiceRuntime;
+  /** Process start command inside the container (e.g. java -jar /app/app.jar). */
+  startCommand?: string;
   imageName?: string;
   imageTag?: string;
   containerPort?: number;
@@ -160,6 +169,8 @@ export interface DockerSourceDetails {
   registryUrl?: string;
   /** Container listen port (NPM / health). Defaults to 8080 on backend if omitted. */
   containerPort?: number;
+  /** Optional override of image CMD/ENTRYPOINT. */
+  startCommand?: string;
 }
 
 export interface DatabaseSourceDetails {
@@ -196,7 +207,7 @@ export interface Service {
   sourceDetails: ServiceSourceDetails;
   runtime: ServiceRuntime;
   status: ServiceStatus;
-  /** Opaque platform host, e.g. 847291038472.cloudbase.website (not user-editable). */
+  /** Opaque platform host, e.g. cloudbase8472.cloudbase.website (not user-editable). */
   subdomain?: string;
   /** Optional bring-your-own hostname (e.g. app.example.com). */
   customDomain?: string;
@@ -301,7 +312,8 @@ export type AuditAction =
   | 'ACCOUNT_ACTIVATED'
   | 'ACCOUNT_SUSPENDED'
   | 'PASSWORD_RESET_SENT'
-  | 'ROLE_CHANGED';
+  | 'ROLE_CHANGED'
+  | 'HOSTING_SETTINGS_UPDATED';
 
 export interface AuditLogEntry {
   id: string;
@@ -312,3 +324,57 @@ export interface AuditLogEntry {
   target: string;
   details: string;
 }
+
+/** Admin hosting/integration settings (secrets masked on read). */
+export interface HostingSettings {
+  portainerUrl: string;
+  portainerApiKeyConfigured: boolean;
+  portainerApiKeyHint: string;
+  portainerEndpointId: string;
+  npmEnabled: boolean;
+  npmUrl: string;
+  npmEmail: string;
+  npmPasswordConfigured: boolean;
+  npmPasswordHint: string;
+  npmCertificateId: string;
+  npmSslForced: boolean;
+  githubClientId: string;
+  githubClientSecretConfigured: boolean;
+  githubClientSecretHint: string;
+  githubRedirectUri: string;
+  githubScopes: string;
+  githubWebhookSecretConfigured: boolean;
+  githubWebhookSecretHint: string;
+  dockerHubUsername: string;
+  dockerHubTokenConfigured: boolean;
+  dockerHubTokenHint: string;
+  dockerHubNamespace: string;
+  baseDomain: string;
+  publicApiUrl: string;
+  dockerNetwork: string;
+  volumeRoot: string;
+}
+
+export type HostingSettingsUpdate = Partial<{
+  portainerUrl: string;
+  portainerApiKey: string;
+  portainerEndpointId: string;
+  npmEnabled: boolean;
+  npmUrl: string;
+  npmEmail: string;
+  npmPassword: string;
+  npmCertificateId: string;
+  npmSslForced: boolean;
+  githubClientId: string;
+  githubClientSecret: string;
+  githubRedirectUri: string;
+  githubScopes: string;
+  githubWebhookSecret: string;
+  dockerHubUsername: string;
+  dockerHubToken: string;
+  dockerHubNamespace: string;
+  baseDomain: string;
+  publicApiUrl: string;
+  dockerNetwork: string;
+  volumeRoot: string;
+}>;

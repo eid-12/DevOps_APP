@@ -48,7 +48,7 @@ public class UserEntity {
 
     private Instant emailVerificationExpiresAt;
 
-    /** Step 1 GitHub link — OAuth token arrives in Step 2 */
+    /** Step 1 GitHub link - OAuth token arrives in Step 2 */
     private String githubUsername;
     private String githubAvatarUrl;
     private String githubDisplayName;
@@ -57,6 +57,33 @@ public class UserEntity {
     private String githubScopes;
     @Column(length = 2048)
     private String githubAccessToken;
+
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean onboardingDismissed = false;
+
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean notifyEmailDeployments = true;
+
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean notifyEmailFailures = true;
+
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean notifyEmailWeeklyUsage = false;
+
+    /**
+     * Optional vanity slug on the platform base domain (one per account),
+     * e.g. "acme" → acme.{baseDomain}. Null means user has not claimed one.
+     */
+    @Column(length = 63)
+    private String vanitySlug;
+
+    /** Service currently holding the vanity FQDN as its platform subdomain. */
+    @Column(length = 36)
+    private String vanityServiceId;
 
     @CreationTimestamp
     private Instant createdAt;
