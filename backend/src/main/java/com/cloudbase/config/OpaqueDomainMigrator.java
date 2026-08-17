@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Ensures DATABASE services have no public hosts and refreshes NPM proxies.
@@ -27,27 +28,32 @@ public class OpaqueDomainMigrator implements ApplicationRunner {
     }
 
     @Override
+    @Transactional
     public void run(ApplicationArguments args) {
         int rewritten = 0;
         for (var service : serviceRepository.findAll()) {
-            if (service.getSourceType() == ServiceSourceType.DATABASE) {
-                if (service.getSubdomain() != null || service.getCustomDomain() != null) {
-                    service.setSubdomain(null);
-                    service.setCustomDomain(null);
-                    serviceRepository.save(service);
+            try {
+                if (service.getSourceType() == ServiceSourceType.DATABASE) {
+                    if (service.getSubdomain() != null || service.getCustomDomain() != null) {
+                        service.setSubdomain(null);
+                        service.setCustomDomain(null);
+                        serviceRepository.save(service);
+                        rewritten++;
+                    }
+                    continue;
+                }
+                String before = service.getSubdomain();
+                orchestrator.ensureOpaquePlatformDomain(service);
+                if (before == null || !before.equalsIgnoreCase(service.getSubdomain())) {
                     rewritten++;
                 }
-                continue;
-            }
-            String before = service.getSubdomain();
-            orchestrator.ensureOpaquePlatformDomain(service);
-            if (before == null || !before.equalsIgnoreCase(service.getSubdomain())) {
-                rewritten++;
-            }
-            try {
-                orchestrator.ensureProxyHost(service);
+                try {
+                    orchestrator.ensureProxyHost(service);
+                } catch (Exception e) {
+                    log.warn("NPM refresh failed for {}: {}", service.getId(), e.getMessage());
+                }
             } catch (Exception e) {
-                log.warn("NPM refresh failed for {}: {}", service.getId(), e.getMessage());
+                log.warn("Opaque domain migration skipped for {}: {}", service.getId(), e.getMessage());
             }
         }
         if (rewritten > 0) {

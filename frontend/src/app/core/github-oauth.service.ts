@@ -49,7 +49,7 @@ export class GitHubOAuthService {
   }
 
   get scopes(): string {
-    return (environment as { githubScopes?: string }).githubScopes?.trim() || 'read:user repo user:email';
+    return (environment as { githubScopes?: string }).githubScopes?.trim() || 'read:user repo user:email workflow';
   }
 
   isConfigured(): boolean {

@@ -4,32 +4,25 @@ import { Router } from '@angular/router';
 import { MessageService } from 'primeng/api';
 import { catchError, throwError } from 'rxjs';
 import { AuthService } from './auth.service';
+import { friendlyApiMessage } from './friendly-error';
 
 const SILENT_URL_PARTS = [
   '/notifications/unread-count',
   '/notifications',
   '/auth/me',
-  '/portainer-api'
+  '/portainer-api',
+  '/logs',
+  '/metrics',
+  '/domain/check',
+  '/vanity',
+  '/check-domain',
+  '/check-vanity',
+  '/exec',
+  '/terminal'
 ];
 
 function shouldSilence(url: string): boolean {
   return SILENT_URL_PARTS.some(p => url.includes(p));
-}
-
-function messageFrom(err: HttpErrorResponse): string {
-  const body = err.error;
-  if (typeof body === 'string' && body.trim()) return body.slice(0, 240);
-  if (body && typeof body === 'object') {
-    const msg = (body as { message?: string; error?: string }).message
-      ?? (body as { error?: string }).error;
-    if (msg) return String(msg).slice(0, 240);
-  }
-  if (err.status === 0) return 'Cannot reach the API. Is the backend running?';
-  if (err.status === 401) return 'Session expired. Please sign in again.';
-  if (err.status === 403) return 'You do not have permission for this action.';
-  if (err.status === 404) return 'Resource not found.';
-  if (err.status >= 500) return 'Server error. Try again in a moment.';
-  return err.message || `Request failed (${err.status})`;
 }
 
 /** Maps API failures to PrimeNG toasts; logs out on 401 for app API calls. */
@@ -53,12 +46,13 @@ export const apiErrorInterceptor: HttpInterceptorFn = (req, next) => {
         });
       }
 
-      if (!shouldSilence(req.url) && err.status !== 401) {
+      // Quiet expected misses (404) and background probes — pages show their own hints
+      if (!shouldSilence(req.url) && err.status !== 401 && err.status !== 404) {
         messages.add({
           severity: err.status >= 500 ? 'error' : 'warn',
-          summary: err.status ? `HTTP ${err.status}` : 'Network',
-          detail: messageFrom(err),
-          life: 5000
+          summary: err.status >= 500 ? 'Server' : 'Notice',
+          detail: friendlyApiMessage(err),
+          life: 3500
         });
       }
 

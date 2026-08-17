@@ -109,8 +109,22 @@ export class BillingPageComponent implements OnInit {
       this.router.navigate(['/auth']);
       return;
     }
-    this.auth.getPlan().subscribe({ next: p => this.plan.set(p) });
-    this.auth.usage().subscribe({ next: u => this.usage.set(u) });
+    this.auth.getPlan().subscribe({ next: p => this.plan.set(p), error: () => this.plan.set(null) });
+    this.auth.usage().subscribe({
+      next: u => this.usage.set(u),
+      error: () => this.usage.set({
+        projects: 0,
+        services: 0,
+        runningServices: 0,
+        cpuMilliUsed: 0,
+        cpuMilliLimit: 0,
+        memoryMbUsed: 0,
+        memoryMbLimit: 0,
+        storageGbUsed: 0,
+        storageGbLimit: 0,
+        deploymentsThisMonth: 0
+      } as UsageSummary)
+    });
   }
 
   pct(used: number, limit?: number): number {

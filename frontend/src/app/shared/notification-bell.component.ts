@@ -63,7 +63,7 @@ export class NotificationBellComponent implements OnInit, OnDestroy {
 
   ngOnInit() {
     this.refresh();
-    this.timer = setInterval(() => this.refresh(), 4000);
+    this.timer = setInterval(() => this.refresh(), 30000);
   }
 
   ngOnDestroy() {

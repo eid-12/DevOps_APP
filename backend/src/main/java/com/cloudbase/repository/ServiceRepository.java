@@ -2,7 +2,9 @@ package com.cloudbase.repository;
 
 import com.cloudbase.entity.ServiceEntity;
 import com.cloudbase.model.ServiceSourceType;
+import com.cloudbase.model.ServiceStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -13,6 +15,8 @@ public interface ServiceRepository extends JpaRepository<ServiceEntity, String> 
     List<ServiceEntity> findByProject_Id(String projectId);
 
     List<ServiceEntity> findBySourceType(ServiceSourceType sourceType);
+
+    List<ServiceEntity> findByStatus(ServiceStatus status);
 
     @Query("select s from ServiceEntity s where lower(s.subdomain) = lower(:value)")
     Optional<ServiceEntity> findBySubdomainIgnoreCase(@Param("value") String value);
@@ -26,4 +30,30 @@ public interface ServiceRepository extends JpaRepository<ServiceEntity, String> 
                or lower(s.customDomain) = lower(:value)
             """)
     boolean existsDomainIgnoreCase(@Param("value") String value);
+
+    Optional<ServiceEntity> findByNpmProxyHostId(Integer npmProxyHostId);
+
+    @Query("""
+            select s from ServiceEntity s
+            join fetch s.project p
+            where p.ownerId = :ownerId
+            """)
+    List<ServiceEntity> findByOwnerIdWithProject(@Param("ownerId") String ownerId);
+
+    @Query("""
+            select s from ServiceEntity s
+            join fetch s.project p
+            where s.id = :id
+            """)
+    Optional<ServiceEntity> findByIdWithProject(@Param("id") String id);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update ServiceEntity s
+            set s.status = com.cloudbase.model.ServiceStatus.STOPPED,
+                s.portainerStackId = null,
+                s.npmProxyHostId = null
+            where s.id = :id
+            """)
+    int markStoppedClearRuntime(@Param("id") String id);
 }

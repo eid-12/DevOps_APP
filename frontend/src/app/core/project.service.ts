@@ -214,7 +214,17 @@ export class ProjectService {
 
   addService(projectId: string, payload: CreateServiceRequest): Observable<Service> {
     if (this.useApi) {
-      return this.api.addService(projectId, payload);
+      const body = {
+        ...payload,
+        quota: payload.quota
+          ? {
+              memoryMb: payload.quota.memorymb ?? (payload.quota as { memoryMb?: number }).memoryMb ?? 512,
+              cpuMilli: payload.quota.cpuMilli ?? 500,
+              storageGb: payload.quota.storageGb ?? 2
+            }
+          : undefined
+      };
+      return this.api.addService(projectId, body);
     }
     try {
       this.assertDeployAccess();
@@ -503,11 +513,11 @@ export class ProjectService {
     }
   }
 
-  getMetrics(serviceId: string): Observable<Record<string, unknown>> {
+  getMetrics(serviceId: string, range = '1h'): Observable<Record<string, unknown>> {
     if (this.useApi) {
-      return this.api.getMetrics(serviceId);
+      return this.api.getMetrics(serviceId, range);
     }
-    return of({ available: false });
+    return of({ available: false, history: [] });
   }
 
   /** Mock-mode hard gate — mirrors backend requireDeploymentEnabled. */

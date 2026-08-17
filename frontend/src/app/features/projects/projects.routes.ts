@@ -9,6 +9,12 @@ export const PROJECTS_ROUTES: Routes = [
     redirectTo: '/dashboard'
   },
   {
+    // Must be before :projectId so /projects/new is not treated as an id
+    path: 'new',
+    pathMatch: 'full',
+    redirectTo: '/dashboard?create=1'
+  },
+  {
     path: ':projectId',
     title: 'Project · CloudBase',
     canActivate: [authenticatedGuard],

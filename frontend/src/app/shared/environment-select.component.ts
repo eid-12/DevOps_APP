@@ -40,6 +40,8 @@ interface EnvOption {
             <span class="cb-env-selected-label">{{ item.label }}</span>
             <p-tag [value]="item.short" [severity]="item.severity" styleClass="cb-env-tag" />
           </div>
+        } @else {
+          <span class="cb-env-selected-label">{{ placeholder }}</span>
         }
       </ng-template>
       <ng-template pTemplate="item" let-item>

@@ -187,8 +187,10 @@ export class InfrastructureApiService {
       .pipe(map(r => r.output ?? []));
   }
 
-  getMetrics(serviceId: string): Observable<Record<string, unknown>> {
-    return this.http.get<Record<string, unknown>>(`${this.base}/projects/services/${serviceId}/metrics`);
+  getMetrics(serviceId: string, range = '1h'): Observable<Record<string, unknown>> {
+    return this.http.get<Record<string, unknown>>(`${this.base}/projects/services/${serviceId}/metrics`, {
+      params: { range }
+    });
   }
 
   getDbConnection(serviceId: string): Observable<Record<string, string>> {
@@ -300,6 +302,7 @@ interface BackendDeployment {
   startedAt: string;
   finishedAt?: string;
   logs?: string;
+  errorMessage?: string;
 }
 
 interface BackendService {
@@ -357,7 +360,8 @@ function mapDeployment(d: BackendDeployment): Deployment {
     rollbackOf: d.rollbackOf,
     startedAt: d.startedAt,
     finishedAt: d.finishedAt,
-    logs: d.logs
+    logs: d.logs,
+    errorMessage: d.errorMessage
   };
 }
 

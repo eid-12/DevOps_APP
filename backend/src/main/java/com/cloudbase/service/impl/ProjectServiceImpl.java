@@ -35,6 +35,7 @@ import com.cloudbase.service.ContainerRuntimeService;
 import com.cloudbase.service.DeploymentOrchestrator;
 import com.cloudbase.service.PlanQuotaService;
 import com.cloudbase.service.ProjectService;
+import com.cloudbase.service.ServiceMetricsService;
 import com.cloudbase.service.StartCommandValidator;
 import com.cloudbase.service.VanitySubdomainService;
 import com.cloudbase.service.VolumeMountValidator;
@@ -50,6 +51,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -66,6 +68,7 @@ public class ProjectServiceImpl implements ProjectService {
     private final DeploymentOrchestrator orchestrator;
     private final CiBootstrapService ciBootstrapService;
     private final ContainerRuntimeService containerRuntime;
+    private final ServiceMetricsService serviceMetricsService;
     private final PlanQuotaService planQuotaService;
     private final UserRepository userRepository;
     private final VanitySubdomainService vanitySubdomainService;
@@ -78,6 +81,7 @@ public class ProjectServiceImpl implements ProjectService {
             DeploymentOrchestrator orchestrator,
             CiBootstrapService ciBootstrapService,
             ContainerRuntimeService containerRuntime,
+            ServiceMetricsService serviceMetricsService,
             PlanQuotaService planQuotaService,
             UserRepository userRepository,
             VanitySubdomainService vanitySubdomainService
@@ -89,6 +93,7 @@ public class ProjectServiceImpl implements ProjectService {
         this.orchestrator = orchestrator;
         this.ciBootstrapService = ciBootstrapService;
         this.containerRuntime = containerRuntime;
+        this.serviceMetricsService = serviceMetricsService;
         this.planQuotaService = planQuotaService;
         this.userRepository = userRepository;
         this.vanitySubdomainService = vanitySubdomainService;
@@ -99,10 +104,7 @@ public class ProjectServiceImpl implements ProjectService {
         List<ProjectEntity> projects = user.getRole() == UserRole.ADMIN
                 ? projectRepository.findAll()
                 : projectRepository.findByOwnerId(user.getId());
-        projects.forEach(p -> {
-            p.getServices().size();
-            syncServicesQuietly(p);
-        });
+        projects.forEach(p -> p.getServices().size());
         return projects;
     }
 
@@ -112,23 +114,7 @@ public class ProjectServiceImpl implements ProjectService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
         requireOwnerOrAdmin(project.getOwnerId(), user);
         project.getServices().size();
-        syncServicesQuietly(project);
         return project;
-    }
-
-    private void syncServicesQuietly(ProjectEntity project) {
-        if (project.getServices() == null) return;
-        for (ServiceEntity s : project.getServices()) {
-            try {
-                ServiceStatus live = containerRuntime.resolveLiveStatus(s);
-                if (live != s.getStatus()) {
-                    s.setStatus(live);
-                    serviceRepository.save(s);
-                }
-            } catch (Exception ignored) {
-                // keep stored status
-            }
-        }
     }
 
     @Override
@@ -158,7 +144,10 @@ public class ProjectServiceImpl implements ProjectService {
             assertNotActivelyDeploying(service);
         }
 
-        // 1) Tear down every service in Portainer/NPM first
+        log.info("DELETE project requested id={} name={} services={} by={}",
+                projectId, project.getName(), services.size(), user.getEmail());
+
+        // 1) Tear down every service in Portainer/NPM first (verified)
         for (ServiceEntity service : services) {
             cancelActiveDeploymentsQuietly(service.getId());
             orchestrator.removeInfrastructure(service);
@@ -174,7 +163,7 @@ public class ProjectServiceImpl implements ProjectService {
             serviceRepository.delete(service);
         }
         projectRepository.delete(project);
-        log.info("Deleted project {} with {} services (deployments, shared vars, infra)",
+        log.info("DELETE project complete id={} — {} services torn down from Portainer/NPM then DB",
                 projectId, services.size());
     }
 
@@ -257,10 +246,15 @@ public class ProjectServiceImpl implements ProjectService {
             if (enriched.get("containerPort") instanceof Number n) {
                 saved.setContainerPort(n.intValue());
             } else {
-                // Re-resolve after image/runtime hints
                 saved.setContainerPort(composeGenerator.resolveContainerPort(saved));
             }
             saved = serviceRepository.save(saved);
+            // Same as Docker/DB: start deploy (auto-builds image if needed — user stays in CloudBase)
+            try {
+                orchestrator.startDeploy(saved, user.getEmail(), new DeployServiceRequest(null, null), null);
+            } catch (Exception e) {
+                log.warn("Auto-deploy on addService (GitHub) failed for {}: {}", saved.getId(), e.toString());
+            }
         } else {
             // Databases / Docker images: auto-deploy on create when deployment is enabled
             try {
@@ -278,10 +272,14 @@ public class ProjectServiceImpl implements ProjectService {
         ServiceEntity service = serviceRepository.findById(serviceId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Service not found"));
         requireOwnerOrAdmin(service.getProject().getOwnerId(), user);
-        ServiceStatus live = containerRuntime.resolveLiveStatus(service);
-        if (live != service.getStatus()) {
-            service.setStatus(live);
-            service = serviceRepository.save(service);
+        try {
+            ServiceStatus live = containerRuntime.resolveLiveStatus(service);
+            if (live != service.getStatus()) {
+                service.setStatus(live);
+                service = serviceRepository.save(service);
+            }
+        } catch (Exception ignored) {
+            // keep stored status — never hang the page on Portainer
         }
         return service;
     }
@@ -293,11 +291,13 @@ public class ProjectServiceImpl implements ProjectService {
         assertNotActivelyDeploying(service);
         String ownerId = service.getProject().getOwnerId();
         cancelActiveDeploymentsQuietly(serviceId);
-        // Portainer must succeed first — do not clear vanity / DB if teardown fails
+        // Portainer + NPM must succeed and verify gone — do not clear vanity / DB if teardown fails
+        log.info("DELETE service requested id={} name={} by={}", serviceId, service.getName(), user.getEmail());
         orchestrator.removeInfrastructure(service);
         vanitySubdomainService.clearIfServiceDeleted(serviceId, ownerId);
         deploymentRepository.deleteByServiceId(serviceId);
         serviceRepository.delete(service);
+        log.info("DELETE service DB row removed id={} — Portainer/NPM teardown previously verified", serviceId);
     }
 
     private void assertNotActivelyDeploying(ServiceEntity service) {
@@ -365,8 +365,7 @@ public class ProjectServiceImpl implements ProjectService {
         } catch (ResponseStatusException e) {
             throw e;
         } catch (Exception e) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
-                    "Restart failed: " + e.getMessage());
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Restart failed. Try Deploy if the service is not running.");
         }
         service.setStatus(ServiceStatus.RUNNING);
         return serviceRepository.save(service);
@@ -569,12 +568,104 @@ public class ProjectServiceImpl implements ProjectService {
     public List<Map<String, Object>> getServiceLogs(String serviceId, UserEntity user, int tail) {
         ServiceEntity service = getService(serviceId, user);
         try {
-            return containerRuntime.fetchLogs(service, tail);
+            List<Map<String, Object>> containerLogs = containerRuntime.fetchLogs(service, tail);
+            if (containerLogs != null && !containerLogs.isEmpty()) {
+                return containerLogs;
+            }
         } catch (ResponseStatusException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Failed to fetch logs: " + e.getMessage());
+            if (e.getStatusCode() != HttpStatus.NOT_FOUND && e.getStatusCode() != HttpStatus.BAD_GATEWAY) {
+                throw e;
+            }
+        } catch (Exception ignored) {
+            // fall through to deployment log trail
         }
+        List<Map<String, Object>> fromDeploy = deploymentLogLines(serviceId, Math.max(20, tail));
+        if (!fromDeploy.isEmpty()) {
+            return fromDeploy;
+        }
+        String hint = switch (service.getStatus()) {
+            case BUILDING -> "Build in progress. Container logs appear after the image is ready and Redeploy finishes.";
+            case DEPLOYING -> "Starting container… Logs appear once it is running.";
+            case FAILED -> "Last deploy did not finish. Open Deployments for details, fix the issue, then Redeploy.";
+            case PENDING, STOPPED -> "No running container yet. Deploy the service to see logs.";
+            default -> "No running container yet. Deploy the service to see logs.";
+        };
+        return List.of(Map.of(
+                "id", "hint-0",
+                "timestamp", Instant.now().toString(),
+                "level", "info",
+                "stream", "system",
+                "message", hint
+        ));
+    }
+
+    /** When the container is not up yet, surface the latest deployment log trail in the Logs tab. */
+    private List<Map<String, Object>> deploymentLogLines(String serviceId, int maxLines) {
+        List<DeploymentEntity> deps = deploymentRepository.findByServiceIdOrderByStartedAtDesc(serviceId);
+        if (deps.isEmpty()) {
+            return List.of();
+        }
+        List<Map<String, Object>> out = new ArrayList<>();
+        int remaining = maxLines;
+        for (DeploymentEntity dep : deps) {
+            if (remaining <= 0) {
+                break;
+            }
+            Instant base = dep.getStartedAt() != null ? dep.getStartedAt() : Instant.now();
+            out.add(Map.of(
+                    "id", dep.getId() + "-head",
+                    "timestamp", base.toString(),
+                    "level", "info",
+                    "stream", "deploy",
+                    "message", "── Deploy " + dep.getId() + " · " + dep.getStatus() + " ──"
+            ));
+            remaining--;
+            String raw = dep.getLogs();
+            if (raw == null || raw.isBlank()) {
+                continue;
+            }
+            String[] parts = raw.replace("\r\n", "\n").replace('\r', '\n').split("\n");
+            Instant lineTs = base;
+            for (String part : parts) {
+                if (remaining <= 0) {
+                    break;
+                }
+                String msg = part.trim();
+                if (msg.isEmpty()) {
+                    continue;
+                }
+                lineTs = lineTs.plusMillis(50);
+                String level = "info";
+                String lower = msg.toLowerCase(Locale.ROOT);
+                if (lower.contains("could not") || lower.contains("failed") || lower.contains("error")) {
+                    level = "error";
+                } else if (lower.contains("wait") || lower.contains("connect github") || lower.contains("not ready")) {
+                    level = "warn";
+                }
+                out.add(Map.of(
+                        "id", dep.getId() + "-" + remaining,
+                        "timestamp", lineTs.toString(),
+                        "level", level,
+                        "stream", "deploy",
+                        "message", softenDeployLogLine(msg)
+                ));
+                remaining--;
+            }
+            if (deps.indexOf(dep) == 0) {
+                break; // latest deployment is enough for the Logs tab
+            }
+        }
+        return out;
+    }
+
+    private static String softenDeployLogLine(String msg) {
+        return msg
+                .replaceAll("(?i)\\bHTTP\\s*\\d{3}\\b", "")
+                .replaceAll("(?i)\\bcb-svc-[a-z0-9]+\\b", "")
+                .replaceAll("(?i)Failed to write \\.github/workflows/\\S+", "Could not set up the build workflow")
+                .replaceAll("(?i)Setup failed:\\s*", "")
+                .replaceAll("\\s{2,}", " ")
+                .trim();
     }
 
     @Override
@@ -589,14 +680,28 @@ public class ProjectServiceImpl implements ProjectService {
         } catch (ResponseStatusException e) {
             throw e;
         } catch (Exception e) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Exec failed: " + e.getMessage());
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Could not run command. Try again after Deploy.");
         }
     }
 
     @Override
     public Map<String, Object> getServiceMetrics(String serviceId, UserEntity user) {
+        return getServiceMetrics(serviceId, user, "1h");
+    }
+
+    @Override
+    public Map<String, Object> getServiceMetrics(String serviceId, UserEntity user, String range) {
         ServiceEntity service = getService(serviceId, user);
-        return containerRuntime.fetchMetrics(service);
+        Map<String, Object> live = containerRuntime.fetchMetrics(service);
+        try {
+            serviceMetricsService.recordSample(serviceId, live);
+        } catch (Exception e) {
+            log.debug("Could not persist metrics sample for {}: {}", serviceId, e.toString());
+        }
+        Map<String, Object> out = new LinkedHashMap<>(live);
+        out.put("range", range == null || range.isBlank() ? "1h" : range);
+        out.put("history", serviceMetricsService.history(serviceId, range));
+        return out;
     }
 
     @Override
@@ -756,10 +861,26 @@ public class ProjectServiceImpl implements ProjectService {
             service.setName(request.name().trim());
         }
         if (request.sourceDetails() != null) {
-            Map<String, Object> details = service.getSourceDetails() != null
+            Map<String, Object> previousDetails = service.getSourceDetails() != null
                     ? new HashMap<>(service.getSourceDetails())
                     : new HashMap<>();
+            Map<String, Object> details = new HashMap<>(previousDetails);
             details.putAll(request.sourceDetails());
+
+            // Database engine + internal port are immutable after create.
+            if (service.getSourceType() == ServiceSourceType.DATABASE) {
+                Object lockedType = previousDetails.get("dbType");
+                if (lockedType != null) {
+                    details.put("dbType", lockedType);
+                }
+                Object lockedPort = previousDetails.get("containerPort");
+                if (lockedPort != null) {
+                    details.put("containerPort", lockedPort);
+                } else if (service.getContainerPort() != null) {
+                    details.put("containerPort", service.getContainerPort());
+                }
+            }
+
             if (request.sourceDetails().get("runtime") != null) {
                 details.put("runtime", request.sourceDetails().get("runtime"));
             }
@@ -776,6 +897,21 @@ public class ProjectServiceImpl implements ProjectService {
                 service.setContainerPort(n.intValue());
             } else {
                 service.setContainerPort(composeGenerator.resolveContainerPort(service));
+            }
+            // Re-bootstrap CI only when GitHub build source fields actually change (avoid slow GitHub I/O on every save)
+            if (service.getSourceType() == com.cloudbase.model.ServiceSourceType.GITHUB
+                    && githubCiFieldsChanged(previousDetails, details)) {
+                ServiceEntity savedGh = serviceRepository.save(service);
+                try {
+                    Map<String, Object> enriched = ciBootstrapService.bootstrapGitHubService(user, savedGh);
+                    savedGh.setSourceDetails(enriched);
+                    if (enriched.get("containerPort") instanceof Number pn) {
+                        savedGh.setContainerPort(pn.intValue());
+                    }
+                    return serviceRepository.save(savedGh);
+                } catch (Exception e) {
+                    log.warn("CI re-bootstrap on update failed for {}: {}", serviceId, e.toString());
+                }
             }
         }
         if (request.runtime() != null && !request.runtime().isBlank()) {
@@ -834,6 +970,25 @@ public class ProjectServiceImpl implements ProjectService {
             }
         });
         return saved;
+    }
+
+    private static boolean githubCiFieldsChanged(Map<String, Object> before, Map<String, Object> after) {
+        if (after == null) {
+            return false;
+        }
+        String[] keys = {
+                "repositoryUrl", "branch", "rootDirectory", "buildCommand", "runtime", "startCommand"
+        };
+        for (String key : keys) {
+            String a = String.valueOf(before != null ? before.getOrDefault(key, "") : "").trim();
+            String b = String.valueOf(after.getOrDefault(key, "")).trim();
+            if ("null".equalsIgnoreCase(a)) a = "";
+            if ("null".equalsIgnoreCase(b)) b = "";
+            if (!a.equals(b)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String envValue(ServiceEntity service, String key) {

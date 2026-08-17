@@ -38,7 +38,7 @@ import java.util.UUID;
 @Transactional
 public class AuthServiceImpl implements AuthService {
 
-    private static final List<String> STEP1_SCOPES = List.of("read:user", "repo");
+    private static final List<String> STEP1_SCOPES = List.of("read:user", "repo", "user:email", "workflow");
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private static final int CODE_TTL_MINUTES = 15;
 

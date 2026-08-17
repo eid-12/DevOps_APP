@@ -1,12 +1,13 @@
 import { Component, HostListener, OnInit, inject, signal, ElementRef, viewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { Router, RouterLink, ActivatedRoute } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
 import { TableModule } from 'primeng/table';
 import { ToolbarModule } from 'primeng/toolbar';
 import { AuthService } from '../core/auth.service';
+import { GitHubOAuthService } from '../core/github-oauth.service';
 import {
   CreateServiceRequest,
   DatabaseType,
@@ -92,50 +93,6 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
           </div>
         </header>
 
-        @if (!loading() && projects().length) {
-          <p-table
-            [value]="filteredProjects()"
-            [paginator]="filteredProjects().length > 5"
-            [rows]="5"
-            styleClass="p-datatable-sm mb-4"
-            [rowHover]="true"
-          >
-            <ng-template pTemplate="header">
-              <tr>
-                <th>Name</th>
-                <th>Environment</th>
-                <th>Status</th>
-                <th>Services</th>
-                <th></th>
-              </tr>
-            </ng-template>
-            <ng-template pTemplate="body" let-p>
-              <tr>
-                <td>
-                  <button type="button" class="btn btn-ghost btn-sm" (click)="openProject(p)">{{ p.name }}</button>
-                </td>
-                <td>
-                  <p-tag
-                    [value]="(p.environment || 'production') | uppercase"
-                    [severity]="envSeverity(p.environment)"
-                    styleClass="railway-env-tag"
-                  />
-                </td>
-                <td>
-                  <p-tag
-                    [value]="p.status"
-                    [severity]="p.status === 'ACTIVE' ? 'success' : 'warning'"
-                  />
-                </td>
-                <td>{{ p.services?.length || 0 }}</td>
-                <td>
-                  <p-button icon="pi pi-arrow-right" [rounded]="true" [text]="true" (onClick)="openProject(p)" />
-                </td>
-              </tr>
-            </ng-template>
-          </p-table>
-        }
-
         @if (message()) {
           <div class="pill pill-red railway-alert">{{ message() }}</div>
         }
@@ -184,8 +141,8 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
         @if (!auth.isGitHubConnected() && canDeploy() && !isSuspended()) {
           <div class="pill pill-amber railway-alert github-banner">
             GitHub is not connected.
-            <a routerLink="/account" style="margin-left:8px;color:inherit;text-decoration:underline">Connect GitHub</a>
-            to deploy private repos and enable auto-deploy.
+            <a routerLink="/account" fragment="github-connect" style="margin-left:8px;color:inherit;text-decoration:underline">Account</a>
+            — connect to deploy from GitHub.
           </div>
         }
 
@@ -260,7 +217,9 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
                 (click)="openProject(project)"
               >
                 <div class="railway-card-head">
-                  <h3 class="railway-card-title">{{ project.name }}</h3>
+                  <h3 class="railway-card-title">
+                    <a class="railway-card-title-link" [routerLink]="['/projects', project.id]" (click)="$event.stopPropagation()">{{ project.name }}</a>
+                  </h3>
                   <div class="project-menu" (click)="$event.stopPropagation()">
                     <button
                       type="button"
@@ -360,7 +319,8 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
             <div class="field" style="margin-bottom: 14px;">
               <label>Project Name</label>
               <input
-                [(ngModel)]="emptyName"
+                [ngModel]="emptyName || ''"
+                (ngModelChange)="emptyName = ($event ?? '').toString()"
                 placeholder="my-project"
                 autocomplete="off"
                 (keydown.enter)="submitEmptyProject()"
@@ -389,10 +349,16 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
         }
 
         @if (createStep() === 'form') {
-          <div class="modal-panel panel create-form-panel" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+          <div
+            class="modal-panel panel create-form-panel"
+            [class.create-form-panel--github]="createKind() === 'github'"
+            (click)="$event.stopPropagation()"
+            role="dialog"
+            aria-modal="true"
+          >
             <div class="modal-header">
               <h2>{{ formTitle() }}</h2>
-              <button type="button" class="btn btn-ghost btn-sm" (click)="backToPicker()" [disabled]="creating()">✕</button>
+              <button type="button" class="modal-close" (click)="backToPicker()" [disabled]="creating()" aria-label="Close">✕</button>
             </div>
 
             @if (createError()) {
@@ -401,8 +367,8 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
 
             @if (createKind() === 'github' && !auth.isGitHubConnected()) {
               <div class="pill pill-amber railway-alert">
-                GitHub is not connected — you can still paste a public repository URL.
-                <a routerLink="/account" style="margin-left:6px;color:inherit;text-decoration:underline">Connect</a>
+                Connect GitHub from Account first, then pick a repository.
+                <a routerLink="/account" fragment="github-connect" style="margin-left:6px;color:inherit;text-decoration:underline">Account</a>
               </div>
             }
 
@@ -412,28 +378,6 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
                 <input [(ngModel)]="draft.name" placeholder="my-service" autocomplete="off" />
               </div>
 
-              @if (createKind() === 'github') {
-                <div class="field">
-                  <label>Runtime / Language</label>
-                  <app-runtime-select [value]="draft.runtime" (valueChange)="onRuntimeChange($event)" />
-                </div>
-                <div class="field">
-                  <label>Start command</label>
-                  <input
-                    [(ngModel)]="draft.startCommand"
-                    (ngModelChange)="startCommandTouched = true"
-                    placeholder="java -jar /app/app.jar"
-                    autocomplete="off"
-                    spellcheck="false"
-                    style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px"
-                  />
-                  <p class="empty-sub" style="margin:6px 0 0">
-                    Process command inside the container (no shell: no <code>| ; &amp; $</code>).
-                    Example: <code>java -Xmx512m -jar /app/app.jar</code>. Applied on next deploy.
-                  </p>
-                </div>
-              }
-
               <div class="field">
                 <label>Environment</label>
                 <app-environment-select [(value)]="createEnvironment" />
@@ -441,11 +385,8 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
 
               @if (createKind() === 'github') {
                 @if (auth.isGitHubConnected()) {
-                  <p class="muted" style="font-size:12px;margin:0 0 10px">
-                    Connected as &#64;{{ auth.githubUsername() }} — pick a repo or paste a URL.
-                  </p>
                   <div class="field">
-                    <label>Your repositories</label>
+                    <label>Repository</label>
                     <app-github-repo-select
                       [repos]="githubRepos()"
                       [value]="selectedRepoFullName"
@@ -468,10 +409,7 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
                   <label>Branch</label>
                   <input [(ngModel)]="draft.branch" placeholder="main" />
                 </div>
-                <label class="toggle-field">
-                  <input type="checkbox" [(ngModel)]="draft.autoDeploy" />
-                  <span>Auto deploy on push</span>
-                </label>
+                <p class="create-form-hint">Advanced options (root directory, build, healthcheck, restart) are in Settings after create.</p>
               }
 
               @if (createKind() === 'docker') {
@@ -530,7 +468,7 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
                 </div>
               }
 
-              @if (createKind() === 'github' || createKind() === 'docker') {
+              @if (createKind() === 'docker') {
                 <div class="env-section">
                   <div class="env-header">
                     <span>Environment Variables</span>
@@ -553,13 +491,13 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
                 <p class="muted" style="font-size:12px;margin:0 0 10px">
                   Persistent volume is required for databases so data survives restarts.
                 </p>
-              } @else {
+              } @else if (createKind() === 'docker') {
                 <label class="toggle-field">
                   <input type="checkbox" [(ngModel)]="draft.useVolume" />
                   <span>Persistent Volume</span>
                 </label>
               }
-              @if (draft.useVolume || createKind() === 'database') {
+              @if (createKind() !== 'github' && (draft.useVolume || createKind() === 'database')) {
                 <div class="field">
                   <label>Mount Path <span class="muted" style="font-weight:400">(inside container only)</span></label>
                   <input [(ngModel)]="draft.mountPath" [placeholder]="createKind() === 'database' ? dbPreset(draft.dbType).mountPath : '/data'" />
@@ -579,7 +517,7 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
                   (click)="submitWithService()"
                   [disabled]="creating() || !canSubmitForm()"
                 >
-                  {{ creating() ? 'Creating…' : 'Add Service' }}
+                  {{ creating() ? 'Creating…' : (createKind() === 'github' ? 'Deploy' : 'Add Service') }}
                 </button>
               </div>
             </div>
@@ -627,7 +565,7 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
         [busy]="deleting()"
         [error]="deleteError()"
         confirmLabel="Delete project permanently"
-        warning="Deletes this project and everything under it: all services, deployments, shared variables, vanity/custom domains, Portainer stacks/containers/volumes, NPM proxies, and the project Docker network. If Portainer does not confirm, CloudBase will not delete anything."
+        warning="Deletes this project and everything under it. Each service is removed from Portainer and NPM with verification before CloudBase deletes DB rows. If teardown fails, nothing is deleted."
         (cancel)="closeDeleteDialog()"
         (confirm)="executeDeleteProject()"
       />
@@ -636,8 +574,10 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
 })
 export class DashboardPageComponent implements OnInit {
   readonly auth = inject(AuthService);
+  private readonly githubOAuth = inject(GitHubOAuthService);
   private readonly projectService = inject(ProjectService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private readonly searchInput = viewChild<ElementRef<HTMLInputElement>>('searchInput');
 
   readonly projects = signal<Project[]>([]);
@@ -686,8 +626,12 @@ export class DashboardPageComponent implements OnInit {
 
   ngOnInit() {
     this.loadProjects();
-    this.auth.usage().subscribe({ next: u => this.usage.set(u) });
-    this.auth.getPlan().subscribe({ next: p => this.plan.set(p) });
+    this.auth.usage().subscribe({ next: u => this.usage.set(u), error: () => {} });
+    this.auth.getPlan().subscribe({ next: p => this.plan.set(p), error: () => {} });
+    if (this.route.snapshot.queryParamMap.get('create') === '1') {
+      queueMicrotask(() => this.openCreateModal());
+      void this.router.navigate([], { relativeTo: this.route, queryParams: {}, replaceUrl: true });
+    }
   }
 
   @HostListener('document:keydown', ['$event'])
@@ -932,24 +876,26 @@ export class DashboardPageComponent implements OnInit {
       return;
     }
 
-    // GitHub requires a connected GitHub account — send them to OAuth / Account
+    // GitHub requires a connected account → OAuth login on github.com
     if (id === 'github' && !this.auth.isGitHubConnected()) {
-      this.redirectToGitHubConnect();
+      this.redirectToGitHubLogin();
       return;
     }
 
-    // GitHub / Docker / Database → config form
     if (id === 'github' || id === 'docker' || id === 'database') {
       this.createError.set('');
       this.openForm(id);
     }
   }
 
-  /** Close create flow and start GitHub login (or Account if OAuth is not configured). */
-  private redirectToGitHubConnect() {
-    this.createOpen.set(false);
-    this.createError.set('');
-    this.router.navigate(['/account'], { queryParams: { connect: 'github' } });
+  /** Send the user to GitHub's OAuth login/authorize page. */
+  private redirectToGitHubLogin() {
+    try {
+      this.githubOAuth.startLogin();
+    } catch (e) {
+      this.createError.set((e as Error).message || 'Could not start GitHub login');
+      this.createStep.set('picker');
+    }
   }
 
   openForm(kind: 'github' | 'docker' | 'database') {
@@ -992,7 +938,7 @@ export class DashboardPageComponent implements OnInit {
 
     if (kind === 'database') {
       this.draft.useVolume = true;
-      this.draft.storageGb = 1;
+      this.draft.storageGb = 2;
       this.onDbTypeChange(this.draft.dbType);
     }
 
@@ -1076,10 +1022,10 @@ export class DashboardPageComponent implements OnInit {
     const value = this.prompt.trim();
     if (!value) return;
 
-    // Paste repo link → GitHub form (requires GitHub connected)
+    // Paste repo link → GitHub form (or OAuth if not connected)
     if (value.includes('github.com') || /^https?:\/\//i.test(value)) {
       if (!this.auth.isGitHubConnected()) {
-        this.redirectToGitHubConnect();
+        this.redirectToGitHubLogin();
         return;
       }
       this.openForm('github');
@@ -1241,9 +1187,9 @@ export class DashboardPageComponent implements OnInit {
       sourceDetails = {
         repositoryUrl: this.draft.repoUrl.trim(),
         branch: this.draft.branch.trim() || 'main',
-        autoDeploy: this.draft.autoDeploy,
-        runtime: this.draft.runtime,
-        startCommand: (this.draft.startCommand || defaultStartCommand(this.draft.runtime)).trim()
+        autoDeploy: true,
+        runtime: this.draft.runtime || 'node',
+        startCommand: (this.draft.startCommand || defaultStartCommand(this.draft.runtime || 'node')).trim()
       };
     } else if (kind === 'docker') {
       sourceType = 'DOCKER';
@@ -1264,6 +1210,7 @@ export class DashboardPageComponent implements OnInit {
     }
 
     const forceVolume = kind === 'database' || this.draft.useVolume;
+    const storageGb = this.draft.storageGb || (kind === 'database' ? 2 : 2);
     return {
       projectId,
       name: this.draft.name.trim(),
@@ -1271,11 +1218,16 @@ export class DashboardPageComponent implements OnInit {
       sourceDetails,
       runtime: kind === 'database' || kind === 'docker' ? 'other' : this.draft.runtime,
       envVars: this.draft.envVars.filter(e => e.key.trim()),
+      quota: {
+        memorymb: 512,
+        cpuMilli: 500,
+        storageGb
+      },
       ...(forceVolume
         ? {
             volume: {
               mountPath: this.draft.mountPath || (kind === 'database' ? DB_PRESETS[this.draft.dbType].mountPath : '/data'),
-              sizeGb: this.draft.storageGb || (kind === 'database' ? 1 : 2)
+              sizeGb: storageGb
             }
           }
         : {})
@@ -1289,6 +1241,11 @@ export class DashboardPageComponent implements OnInit {
       startCommand: defaultStartCommand('node'),
       repoUrl: '',
       branch: 'main',
+      rootDirectory: '',
+      buildCommand: '',
+      healthcheckPath: '',
+      restartPolicy: 'unless-stopped' as 'unless-stopped' | 'on-failure',
+      restartRetries: 10,
       autoDeploy: true,
       imageName: '',
       imageTag: 'latest',
@@ -1311,8 +1268,8 @@ export class DashboardPageComponent implements OnInit {
     }
   }
 
-  private slugify(value: string): string {
-    return value
+  private slugify(value: string | null | undefined): string {
+    return String(value ?? '')
       .toLowerCase()
       .replace(/https?:\/\//g, '')
       .replace(/[^a-z0-9]+/g, '-')

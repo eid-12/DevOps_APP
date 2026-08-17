@@ -59,7 +59,7 @@ const STRONG_PASSWORD_PATTERN = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#.
 
     <div class="account-grid">
       <!-- GitHub -->
-      <section class="panel svc-panel account-span-2">
+      <section id="github-connect" class="panel svc-panel account-span-2">
         <div class="svc-panel-head">
           <h3>GitHub</h3>
           <p-tag
@@ -325,6 +325,8 @@ const STRONG_PASSWORD_PATTERN = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#.
                 <div class="meter"><span [style.width.%]="pct(u.storageGbUsed, u.storageGbLimit)"></span></div>
               </div>
             </div>
+          } @else {
+            <p class="muted" style="padding:8px 0">{{ usageError() || 'Loading usage…' }}</p>
           }
         } @placeholder {
           <p class="muted" style="padding:8px 0">Loading usage…</p>
@@ -449,6 +451,7 @@ export class AccountPageComponent implements OnInit {
   readonly message = signal('');
   readonly tone = signal<'ok' | 'error'>('ok');
   readonly usage = signal<UsageSummary | null>(null);
+  readonly usageError = signal('');
   readonly tokens = signal<ApiToken[]>([]);
   readonly newTokenSecret = signal('');
 
@@ -462,12 +465,21 @@ export class AccountPageComponent implements OnInit {
     this.email = user.email;
     this.githubUsername = user.email.split('@')[0] || '';
     this.notif = { ...(user.notifications ?? this.notif) };
-    this.auth.usage().subscribe({ next: u => this.usage.set(u) });
+    this.auth.usage().subscribe({
+      next: u => {
+        this.usage.set(u);
+        this.usageError.set('');
+      },
+      error: () => this.usageError.set('Could not load usage')
+    });
     this.refreshTokens();
 
-    // Deep-link from create picker when GitHub is not connected
+    // Deep-link from create flow: land on Account GitHub section — do NOT auto-redirect to github.com
     if (this.route.snapshot.queryParamMap.get('connect') === 'github' && !this.githubConnected()) {
-      queueMicrotask(() => this.connectGitHubOAuth());
+      queueMicrotask(() => {
+        const el = document.getElementById('github-connect');
+        el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
     }
   }
 

@@ -16,8 +16,10 @@ import com.cloudbase.service.NotificationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -47,6 +49,7 @@ public class DeploymentOrchestrator {
     private final PlatformSettingsService platformSettings;
     private final WebClient publicHttp;
     private final VanitySubdomainService vanitySubdomainService;
+    private final TransactionTemplate transactionTemplate;
 
     public DeploymentOrchestrator(
             ServiceRepository serviceRepository,
@@ -58,7 +61,8 @@ public class DeploymentOrchestrator {
             NotificationService notificationService,
             PlatformSettingsService platformSettings,
             WebClient.Builder webClientBuilder,
-            @org.springframework.context.annotation.Lazy VanitySubdomainService vanitySubdomainService
+            @org.springframework.context.annotation.Lazy VanitySubdomainService vanitySubdomainService,
+            TransactionTemplate transactionTemplate
     ) {
         this.serviceRepository = serviceRepository;
         this.deploymentRepository = deploymentRepository;
@@ -70,6 +74,7 @@ public class DeploymentOrchestrator {
         this.platformSettings = platformSettings;
         this.publicHttp = webClientBuilder.build();
         this.vanitySubdomainService = vanitySubdomainService;
+        this.transactionTemplate = transactionTemplate;
     }
 
     private String baseDomain() {
@@ -235,7 +240,18 @@ public class DeploymentOrchestrator {
      * Wire NPM then (for GitHub apps) hit the public URL and refuse demo/placeholder pages.
      */
     private Mono<Void> provisionProxyAndVerifyApp(String serviceId) {
-        return Mono.fromCallable(() -> serviceRepository.findById(serviceId).orElse(null))
+        return Mono.fromCallable(() -> transactionTemplate.execute(status -> {
+                    ServiceEntity service = serviceRepository.findByIdWithProject(serviceId).orElse(null);
+                    if (service == null) {
+                        return null;
+                    }
+                    if (service.getSourceType() == ServiceSourceType.DATABASE) {
+                        return service;
+                    }
+                    ensureOpaquePlatformDomain(service);
+                    return serviceRepository.save(service);
+                }))
+                .subscribeOn(Schedulers.boundedElastic())
                 .flatMap(service -> {
                     if (service == null) {
                         return Mono.error(new IllegalStateException("Service disappeared during deploy"));
@@ -243,19 +259,19 @@ public class DeploymentOrchestrator {
                     if (service.getSourceType() == ServiceSourceType.DATABASE) {
                         return Mono.empty();
                     }
-                    ensureOpaquePlatformDomain(service);
-                    serviceRepository.save(service);
                     List<String> domains = resolveDomainNames(service);
                     String forwardHost = composeGenerator.resolveContainerName(service);
                     int forwardPort = composeGenerator.resolveContainerPort(service);
+                    Integer existingNpmId = service.getNpmProxyHostId();
 
                     Mono<Void> proxy = domains.isEmpty() || !npmClient.isEnabled()
                             ? Mono.empty()
-                            : npmClient.upsertProxyHost(service.getNpmProxyHostId(), domains, forwardHost, forwardPort)
-                            .doOnNext(hostId -> {
-                                service.setNpmProxyHostId(hostId);
-                                serviceRepository.save(service);
-                            })
+                            : npmClient.upsertProxyHost(existingNpmId, domains, forwardHost, forwardPort)
+                            .doOnNext(hostId -> transactionTemplate.executeWithoutResult(status ->
+                                    serviceRepository.findById(serviceId).ifPresent(s -> {
+                                        s.setNpmProxyHostId(hostId);
+                                        serviceRepository.save(s);
+                                    })))
                             .then();
 
                     Mono<Void> verify = service.getSourceType() == ServiceSourceType.GITHUB
@@ -550,6 +566,61 @@ public class DeploymentOrchestrator {
     }
 
     /**
+     * Admin revoke (deploy disabled / account suspended): remove stacks, containers, and NPM
+     * hosts but keep DB rows and volume data so a later redeploy can restore.
+     * Best-effort — never throws to the admin API.
+     */
+    public void revokeRuntimeKeepData(ServiceEntity service) {
+        if (service == null) {
+            return;
+        }
+        Duration timeout = Duration.ofSeconds(45);
+        String stack = stackName(service);
+        String appName = composeGenerator.resolveContainerName(service);
+        String wtName = composeGenerator.resolveWatchtowerContainerName(service);
+
+        log.info("Revoking runtime (keep data) service={} stack={} container={}",
+                service.getId(), stack, appName);
+
+        try {
+            if (service.getPortainerStackId() != null) {
+                portainerClient.removeStack(service.getPortainerStackId())
+                        .doOnSuccess(v -> log.info("Revoke removed stack id={}", service.getPortainerStackId()))
+                        .block(timeout);
+            }
+            portainerClient.removeStackByName(stack)
+                    .doOnSuccess(v -> log.info("Revoke removed stack by name={}", stack))
+                    .block(timeout);
+        } catch (Exception e) {
+            log.warn("Revoke stack failed for {}: {}", service.getId(), e.toString());
+        }
+
+        try {
+            Mono.whenDelayError(
+                    portainerClient.forceRemoveContainerByName(appName)
+                            .doOnSuccess(v -> log.info("Revoke removed container {}", appName)),
+                    portainerClient.forceRemoveContainerByName(wtName)
+                            .doOnSuccess(v -> log.info("Revoke removed watchtower {}", wtName))
+            ).block(timeout);
+        } catch (Exception e) {
+            log.warn("Revoke containers failed for {}: {}", service.getId(), e.toString());
+        }
+
+        if (service.getNpmProxyHostId() != null) {
+            try {
+                npmClient.deleteProxyHost(service.getNpmProxyHostId())
+                        .onErrorResume(e -> {
+                            log.warn("Revoke NPM failed: {}", e.getMessage());
+                            return Mono.empty();
+                        })
+                        .block(Duration.ofSeconds(20));
+            } catch (Exception e) {
+                log.warn("Revoke NPM failed for {}: {}", service.getId(), e.toString());
+            }
+        }
+    }
+
+    /**
      * After all services are torn down: wipe project volume folder + Docker project network.
      * Best-effort for leftovers; does not fail delete if already gone.
      */
@@ -634,82 +705,87 @@ public class DeploymentOrchestrator {
     }
 
     private void onStackSuccess(String serviceId, String deploymentId, Map<String, Object> result) {
-        DeploymentEntity existing = deploymentRepository.findById(deploymentId).orElse(null);
-        if (existing != null && existing.getStatus() == DeploymentStatus.CANCELLED) {
-            log.info("Ignoring success for cancelled deployment {}", deploymentId);
-            return;
-        }
-        Integer stackId = asInt(result != null ? result.get("Id") : null);
-        serviceRepository.findById(serviceId).ifPresent(service -> {
-            if (stackId != null) {
-                service.setPortainerStackId(stackId);
-            }
-            service.setStatus(ServiceStatus.RUNNING);
-            service.setEnvPendingDeploy(false);
-            ensureOpaquePlatformDomain(service);
-            serviceRepository.save(service);
-            eventPublisher.publishServiceStatusUpdate(service);
-            ensureProxyHost(service);
-            String href = "/projects/" + service.getProject().getId() + "/services/" + service.getId();
-            notificationService.notifyUser(
-                    service.getProject().getOwnerId(),
-                    "Deploy succeeded",
-                    service.getName() + " is running.",
-                    href
-            );
-        });
-
-        deploymentRepository.findById(deploymentId).ifPresent(deployment -> {
-            if (deployment.getStatus() == DeploymentStatus.CANCELLED) {
+        transactionTemplate.executeWithoutResult(status -> {
+            DeploymentEntity existing = deploymentRepository.findById(deploymentId).orElse(null);
+            if (existing != null && existing.getStatus() == DeploymentStatus.CANCELLED) {
+                log.info("Ignoring success for cancelled deployment {}", deploymentId);
                 return;
             }
-            deployment.setStatus(DeploymentStatus.SUCCESS);
-            deployment.setFinishedAt(Instant.now());
-            if (stackId != null) {
-                deployment.setPortainerStackId(stackId);
-            }
-            deployment.setLogs((deployment.getLogs() == null ? "" : deployment.getLogs() + "\n")
-                    + "Portainer stack upserted successfully\n"
-                    + "Container verified running\n"
-                    + "Public app verified (not a demo page)");
-            deploymentRepository.save(deployment);
-            eventPublisher.publishDeploymentUpdate(deployment);
+            Integer stackId = asInt(result != null ? result.get("Id") : null);
+            serviceRepository.findByIdWithProject(serviceId).ifPresent(service -> {
+                if (stackId != null) {
+                    service.setPortainerStackId(stackId);
+                }
+                service.setStatus(ServiceStatus.RUNNING);
+                service.setEnvPendingDeploy(false);
+                ensureOpaquePlatformDomain(service);
+                serviceRepository.save(service);
+                eventPublisher.publishServiceStatusUpdate(service);
+                ensureProxyHost(service);
+                String href = "/projects/" + service.getProject().getId() + "/services/" + service.getId();
+                notificationService.notifyUser(
+                        service.getProject().getOwnerId(),
+                        "Deploy succeeded",
+                        service.getName() + " is running.",
+                        href
+                );
+            });
+
+            deploymentRepository.findById(deploymentId).ifPresent(deployment -> {
+                if (deployment.getStatus() == DeploymentStatus.CANCELLED) {
+                    return;
+                }
+                deployment.setStatus(DeploymentStatus.SUCCESS);
+                deployment.setFinishedAt(Instant.now());
+                if (stackId != null) {
+                    deployment.setPortainerStackId(stackId);
+                }
+                deployment.setLogs((deployment.getLogs() == null ? "" : deployment.getLogs() + "\n")
+                        + "Portainer stack upserted successfully\n"
+                        + "Container verified running\n"
+                        + "Public app verified (not a demo page)");
+                deploymentRepository.save(deployment);
+                eventPublisher.publishDeploymentUpdate(deployment);
+            });
+            log.info("Deploy succeeded service={} deployment={}", serviceId, deploymentId);
         });
-        log.info("Deploy succeeded service={} deployment={}", serviceId, deploymentId);
     }
 
     private void onStackFailure(String serviceId, String deploymentId, Throwable error) {
-        DeploymentEntity existing = deploymentRepository.findById(deploymentId).orElse(null);
-        if (existing != null && existing.getStatus() == DeploymentStatus.CANCELLED) {
-            log.info("Ignoring failure for cancelled deployment {}", deploymentId);
-            return;
-        }
-        serviceRepository.findById(serviceId).ifPresent(service -> {
-            service.setStatus(ServiceStatus.FAILED);
-            serviceRepository.save(service);
-            eventPublisher.publishServiceStatusUpdate(service);
-            String href = "/projects/" + service.getProject().getId() + "/services/" + service.getId();
-            String msg = error != null && error.getMessage() != null ? error.getMessage() : "unknown error";
-            notificationService.notifyUser(
-                    service.getProject().getOwnerId(),
-                    "Deploy failed",
-                    service.getName() + ": " + msg,
-                    href
-            );
-        });
-        deploymentRepository.findById(deploymentId).ifPresent(deployment -> {
-            if (deployment.getStatus() == DeploymentStatus.CANCELLED) {
+        transactionTemplate.executeWithoutResult(status -> {
+            DeploymentEntity existing = deploymentRepository.findById(deploymentId).orElse(null);
+            if (existing != null && existing.getStatus() == DeploymentStatus.CANCELLED) {
+                log.info("Ignoring failure for cancelled deployment {}", deploymentId);
                 return;
             }
-            deployment.setStatus(DeploymentStatus.FAILED);
-            deployment.setFinishedAt(Instant.now());
-            String msg = error != null && error.getMessage() != null ? error.getMessage() : "unknown error";
-            deployment.setLogs("Deployment failed: " + msg);
-            deploymentRepository.save(deployment);
-            eventPublisher.publishDeploymentUpdate(deployment);
+            serviceRepository.findByIdWithProject(serviceId).ifPresent(service -> {
+                service.setStatus(ServiceStatus.FAILED);
+                serviceRepository.save(service);
+                eventPublisher.publishServiceStatusUpdate(service);
+                String href = "/projects/" + service.getProject().getId() + "/services/" + service.getId();
+                String msg = error != null && error.getMessage() != null ? error.getMessage() : "unknown error";
+                notificationService.notifyUser(
+                        service.getProject().getOwnerId(),
+                        "Deploy failed",
+                        service.getName() + ": " + msg,
+                        href
+                );
+            });
+            deploymentRepository.findById(deploymentId).ifPresent(deployment -> {
+                if (deployment.getStatus() == DeploymentStatus.CANCELLED) {
+                    return;
+                }
+                deployment.setStatus(DeploymentStatus.FAILED);
+                deployment.setFinishedAt(Instant.now());
+                String msg = error != null && error.getMessage() != null ? error.getMessage() : "unknown error";
+                deployment.setErrorMessage(msg);
+                deployment.setLogs("Deployment failed: " + msg);
+                deploymentRepository.save(deployment);
+                eventPublisher.publishDeploymentUpdate(deployment);
+            });
+            log.error("Deploy failed service={} deployment={}: {}", serviceId, deploymentId,
+                    error != null ? error.getMessage() : "unknown");
         });
-        log.error("Deploy failed service={} deployment={}: {}", serviceId, deploymentId,
-                error != null ? error.getMessage() : "unknown");
     }
 
     private void ensureDbSecrets(ServiceEntity service, Map<String, String> extras) {

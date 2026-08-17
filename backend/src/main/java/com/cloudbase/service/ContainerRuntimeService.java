@@ -21,7 +21,8 @@ import java.util.Map;
 @Service
 public class ContainerRuntimeService {
 
-    private static final Duration TIMEOUT = Duration.ofSeconds(45);
+    private static final Duration TIMEOUT = Duration.ofSeconds(8);
+    private static final Duration METRICS_TIMEOUT = Duration.ofSeconds(4);
 
     private final PortainerClient portainerClient;
     private final ComposeGenerator composeGenerator;
@@ -84,7 +85,7 @@ public class ContainerRuntimeService {
         result.put("containerName", resolveName(service));
         try {
             String containerId = requireContainerId(service);
-            Map<String, Object> stats = portainerClient.getContainerStats(containerId).block(TIMEOUT);
+            Map<String, Object> stats = portainerClient.getContainerStats(containerId).block(METRICS_TIMEOUT);
             if (stats == null) {
                 result.put("available", false);
                 return result;
@@ -110,13 +111,13 @@ public class ContainerRuntimeService {
         }
         try {
             String name = resolveName(service);
-            String id = portainerClient.findContainerIdByName(name).block(Duration.ofSeconds(8));
+            String id = portainerClient.findContainerIdByName(name).block(Duration.ofSeconds(3));
             if (id == null || id.isBlank()) {
                 return service.getStatus() == ServiceStatus.STOPPED
                         ? ServiceStatus.STOPPED
                         : service.getStatus();
             }
-            Map<String, Object> inspect = portainerClient.inspectContainer(id).block(Duration.ofSeconds(8));
+            Map<String, Object> inspect = portainerClient.inspectContainer(id).block(Duration.ofSeconds(3));
             String state = PortainerClient.containerState(inspect);
             return switch (state.toLowerCase(Locale.ROOT)) {
                 case "running" -> ServiceStatus.RUNNING;
@@ -193,7 +194,7 @@ public class ContainerRuntimeService {
         String id = portainerClient.findContainerIdByName(name).block(TIMEOUT);
         if (id == null || id.isBlank()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND,
-                    "Container not found for " + name + ". Deploy the service first.");
+                    "No running container. Deploy the service first.");
         }
         return id;
     }

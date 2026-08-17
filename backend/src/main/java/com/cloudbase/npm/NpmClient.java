@@ -68,14 +68,17 @@ public class NpmClient {
         if (!isEnabled()) {
             return Mono.just(Map.of("status", "disabled"));
         }
+        // Brief retries: Cloudflare/tunnel occasionally resets mid-handshake.
         return authenticate()
                 .flatMap(token -> webClient.get()
                         .uri("/api/")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                         .retrieve()
                         .bodyToMono(MAP_TYPE)
-                        .map(body -> Map.<String, Object>of("status", "connected"))
-                        .onErrorReturn(Map.of("status", "error")));
+                        .map(body -> Map.<String, Object>of("status", "connected")))
+                .retryWhen(reactor.util.retry.Retry.fixedDelay(2, java.time.Duration.ofMillis(400))
+                        .filter(ex -> !(ex instanceof IllegalStateException)))
+                .onErrorReturn(Map.of("status", "error"));
     }
 
     /**

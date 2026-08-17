@@ -65,6 +65,15 @@ public class PortainerClient {
                 .doOnError(e -> log.warn("Portainer status check failed: {}", e.getMessage()));
     }
 
+    /** Endpoint details including Snapshots (CPU / RAM / container counts). */
+    public Mono<Map<String, Object>> getEndpoint() {
+        return webClient.get()
+                .uri("/api/endpoints/{id}", endpointId)
+                .retrieve()
+                .bodyToMono(MAP_TYPE)
+                .doOnError(e -> log.warn("Portainer endpoint fetch failed: {}", e.getMessage()));
+    }
+
     public Mono<List<Map<String, Object>>> listStacks() {
         return webClient.get()
                 .uri("/api/stacks")

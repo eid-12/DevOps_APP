@@ -49,6 +49,8 @@ public interface ProjectService {
     List<Map<String, Object>> getServiceLogs(String serviceId, UserEntity user, int tail);
     List<String> execInService(String serviceId, UserEntity user, ExecRequest request);
     Map<String, Object> getServiceMetrics(String serviceId, UserEntity user);
+
+    Map<String, Object> getServiceMetrics(String serviceId, UserEntity user, String range);
     Map<String, String> getDbConnection(String serviceId, UserEntity user);
 
     List<Map<String, Object>> listSharedVariables(String projectId, UserEntity user);

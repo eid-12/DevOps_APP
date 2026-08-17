@@ -29,6 +29,7 @@ import { PressableDirective } from '../shared/directives/pressable.directive';
     PressableDirective
   ],
   template: `
+    <div [class.app-shell-footer-hidden]="auth.isAuthenticated()">
     <header class="navbar">
       <div class="container navbar-inner">
         <span *appHasRole="'ADMIN'" class="navbar-brand navbar-brand-static">
@@ -118,6 +119,7 @@ import { PressableDirective } from '../shared/directives/pressable.directive';
         </div>
       </div>
     </footer>
+    </div>
   `
 })
 export class MainLayoutComponent {

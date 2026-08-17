@@ -264,9 +264,10 @@ public class ProjectController {
     @GetMapping("/services/{serviceId}/metrics")
     public Map<String, Object> metrics(
             @AuthenticationPrincipal UserEntity user,
-            @PathVariable String serviceId
+            @PathVariable String serviceId,
+            @RequestParam(defaultValue = "1h") String range
     ) {
-        return projectService.getServiceMetrics(serviceId, user);
+        return projectService.getServiceMetrics(serviceId, user, range);
     }
 
     @GetMapping("/services/{serviceId}/db-connection")

@@ -153,6 +153,16 @@ export interface GitHubSourceDetails {
   runtime?: ServiceRuntime;
   /** Process start command inside the container (e.g. java -jar /app/app.jar). */
   startCommand?: string;
+  /** Monorepo subfolder used as Docker build context (e.g. backend). */
+  rootDirectory?: string;
+  /** Override default build step (Node: npm run build). */
+  buildCommand?: string;
+  /** HTTP path probed inside the container before traffic is healthy (e.g. /health). */
+  healthcheckPath?: string;
+  /** Docker restart: unless-stopped | on-failure */
+  restartPolicy?: 'unless-stopped' | 'on-failure';
+  /** Max restarts when restartPolicy is on-failure (default 10). */
+  restartRetries?: number;
   imageName?: string;
   imageTag?: string;
   containerPort?: number;
@@ -236,6 +246,7 @@ export interface Deployment {
   startedAt: string;
   finishedAt?: string;
   logs?: string;
+  errorMessage?: string;
   /** When set, this deploy was created by rolling back to another deployment */
   rollbackOf?: string;
 }
@@ -296,9 +307,21 @@ export interface InfrastructureOverview {
   portainerStatus: string;
   nginxProxyManagerStatus: string;
   cloudflareTunnelStatus: string;
+  /** CloudBase services currently RUNNING */
   activeContainers: number;
   hostCpuUsage: string;
   hostRamUsage: string;
+  endpointId?: number | null;
+  endpointName?: string | null;
+  runningContainers?: number | null;
+  totalContainers?: number | null;
+  healthyContainers?: number | null;
+  unhealthyContainers?: number | null;
+  stacks?: number | null;
+  images?: number | null;
+  volumes?: number | null;
+  dockerVersion?: string | null;
+  error?: string | null;
 }
 
 export type AuditAction =

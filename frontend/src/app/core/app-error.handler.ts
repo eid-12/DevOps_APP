@@ -10,9 +10,11 @@ export class AppErrorHandler implements ErrorHandler {
 
   handleError(error: unknown): void {
     console.error('[CloudBase]', error);
-    const text = error instanceof Error
-      ? error.message
-      : 'An unexpected error occurred';
+    // Ignore noisy Angular/HTTP secondary errors already toasted by the API interceptor
+    const text = error instanceof Error ? error.message : '';
+    if (!text || text.includes('Http failure') || text.includes('HttpErrorResponse')) {
+      return;
+    }
     this.messages.add({
       severity: 'error',
       summary: 'Application error',

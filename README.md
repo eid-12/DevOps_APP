@@ -298,3 +298,4 @@ Older README drafts described an earlier scaffold + mock stage — this file mat
 ## License / ownership
 
 Internal CloudBase project for your private server. Do not commit production secrets (`JWT_SECRET`, Portainer/NPM/GitHub/Docker Hub keys) to Git.
+  

@@ -60,7 +60,8 @@ export function defaultStartCommand(runtime: string | undefined | null): string 
     case 'rust':
       return '/app/app';
     case 'node':
-      return 'nginx -g "daemon off;"';
+      // Prefer image default CMD (Vite/nginx SPA images already set their own).
+      return '';
     default:
       return '';
   }

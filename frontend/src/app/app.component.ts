@@ -16,13 +16,13 @@ import { ToastModule } from 'primeng/toast';
     <p-toast position="top-right" [breakpoints]="{ '920px': { width: '92vw' } }" />
     <ngx-spinner
       name="api"
-      bdColor="rgba(2,6,23,0.72)"
+      bdColor="rgba(2,6,23,0.35)"
       color="#9bb8d4"
       size="medium"
       [fullScreen]="true"
     >
       <p class="spinner-caption">
-        Waiting for backend<span class="spinner-dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span>
+        Loading<span class="spinner-dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span>
       </p>
     </ngx-spinner>
     <router-outlet />

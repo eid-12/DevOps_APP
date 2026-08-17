@@ -46,6 +46,16 @@ public class ApiExceptionHandler {
             status = HttpStatus.INTERNAL_SERVER_ERROR;
         }
         String message = ex.getReason() != null ? ex.getReason() : status.getReasonPhrase();
+        // Never leak Spring's "404 NOT_FOUND \"…\"" getMessage() form to clients
+        if (message != null && message.matches("(?s)^\\d{3}\\s+[A-Z_]+\\s.*")) {
+            int q = message.indexOf('"');
+            int q2 = message.lastIndexOf('"');
+            if (q >= 0 && q2 > q) {
+                message = message.substring(q + 1, q2);
+            } else {
+                message = status.getReasonPhrase();
+            }
+        }
         return ResponseEntity.status(status).body(errorBody(
                 status.value(),
                 status.name().toLowerCase(),

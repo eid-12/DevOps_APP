@@ -132,7 +132,7 @@ function passwordMatchValidator(passwordKey: string, confirmKey: string): Valida
                 @if (showError('email')) {
                   <small class="auth-error">{{ fieldError('email') }}</small>
                 }
-              </div>
+        </div>
             }
 
             @if (mode() === 'verify') {
@@ -149,11 +149,11 @@ function passwordMatchValidator(passwordKey: string, confirmKey: string): Valida
                 @if (showError('code')) {
                   <small class="auth-error">{{ fieldError('code') }}</small>
                 }
-              </div>
+          </div>
             }
 
             @if (mode() !== 'forgot' && mode() !== 'verify') {
-              <div class="field">
+          <div class="field">
                 <div class="auth-label-row">
                   <label for="auth-password">{{ mode() === 'reset' ? 'New password' : 'Password' }}</label>
                   @if (mode() === 'login') {
@@ -201,11 +201,11 @@ function passwordMatchValidator(passwordKey: string, confirmKey: string): Valida
                     <li [class.ok]="liveRules.special">One special character (&#64; $ ! % * ? # . _ -)</li>
                   </ul>
                 }
-              </div>
+          </div>
             }
 
             @if (mode() === 'register' || mode() === 'reset') {
-              <div class="field">
+          <div class="field">
                 <label for="auth-confirm">Confirm password</label>
                 <div class="password-wrap">
                   <input
@@ -249,7 +249,7 @@ function passwordMatchValidator(passwordKey: string, confirmKey: string): Valida
                 [class.pill-red]="feedback()!.kind === 'error'"
               >
                 {{ feedback()!.text }}
-              </div>
+          </div>
             }
 
             <button
@@ -272,9 +272,9 @@ function passwordMatchValidator(passwordKey: string, confirmKey: string): Valida
                 } @else {
                   Resend code
                 }
-              </button>
+          </button>
             }
-          </form>
+        </form>
 
           <p class="auth-switch muted">
             @if (mode() === 'login') {
@@ -291,7 +291,7 @@ function passwordMatchValidator(passwordKey: string, confirmKey: string): Valida
               <button type="button" class="auth-link" (click)="setMode('login')">Back to sign in</button>
             }
           </p>
-        </section>
+    </section>
       </div>
     </div>
   `,
@@ -515,7 +515,7 @@ export class AuthPageComponent implements OnInit {
 
   readonly form = this.fb.nonNullable.group(
     {
-      name: [''],
+    name: [''],
       email: ['', [Validators.required, Validators.pattern(EMAIL_PATTERN)]],
       password: ['', [Validators.required]],
       confirmPassword: [''],

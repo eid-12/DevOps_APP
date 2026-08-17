@@ -13,4 +13,6 @@ public interface UserRepository extends JpaRepository<UserEntity, String> {
 
     @Query("select u from UserEntity u where lower(u.vanitySlug) = lower(:slug)")
     Optional<UserEntity> findByVanitySlugIgnoreCase(@Param("slug") String slug);
+
+    Optional<UserEntity> findByVanityServiceId(String vanityServiceId);
 }

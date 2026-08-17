@@ -39,4 +39,8 @@ public class DeploymentEntity {
 
     @Column(columnDefinition = "TEXT")
     private String logs;
+
+    /** Short failure reason for UI (also mirrored into logs). */
+    @Column(columnDefinition = "TEXT")
+    private String errorMessage;
 }

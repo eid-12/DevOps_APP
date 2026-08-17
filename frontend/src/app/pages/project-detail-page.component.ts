@@ -3,6 +3,8 @@ import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../core/auth.service';
+import { friendlyApiMessage } from '../core/friendly-error';
+import { GitHubOAuthService } from '../core/github-oauth.service';
 import { ProjectService } from '../core/project.service';
 import {
   Project, Service, ServiceRuntime, ServiceSourceType, DatabaseType,
@@ -46,20 +48,21 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
   ],
   styles: [`
     .services-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
-      gap: 16px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      align-items: flex-start;
     }
     .service-card {
+      width: min(280px, 100%);
       min-width: 0;
-      max-width: 100%;
       overflow: visible;
       box-sizing: border-box;
     }
     .service-card-footer {
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
+      gap: 6px;
       position: relative;
       z-index: 2;
     }
@@ -309,7 +312,7 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
               <div class="service-card-header">
                 <span class="service-icon">{{ sourceIcon(svc.sourceType) }}</span>
                 <span class="service-name">{{ svc.name }}</span>
-                <span class="service-status-badge" [class]="'badge-' + svc.status.toLowerCase()">{{ svc.status }}</span>
+                <span class="service-status-badge" [class]="'badge-' + svc.status.toLowerCase()">{{ statusLabel(svc.status) }}</span>
               </div>
 
               <div class="service-card-meta">
@@ -410,10 +413,16 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
     }
 
     @if (addMode()) {
-      <div class="modal-panel panel create-form-panel" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+      <div
+        class="modal-panel panel create-form-panel"
+        [class.create-form-panel--github]="addMode() === 'github'"
+        (click)="$event.stopPropagation()"
+        role="dialog"
+        aria-modal="true"
+      >
         <div class="modal-header">
           <h2>{{ addModeLabel() }}</h2>
-          <button type="button" class="btn btn-ghost btn-sm" (click)="closeForm()" [disabled]="adding()">✕</button>
+          <button type="button" class="modal-close" (click)="closeForm()" [disabled]="adding()" aria-label="Close">✕</button>
         </div>
 
         <div class="add-service-form">
@@ -423,34 +432,9 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
           </div>
 
           @if (addMode() === 'github') {
-              <div class="field">
-                <label>Runtime / Language</label>
-                <app-runtime-select [value]="draft.runtime" (valueChange)="onRuntimeChange($event)" />
-              </div>
-              <div class="field">
-                <label>Start command</label>
-                <input
-                  [(ngModel)]="draft.startCommand"
-                  (ngModelChange)="startCommandTouched = true"
-                  placeholder="java -jar /app/app.jar"
-                  autocomplete="off"
-                  spellcheck="false"
-                  style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px"
-                />
-                <p class="empty-sub" style="margin:6px 0 0">
-                  Safe process argv only (java/python/node/nginx… or /app/…). No shell operators.
-                  Redeploy to apply.
-                </p>
-              </div>
-          }
-
-          @if (addMode() === 'github') {
             @if (auth.isGitHubConnected()) {
-              <p class="muted" style="font-size:12px;margin:0 0 10px">
-                Connected as &#64;{{ auth.githubUsername() }} — pick a repo or paste a URL.
-              </p>
               <div class="field">
-                <label>Your repositories</label>
+                <label>Repository</label>
                 <app-github-repo-select
                   [repos]="githubRepos()"
                   [value]="selectedRepoFullName"
@@ -462,8 +446,8 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
                 }
               </div>
             } @else {
-              <div class="pill pill-amber railway-alert" style="margin-bottom:12px">
-                Connect GitHub on Account to list your repositories.
+              <div class="pill pill-amber railway-alert" style="margin-bottom:4px">
+                Connect GitHub first to pick a repository.
               </div>
             }
             <div class="field">
@@ -474,10 +458,7 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
               <label>Branch</label>
               <input [(ngModel)]="draft.branch" placeholder="main" />
             </div>
-            <label class="toggle-field">
-              <input type="checkbox" [(ngModel)]="draft.autoDeploy" />
-              <span>Auto deploy on push</span>
-            </label>
+            <p class="create-form-hint">Advanced options (root directory, build, healthcheck, restart) are in Settings after create.</p>
           }
 
           @if (addMode() === 'docker') {
@@ -539,7 +520,7 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
             </div>
           }
 
-          @if (addMode() === 'github' || addMode() === 'docker') {
+          @if (addMode() === 'docker') {
             <div class="env-section">
               <div class="env-header">
                 <span>Environment Variables</span>
@@ -562,13 +543,13 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
             <p class="muted" style="font-size:12px;margin:0 0 10px">
               Persistent volume is required for databases so data survives restarts.
             </p>
-          } @else {
+          } @else if (addMode() === 'docker') {
             <label class="toggle-field">
               <input type="checkbox" [(ngModel)]="draft.useVolume" />
               <span>Persistent Volume</span>
             </label>
           }
-          @if (draft.useVolume || addMode() === 'database') {
+          @if (addMode() !== 'github' && (draft.useVolume || addMode() === 'database')) {
             <div class="field">
               <label>Mount Path <span class="muted" style="font-weight:400">(inside container only)</span></label>
               <input [(ngModel)]="draft.mountPath" [placeholder]="addMode() === 'database' ? dbPreset(draft.dbType).mountPath : '/data'" />
@@ -588,7 +569,7 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
               (click)="submitService()"
               [disabled]="adding() || !canSubmitService()"
             >
-              {{ adding() ? 'Creating…' : 'Add Service' }}
+              {{ adding() ? 'Creating…' : (addMode() === 'github' ? 'Deploy' : 'Add Service') }}
             </button>
           </div>
         </div>
@@ -645,7 +626,7 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
     [busy]="deleting()"
     [error]="deleteError()"
     confirmLabel="Delete project permanently"
-    warning="Deletes this project and everything under it: all services, deployments, shared variables, domains, Portainer stacks/containers/volumes, NPM proxies, and the project network. If Portainer does not confirm, nothing is deleted in CloudBase."
+    warning="Deletes this project and everything under it. Each service is removed from Portainer and NPM with verification before CloudBase deletes DB rows. If teardown fails, nothing is deleted."
     (cancel)="closeDeleteDialog()"
     (confirm)="executeDeleteProject()"
   />
@@ -658,7 +639,7 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
     [busy]="deleting()"
     [error]="deleteError()"
     confirmLabel="Delete service permanently"
-    warning="Removes the Portainer stack, containers, volume data, proxy, and deployment history. Delete is blocked if Portainer does not confirm."
+    warning="Removes Portainer stack + containers (verified gone), NPM proxy host (verified gone), volumes, and history. If Portainer or NPM do not confirm, CloudBase keeps the service so you can retry."
     (cancel)="closeDeleteDialog()"
     (confirm)="executeDeleteService()"
   />
@@ -670,6 +651,7 @@ export class ProjectDetailPageComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly projectService = inject(ProjectService);
   readonly auth = inject(AuthService);
+  private readonly githubOAuth = inject(GitHubOAuthService);
 
   project = signal<Project | null>(null);
   loading = signal(true);
@@ -734,7 +716,7 @@ export class ProjectDetailPageComponent implements OnInit {
         this.loading.set(false);
         if (tab === 'variables') this.openVariablesTab();
       },
-      error: e => { this.error.set(e?.error?.message ?? 'Failed to load project'); this.loading.set(false); }
+      error: e => { this.error.set(friendlyApiMessage(e, 'Failed to load project')); this.loading.set(false); }
     });
   }
 
@@ -754,7 +736,7 @@ export class ProjectDetailPageComponent implements OnInit {
         this.sharedLoading.set(false);
       },
       error: e => {
-        this.sharedError.set(e?.error?.message ?? 'Failed to load variables');
+        this.sharedError.set(friendlyApiMessage(e, 'Failed to load variables'));
         this.sharedLoading.set(false);
       }
     });
@@ -832,7 +814,7 @@ export class ProjectDetailPageComponent implements OnInit {
       },
       error: e => {
         this.sharedSaving.set(false);
-        this.sharedError.set(e?.error?.message ?? 'Failed to save');
+        this.sharedError.set(friendlyApiMessage(e, 'Failed to save'));
       }
     });
   }
@@ -850,7 +832,7 @@ export class ProjectDetailPageComponent implements OnInit {
       },
       error: e => {
         this.sharedSaving.set(false);
-        this.sharedError.set(e?.error?.message ?? 'Delete failed');
+        this.sharedError.set(friendlyApiMessage(e, 'Delete failed'));
       }
     });
   }
@@ -908,7 +890,7 @@ export class ProjectDetailPageComponent implements OnInit {
       },
       error: e => {
         this.savingSettings.set(false);
-        this.settingsError.set(e?.error?.message ?? 'Failed to save');
+        this.settingsError.set(friendlyApiMessage(e, 'Failed to save'));
       }
     });
   }
@@ -926,7 +908,7 @@ export class ProjectDetailPageComponent implements OnInit {
       },
       error: e => {
         this.savingSettings.set(false);
-        this.settingsError.set(e?.error?.message ?? 'Archive failed');
+        this.settingsError.set(friendlyApiMessage(e, 'Archive failed'));
       }
     });
   }
@@ -944,7 +926,7 @@ export class ProjectDetailPageComponent implements OnInit {
       },
       error: e => {
         this.savingSettings.set(false);
-        this.settingsError.set(e?.error?.message ?? 'Restore failed');
+        this.settingsError.set(friendlyApiMessage(e, 'Restore failed'));
       }
     });
   }
@@ -977,7 +959,7 @@ export class ProjectDetailPageComponent implements OnInit {
         this.deleting.set(false);
         this.savingSettings.set(false);
         this.deleteError.set(
-          e?.error?.message ?? 'Delete failed. CloudBase kept the project because Portainer did not confirm removal.'
+          friendlyApiMessage(e, 'Delete failed. CloudBase kept the project because Portainer did not confirm removal.')
         );
       }
     });
@@ -1036,7 +1018,7 @@ export class ProjectDetailPageComponent implements OnInit {
 
   onPickerSelect(id: CreatePickerOptionId) {
     if (id === 'github' && !this.auth.isGitHubConnected()) {
-      this.redirectToGitHubConnect();
+      this.redirectToGitHubLogin();
       return;
     }
     if (id === 'github' || id === 'docker' || id === 'database') {
@@ -1045,10 +1027,12 @@ export class ProjectDetailPageComponent implements OnInit {
     }
   }
 
-  private redirectToGitHubConnect() {
-    this.pickerOpen.set(false);
-    this.pickerError.set('');
-    this.router.navigate(['/account'], { queryParams: { connect: 'github' } });
+  private redirectToGitHubLogin() {
+    try {
+      this.githubOAuth.startLogin();
+    } catch (e) {
+      this.pickerError.set((e as Error).message || 'Could not start GitHub login');
+    }
   }
 
   openAdd(mode: AddServiceMode) {
@@ -1096,7 +1080,7 @@ export class ProjectDetailPageComponent implements OnInit {
 
     if (mode === 'database') {
       this.draft.useVolume = true;
-      this.draft.storageGb = 1;
+      this.draft.storageGb = 2;
       this.draft.runtime = 'other';
       this.onDbTypeChange(this.draft.dbType);
     }
@@ -1170,7 +1154,7 @@ export class ProjectDetailPageComponent implements OnInit {
       },
       error: e => {
         this.reposLoading.set(false);
-        this.reposError.set(e?.error?.message ?? 'Could not load GitHub repositories');
+        this.reposError.set(friendlyApiMessage(e, 'Could not load GitHub repositories'));
       }
     });
   }
@@ -1180,7 +1164,7 @@ export class ProjectDetailPageComponent implements OnInit {
     if (!value) return;
     if (value.includes('github.com') || /^https?:\/\//i.test(value)) {
       if (!this.auth.isGitHubConnected()) {
-        this.redirectToGitHubConnect();
+        this.redirectToGitHubLogin();
         return;
       }
       this.openAdd('github');
@@ -1213,6 +1197,21 @@ export class ProjectDetailPageComponent implements OnInit {
   platformHostLabel(host: string): string {
     const slug = (host.split('.')[0] ?? host).trim();
     return slug || host;
+  }
+
+  statusLabel(status: string | undefined): string {
+    switch (status) {
+      case 'RUNNING': return 'Healthy';
+      case 'BUILDING': return 'Building';
+      case 'DEPLOYING': return 'Starting';
+      case 'QUEUED': return 'Queued';
+      case 'PENDING': return 'Ready to deploy';
+      case 'STOPPED': return 'Stopped';
+      case 'FAILED': return 'Failed';
+      case 'SUCCESS': return 'Success';
+      case 'CANCELLED': return 'Cancelled';
+      default: return status || 'Unknown';
+    }
   }
 
   sourceIcon(type: ServiceSourceType): string {
@@ -1279,9 +1278,9 @@ export class ProjectDetailPageComponent implements OnInit {
       sourceDetails = {
         repositoryUrl: this.draft.repoUrl.trim(),
         branch: this.draft.branch.trim() || 'main',
-        autoDeploy: this.draft.autoDeploy,
-        runtime: this.draft.runtime,
-        startCommand: (this.draft.startCommand || defaultStartCommand(this.draft.runtime)).trim()
+        autoDeploy: true,
+        runtime: this.draft.runtime || 'node',
+        startCommand: (this.draft.startCommand || defaultStartCommand(this.draft.runtime || 'node')).trim()
       };
     } else if (mode === 'docker') {
       sourceType = 'DOCKER';
@@ -1302,6 +1301,7 @@ export class ProjectDetailPageComponent implements OnInit {
     }
 
     const forceVolume = mode === 'database' || this.draft.useVolume;
+    const storageGb = this.draft.storageGb || 2;
     const payload: CreateServiceRequest = {
       projectId: this.project()!.id,
       name: this.draft.name.trim(),
@@ -1309,11 +1309,16 @@ export class ProjectDetailPageComponent implements OnInit {
       sourceDetails,
       runtime: mode === 'database' || mode === 'docker' ? 'other' : this.draft.runtime,
       envVars: this.draft.envVars.filter(e => e.key.trim()),
+      quota: {
+        memorymb: 512,
+        cpuMilli: 500,
+        storageGb
+      },
       ...(forceVolume
         ? {
             volume: {
               mountPath: this.draft.mountPath || (mode === 'database' ? DB_PRESETS[this.draft.dbType].mountPath : '/data'),
-              sizeGb: this.draft.storageGb || (mode === 'database' ? 1 : 2)
+              sizeGb: storageGb
             }
           }
         : {}),
@@ -1330,13 +1335,17 @@ export class ProjectDetailPageComponent implements OnInit {
         this.auth.usage().subscribe({ next: u => this.usage.set(u) });
       },
       error: e => {
-        this.error.set(e?.error?.message ?? 'Failed to add service');
+        this.error.set(friendlyApiMessage(e, 'Failed to add service'));
         this.adding.set(false);
       }
     });
   }
 
   deployService(svc: Service) {
+    if (this.isServiceDeploying(svc)) {
+      this.error.set('A deploy is already running for this service. Wait until it finishes or fails.');
+      return;
+    }
     if (!this.canDeployNow()) {
       this.error.set('Free plan deploy limit reached for this month. See Billing.');
       return;
@@ -1356,7 +1365,7 @@ export class ProjectDetailPageComponent implements OnInit {
         this.auth.usage().subscribe({ next: u => this.usage.set(u) });
       },
       error: e => {
-        this.error.set(e?.error?.message ?? 'Deploy failed');
+        this.error.set(friendlyApiMessage(e, 'Deploy failed'));
         this.deploying[svc.id] = false;
         delete this.deployStage[svc.id];
       }
@@ -1485,7 +1494,7 @@ export class ProjectDetailPageComponent implements OnInit {
           services: p.services.map(s => s.id === svc.id ? { ...s, status: 'STOPPED' } : s)
         } : p);
       },
-      error: e => this.error.set(e?.error?.message ?? 'Stop failed')
+      error: e => this.error.set(friendlyApiMessage(e, 'Stop failed'))
     });
   }
 
@@ -1511,7 +1520,7 @@ export class ProjectDetailPageComponent implements OnInit {
       error: e => {
         this.deleting.set(false);
         this.deleteError.set(
-          e?.error?.message ?? 'Delete failed. Service kept because Portainer did not confirm removal.'
+          friendlyApiMessage(e, 'Delete failed. Service kept because Portainer did not confirm removal.')
         );
       }
     });
@@ -1533,6 +1542,11 @@ export class ProjectDetailPageComponent implements OnInit {
       startCommand: defaultStartCommand('node'),
       repoUrl: '',
       branch: 'main',
+      rootDirectory: '',
+      buildCommand: '',
+      healthcheckPath: '',
+      restartPolicy: 'unless-stopped' as 'unless-stopped' | 'on-failure',
+      restartRetries: 10,
       autoDeploy: true,
       imageName: '',
       imageTag: 'latest',

@@ -11,6 +11,8 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
+import java.net.URI;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.HashMap;
@@ -67,7 +69,7 @@ public class GitHubRepoClient {
     public Optional<String> getFileSha(String accessToken, String owner, String repo, String path) {
         try {
             Map<String, Object> body = webClient.get()
-                    .uri("https://api.github.com/repos/{owner}/{repo}/contents/{path}", owner, repo, path)
+                    .uri(contentsUri(owner, repo, path))
                     .headers(h -> auth(h, accessToken))
                     .retrieve()
                     .bodyToMono(MAP)
@@ -87,6 +89,36 @@ public class GitHubRepoClient {
 
     public boolean fileExists(String accessToken, String owner, String repo, String path) {
         return getFileSha(accessToken, owner, repo, path).isPresent();
+    }
+
+    /** Read a text file from the default branch (Contents API). Empty if missing. */
+    public Optional<String> getTextFile(String accessToken, String owner, String repo, String path) {
+        try {
+            Map<String, Object> body = webClient.get()
+                    .uri(contentsUri(owner, repo, path))
+                    .headers(h -> auth(h, accessToken))
+                    .retrieve()
+                    .bodyToMono(MAP)
+                    .block();
+            if (body == null || body.get("content") == null) {
+                return Optional.empty();
+            }
+            String encoding = String.valueOf(body.getOrDefault("encoding", "base64"));
+            String content = String.valueOf(body.get("content")).replace("\n", "").replace("\r", "");
+            if ("base64".equalsIgnoreCase(encoding)) {
+                byte[] raw = Base64.getDecoder().decode(content);
+                return Optional.of(new String(raw, StandardCharsets.UTF_8));
+            }
+            return Optional.of(String.valueOf(body.get("content")));
+        } catch (WebClientResponseException.NotFound e) {
+            return Optional.empty();
+        } catch (WebClientResponseException e) {
+            log.warn("getTextFile {}/{}/{} HTTP {}: {}", owner, repo, path, e.getStatusCode().value(), e.getResponseBodyAsString());
+            return Optional.empty();
+        } catch (Exception e) {
+            log.warn("getTextFile {}/{}/{} failed: {}", owner, repo, path, e.toString());
+            return Optional.empty();
+        }
     }
 
     /**
@@ -116,7 +148,7 @@ public class GitHubRepoClient {
 
         try {
             webClient.put()
-                    .uri("https://api.github.com/repos/{owner}/{repo}/contents/{path}", owner, repo, path)
+                    .uri(contentsUri(owner, repo, path))
                     .headers(h -> auth(h, accessToken))
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(body)
@@ -126,8 +158,12 @@ public class GitHubRepoClient {
             return existingSha.isEmpty();
         } catch (WebClientResponseException e) {
             log.error("putTextFile {}/{}/{} HTTP {}: {}", owner, repo, path, e.getStatusCode().value(), e.getResponseBodyAsString());
+            String hint = "";
+            if (e.getStatusCode().value() == 404 && path != null && path.contains(".github/workflows/")) {
+                hint = " — reconnect GitHub and allow the workflow scope";
+            }
             throw GitHubOAuthException.badGateway("github_contents_write_error",
-                    "Failed to write " + path + " (HTTP " + e.getStatusCode().value() + ")");
+                    "Failed to write " + path + " (HTTP " + e.getStatusCode().value() + ")" + hint);
         }
     }
 
@@ -259,10 +295,76 @@ public class GitHubRepoClient {
         }
     }
 
+    /**
+     * Trigger {@code workflow_dispatch} for a workflow file (e.g. CloudBase deploy).
+     * User stays in CloudBase — no need to open the Actions UI.
+     */
+    public void dispatchWorkflow(
+            String accessToken,
+            String owner,
+            String repo,
+            String workflowFile,
+            String ref
+    ) {
+        if (!StringUtils.hasText(accessToken) || !StringUtils.hasText(workflowFile)) {
+            throw GitHubOAuthException.badRequest("bad_workflow", "Workflow dispatch requires a token and workflow file");
+        }
+        String branch = StringUtils.hasText(ref) ? ref : "main";
+        Map<String, Object> body = Map.of("ref", branch);
+        try {
+            webClient.post()
+                    .uri("https://api.github.com/repos/{owner}/{repo}/actions/workflows/{file}/dispatches",
+                            owner, repo, workflowFile)
+                    .headers(h -> auth(h, accessToken))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(body)
+                    .retrieve()
+                    .toBodilessEntity()
+                    .block();
+            log.info("Dispatched workflow {} on {}/{} @{}", workflowFile, owner, repo, branch);
+        } catch (WebClientResponseException e) {
+            log.warn("workflow_dispatch {}/{}/{} HTTP {}: {}",
+                    owner, repo, workflowFile, e.getStatusCode().value(), e.getResponseBodyAsString());
+            if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
+                throw GitHubOAuthException.badGateway("workflow_not_found",
+                        "Deploy workflow not found yet. Wait a few seconds and Redeploy.");
+            }
+            if (e.getStatusCode() == HttpStatus.UNAUTHORIZED || e.getStatusCode() == HttpStatus.FORBIDDEN) {
+                throw GitHubOAuthException.unauthorized("workflow_forbidden",
+                        "GitHub permission missing. Connect GitHub once on Account, then Redeploy.");
+            }
+            throw GitHubOAuthException.badGateway("workflow_dispatch_error",
+                    "Could not start the build (HTTP " + e.getStatusCode().value() + ")");
+        }
+    }
+
     private static void auth(HttpHeaders h, String accessToken) {
         h.set(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken);
         h.set(HttpHeaders.ACCEPT, "application/vnd.github+json");
         h.set("X-GitHub-Api-Version", "2022-11-28");
         h.set(HttpHeaders.USER_AGENT, "CloudBase-CI");
+    }
+
+    /** Build Contents API URI without encoding {@code /} as {@code %2F} (GitHub 404s that). */
+    private static URI contentsUri(String owner, String repo, String path) {
+        StringBuilder sb = new StringBuilder("https://api.github.com/repos/");
+        sb.append(enc(owner)).append('/').append(enc(repo)).append("/contents/");
+        String[] parts = path == null ? new String[0] : path.split("/");
+        boolean first = true;
+        for (String part : parts) {
+            if (part == null || part.isBlank()) {
+                continue;
+            }
+            if (!first) {
+                sb.append('/');
+            }
+            first = false;
+            sb.append(enc(part));
+        }
+        return URI.create(sb.toString());
+    }
+
+    private static String enc(String s) {
+        return URLEncoder.encode(s, StandardCharsets.UTF_8).replace("+", "%20");
     }
 }
