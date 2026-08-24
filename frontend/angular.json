@@ -16,7 +16,13 @@
             "index": "src/index.html",
             "tsConfig": "tsconfig.app.json",
             "polyfills": ["zone.js"],
-            "assets": [],
+            "assets": [
+              {
+                "glob": "favicon.svg",
+                "input": "src",
+                "output": "/"
+              }
+            ],
             "styles": [
               "node_modules/primeicons/primeicons.css",
               "node_modules/primeng/resources/themes/lara-dark-indigo/theme.css",
@@ -36,12 +42,29 @@
                 "maximumError": "32kb"
               }
             ]
-          }
+          },
+          "configurations": {
+            "production": {
+              "outputHashing": "all",
+              "fileReplacements": [
+                {
+                  "replace": "src/environments/environment.ts",
+                  "with": "src/environments/environment.prod.ts"
+                }
+              ]
+            },
+            "development": {
+              "optimization": false,
+              "extractLicenses": false,
+              "sourceMap": true
+            }
+          },
+          "defaultConfiguration": "production"
         },
         "serve": {
           "builder": "@angular-devkit/build-angular:dev-server",
           "options": {
-            "buildTarget": "cloudbase-frontend:build",
+            "buildTarget": "cloudbase-frontend:build:development",
             "proxyConfig": "proxy.conf.json"
           }
         }
