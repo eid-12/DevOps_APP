@@ -26,6 +26,8 @@ public class DeploymentEventPublisher {
         payload.put("serviceId", deployment.getServiceId());
         payload.put("projectId", deployment.getProjectId());
         payload.put("status", deployment.getStatus().name());
+        payload.put("stage", deployment.getStage());
+        payload.put("errorMessage", deployment.getErrorMessage());
         payload.put("startedAt", deployment.getStartedAt() != null ? deployment.getStartedAt().toString() : null);
         payload.put("finishedAt", deployment.getFinishedAt() != null ? deployment.getFinishedAt().toString() : null);
         messagingTemplate.convertAndSend("/topic/deployments/" + deployment.getServiceId(), payload);

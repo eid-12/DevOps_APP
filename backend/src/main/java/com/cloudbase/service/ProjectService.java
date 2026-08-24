@@ -61,6 +61,9 @@ public interface ProjectService {
     ServiceEntity updateService(String serviceId, UserEntity user, UpdateServiceRequest request);
     DeploymentEntity cancelDeployment(String serviceId, String deploymentId, UserEntity user);
 
+    /** Re-run CI bootstrap (Dockerfile/workflow/webhook) for a GitHub service. */
+    ServiceEntity syncGitHubCi(String serviceId, UserEntity user);
+
     /** System/webhook path - no interactive user JWT. */
     DeploymentEntity deployAsSystem(String serviceId, String triggeredBy, DeployServiceRequest request);
 }

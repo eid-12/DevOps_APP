@@ -282,8 +282,9 @@ public class ComposeGenerator {
         }
         String scope = watchtowerScope(service);
         String wtName = "cb-wt-" + service.getId();
+        // nickfedor fork: containrrr 1.7.1 speaks Docker API 1.25; modern engines require >= 1.40
         compose.append("  watchtower:\n");
-        compose.append("    image: containrrr/watchtower:1.7.1\n");
+        compose.append("    image: nickfedor/watchtower:1.21.0\n");
         compose.append("    container_name: ").append(wtName).append("\n");
         compose.append("    restart: unless-stopped\n");
         compose.append("    volumes:\n");
@@ -295,6 +296,7 @@ public class ComposeGenerator {
         compose.append("      WATCHTOWER_INCLUDE_STOPPED: \"true\"\n");
         compose.append("      WATCHTOWER_REVIVE_STOPPED: \"true\"\n");
         compose.append("      WATCHTOWER_POLL_INTERVAL: \"300\"\n");
+        compose.append("      DOCKER_API_VERSION: \"1.44\"\n");
         compose.append("    labels:\n");
         compose.append("      com.centurylinklabs.watchtower.enable: \"false\"\n");
         compose.append("    deploy:\n");

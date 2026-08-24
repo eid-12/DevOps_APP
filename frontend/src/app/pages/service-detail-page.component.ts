@@ -29,7 +29,7 @@ import {
   UsageSummary,
   PlanInfo
 } from '../core/models';
-import { DB_PRESETS, defaultStartCommand, guessContainerPort } from '../shared/service-source.util';
+import { DB_PRESETS, defaultStartCommand, dockerImageParts, formatDockerImage, guessContainerPort } from '../shared/service-source.util';
 import { publicHost, publicUrl } from '../shared/public-host.util';
 import { ConfirmDeleteDialogComponent } from '../shared/confirm-delete-dialog.component';
 import { RuntimeSelectComponent } from '../shared/runtime-select.component';
@@ -356,14 +356,16 @@ interface MetricSample {
                     </div>
                   </div>
 
-                  @if (isInFlightDeploy(d)) {
+                  @if (showDeployProgress(d)) {
                     <div class="dep-item-progress" aria-label="Deployment progress">
+                      <p class="dep-stage">{{ stageLabel(d) }}</p>
                       <div class="deploy-timeline">
                         @for (step of deployTimelineSteps(); track step; let i = $index) {
                           <span
                             class="deploy-step"
-                            [class.done]="i < deployStepIndex(d.status)"
-                            [class.active]="i === deployStepIndex(d.status)"
+                            [class.done]="i < deployStepIndex(d)"
+                            [class.active]="i === deployStepIndex(d) && d.status !== 'FAILED'"
+                            [class.failed]="i === deployStepIndex(d) && d.status === 'FAILED'"
                           >{{ step }}</span>
                           @if (i < deployTimelineSteps().length - 1) {
                             <span class="deploy-step-sep">→</span>
@@ -371,7 +373,7 @@ interface MetricSample {
                         }
                       </div>
                       <div class="deploy-progress" aria-hidden="true">
-                        <span [style.width.%]="deployProgressPct(d.status)"></span>
+                        <span [style.width.%]="deployProgressPct(d)"></span>
                       </div>
                     </div>
                   }
@@ -472,6 +474,9 @@ interface MetricSample {
               <div class="log-line" [class]="'lvl-' + line.level">
                 <span class="log-time">{{ line.timestamp | date:'HH:mm:ss' }}</span>
                 <span class="log-level">{{ line.level }}</span>
+                @if (line.stream === 'deploy' || line.stream === 'system') {
+                  <span class="log-stream">{{ line.stream }}</span>
+                }
                 <span class="log-msg">{{ line.message }}</span>
               </div>
             } @empty {
@@ -924,6 +929,19 @@ interface MetricSample {
                   <div class="field"><label>Repository URL</label><input [(ngModel)]="sourceDraft.repoUrl" [placeholder]="'https://github.com/' + (auth.githubUsername() || 'user') + '/repo'" /></div>
                   <div class="field"><label>Branch</label><input [(ngModel)]="sourceDraft.branch" /></div>
                   <label class="toggle-field"><input type="checkbox" [(ngModel)]="sourceDraft.autoDeploy" /><span>Auto deploy on push</span></label>
+                  <p class="hint" style="margin:8px 0 0;opacity:.75;font-size:13px;line-height:1.4">
+                    When enabled: push to GitHub → Actions builds &amp; pushes the image → the live container updates automatically (Watchtower). Webhook redeploy also runs when the public API is reachable.
+                  </p>
+                  <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                    <button type="button" class="btn btn-ghost btn-sm" [disabled]="busy() || !canManage()" (click)="syncGitHubCi()">
+                      {{ busy() ? 'Syncing…' : 'Sync GitHub CI / webhook' }}
+                    </button>
+                    @if (githubWebhookOk()) {
+                      <span class="pill pill-emerald">Webhook ready</span>
+                    } @else if (service()!.sourceType === 'GITHUB') {
+                      <span class="pill pill-amber">Webhook not registered</span>
+                    }
+                  </div>
                   @if (githubCiFriendly()) {
                     <div class="pill" [class.pill-emerald]="githubCiOk()" [class.pill-amber]="!githubCiOk()" style="margin-top:12px;display:block;white-space:normal;line-height:1.4">
                       <strong>Build:</strong> {{ githubCiFriendly() }}
@@ -1176,7 +1194,7 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
     if (type === 'DOCKER' || type === 'DATABASE') {
       return ['Queued', 'Starting', 'Success'] as const;
     }
-    return ['Queued', 'Building', 'Deploying', 'Success'] as const;
+    return ['Queued', 'Building', 'Deploying', 'Verify', 'Success'] as const;
   });
   private metricsLoadTimer: ReturnType<typeof setTimeout> | null = null;
   private deployPollTimers: Array<ReturnType<typeof setTimeout>> = [];
@@ -1307,9 +1325,9 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
       restartPolicy: (d['restartPolicy'] === 'on-failure' ? 'on-failure' : 'unless-stopped') as 'unless-stopped' | 'on-failure',
       restartRetries: Number(d['restartRetries'] ?? 10) || 10,
       autoDeploy: d['autoDeploy'] !== false,
-      imageName: String(d['imageName'] ?? ''),
-      imageTag: String(d['imageTag'] ?? 'latest'),
-      containerPort: Number(d['containerPort'] ?? service.containerPort ?? guessContainerPort(String(d['imageName'] ?? ''))) || 80,
+      imageName: dockerImageParts(d).imageName,
+      imageTag: dockerImageParts(d).imageTag,
+      containerPort: Number(d['containerPort'] ?? service.containerPort ?? guessContainerPort(dockerImageParts(d).imageName)) || 80,
       dbType: (d['dbType'] as DatabaseType) ?? 'POSTGRESQL'
     };
     this.refreshLiveMetrics();
@@ -1418,33 +1436,96 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
     return this.deployments().find(d => this.isInFlightDeploy(d));
   }
 
-  /** True only while a deploy is actually running — not finished/stuck wait rows. */
+  /** True only while a deploy is actually running — not finished/stale orphan rows. */
   isInFlightDeploy(d: Deployment): boolean {
-    if (d.status === 'QUEUED' || d.status === 'DEPLOYING') return true;
-    if (d.status !== 'BUILDING') return false;
+    if (d.status !== 'QUEUED' && d.status !== 'DEPLOYING' && d.status !== 'BUILDING') return false;
     if (d.finishedAt) return false;
-    const logs = (d.logs || '').toLowerCase();
-    // Legacy rows left as BUILDING after image/GitHub gate failed
-    if (logs.includes('could not start') || logs.includes('connect github')) return false;
+
+    // Ignore orphans older than 20 minutes (backend sweeper also fails these).
+    const started = d.startedAt ? Date.parse(d.startedAt) : NaN;
+    if (Number.isFinite(started) && Date.now() - started > 20 * 60 * 1000) {
+      return false;
+    }
+
+    // If a newer finished deploy exists, an older in-flight row is orphaned.
+    const newerFinished = this.deployments().some(other => {
+      if (other.id === d.id) return false;
+      const otherStart = other.startedAt ? Date.parse(other.startedAt) : 0;
+      const thisStart = Number.isFinite(started) ? started : 0;
+      const finished = other.status === 'SUCCESS'
+        || other.status === 'FAILED'
+        || other.status === 'CANCELLED';
+      return finished && otherStart > thisStart;
+    });
+    if (newerFinished) return false;
+
+    if (d.status === 'BUILDING') {
+      const logs = (d.logs || '').toLowerCase();
+      // Legacy rows left as BUILDING after image/GitHub gate failed
+      if (logs.includes('could not start') || logs.includes('connect github')) return false;
+    }
     return true;
   }
 
-  deployStepIndex(status: string): number {
-    const short = this.deployTimelineSteps().length === 3;
-    if (short) {
-      switch (status) {
-        case 'QUEUED':
-        case 'PENDING':
-          return 0;
-        case 'BUILDING':
-        case 'DEPLOYING':
-          return 1;
-        case 'SUCCESS':
-        case 'RUNNING':
-          return 2;
-        default:
-          return 0;
+  showDeployProgress(d: Deployment): boolean {
+    if (this.isInFlightDeploy(d)) return true;
+    return d.status === 'FAILED' && this.deployments()[0]?.id === d.id;
+  }
+
+  stageLabel(d: Deployment): string {
+    const github = this.service()?.sourceType === 'GITHUB';
+    const stage = d.stage || '';
+    if (d.status === 'FAILED') {
+      if (stage === 'building') {
+        return github
+          ? 'Failed during build (GitHub Actions / Docker image check)'
+          : 'Failed while preparing the stack';
       }
+      if (stage === 'deploying') return 'Failed while starting the container (Portainer)';
+      if (stage === 'verify') return 'Failed while checking the public URL';
+      if (stage === 'queued') return 'Failed before deploy started';
+      return 'Deploy failed — see logs below';
+    }
+    switch (stage) {
+      case 'queued': return 'Stage: Queued';
+      case 'building':
+        return github ? 'Stage: Building image (GitHub Actions / Docker Hub)' : 'Stage: Preparing stack';
+      case 'deploying': return 'Stage: Deploying on Portainer';
+      case 'verify': return 'Stage: Verifying public URL';
+      case 'success': return 'Stage: Success';
+      default:
+        if (d.status === 'BUILDING') return 'Stage: Building…';
+        if (d.status === 'DEPLOYING') return 'Stage: Deploying…';
+        if (d.status === 'QUEUED') return 'Stage: Queued…';
+        return '';
+    }
+  }
+
+  deployStepIndex(d: Deployment | string): number {
+    const steps = this.deployTimelineSteps().length;
+    const status = typeof d === 'string' ? d : d.status;
+    const stage = typeof d === 'string' ? undefined : d.stage;
+    let idx = this.stepFromStage(stage, status, steps);
+    if (status === 'FAILED') {
+      idx = Math.min(idx, Math.max(0, steps - 2));
+    }
+    return idx;
+  }
+
+  private stepFromStage(stage: string | undefined, status: string, steps: number): number {
+    if (steps === 3) {
+      if (status === 'SUCCESS' || status === 'RUNNING' || stage === 'success') return 2;
+      if (status === 'QUEUED' || status === 'PENDING' || stage === 'queued') return 0;
+      return 1;
+    }
+    switch (stage) {
+      case 'queued': return 0;
+      case 'building': return 1;
+      case 'deploying': return 2;
+      case 'verify': return Math.min(3, steps - 2);
+      case 'success': return steps - 1;
+      default:
+        break;
     }
     switch (status) {
       case 'QUEUED':
@@ -1453,19 +1534,20 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
       case 'BUILDING':
         return 1;
       case 'DEPLOYING':
-        return 2;
+        return Math.min(2, steps - 2);
       case 'SUCCESS':
       case 'RUNNING':
-        return 3;
+        return steps - 1;
       default:
         return 0;
     }
   }
 
-  deployProgressPct(status: string): number {
+  deployProgressPct(d: Deployment | string): number {
     const steps = this.deployTimelineSteps().length;
-    const idx = this.deployStepIndex(status);
+    const idx = this.deployStepIndex(d);
     if (steps === 3) return [22, 65, 100][idx] ?? 22;
+    if (steps === 5) return [12, 32, 52, 74, 100][idx] ?? 12;
     return [18, 42, 72, 100][idx] ?? 18;
   }
 
@@ -1477,10 +1559,12 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
   headerStatusLine(): string {
     const active = this.activeDeploy();
     if (active) {
-      if (active.status === 'BUILDING') return 'Building image… progress is on the Deployments tab.';
-      if (active.status === 'DEPLOYING') return 'Starting container…';
-      if (active.status === 'QUEUED') return 'Deploy queued…';
-      return 'Deploy in progress…';
+      const label = this.stageLabel(active);
+      return label || 'Deploy in progress… Check Deployments for the current stage.';
+    }
+    const latest = this.deployments()[0];
+    if (latest?.status === 'FAILED') {
+      return this.stageLabel(latest);
     }
     const hint = this.statusHint();
     if (hint) return hint;
@@ -1781,7 +1865,7 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
     if (!svc) return '';
     const d = svc.sourceDetails as unknown as Record<string, unknown>;
     if (svc.sourceType === 'GITHUB') return `${d['repositoryUrl']} @ ${d['branch']}`;
-    if (svc.sourceType === 'DOCKER') return `${d['imageName']}:${d['imageTag'] ?? 'latest'}`;
+    if (svc.sourceType === 'DOCKER') return formatDockerImage(d) || 'Docker image';
     return String(d['dbType'] ?? 'DATABASE');
   }
 
@@ -1797,6 +1881,34 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
   githubCiOk(): boolean {
     const d = this.service()?.sourceDetails as unknown as Record<string, unknown> | undefined;
     return d?.['ciBootstrapped'] === true;
+  }
+
+  githubWebhookOk(): boolean {
+    const d = this.service()?.sourceDetails as unknown as Record<string, unknown> | undefined;
+    return d?.['ciWebhookRegistered'] === true;
+  }
+
+  syncGitHubCi() {
+    if (!this.canManage() || this.busy()) return;
+    this.busy.set(true);
+    this.message.set('');
+    this.projectService.syncGitHubCi(this.serviceId).subscribe({
+      next: svc => {
+        this.applyService(svc);
+        this.busy.set(false);
+        const d = svc.sourceDetails as unknown as Record<string, unknown>;
+        const ok = d?.['ciWebhookRegistered'] === true;
+        this.message.set(ok
+          ? 'GitHub webhook ready — push to the repo to auto-redeploy.'
+          : String(d?.['ciMessage'] ?? 'CI sync finished. Check Build status below.'));
+        this.messageTone.set(ok ? 'ok' : 'error');
+      },
+      error: err => {
+        this.busy.set(false);
+        this.message.set(friendlyApiMessage(err, 'Could not sync GitHub CI'));
+        this.messageTone.set('error');
+      }
+    });
   }
 
   statusLabel(status: string | undefined): string {
@@ -1923,11 +2035,8 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
     const raw = (d.logs || '').trim();
     const source = raw || (err ? `Deployment failed: ${err}` : '');
     if (source) {
-      return source
-        .split(/\r?\n/)
-        .map(line => this.softenTech(line))
-        .filter(Boolean)
-        .join('\n');
+      const lines = source.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      return lines.slice(-80).join('\n');
     }
     if (d.status === 'BUILDING') return 'Waiting for the image build to finish…';
     if (d.status === 'DEPLOYING') return 'Starting container…';
@@ -2218,6 +2327,7 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
         this.service.update(s => s ? { ...s, status: 'PENDING' } : s);
         this.setTab('deployments');
         this.loadDeployments();
+        this.refreshLogs();
         this.pollDeployProgress();
         this.auth.usage().subscribe({ next: u => this.usage.set(u) });
       },
@@ -2231,38 +2341,53 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
   }
 
   private pollDeployProgress() {
-    const ticks = [450, 1000, 1850, 2100];
-    ticks.forEach((ms, i) => {
-      const t = setTimeout(() => {
-        this.projectService.getService(this.projectId, this.serviceId).subscribe({
-          next: ({ service }) => {
-            this.applyService(service);
-            this.loadDeployments();
-            if (service.status === 'RUNNING') {
-              this.message.set('Deploy succeeded');
-              this.messageTone.set('ok');
-              this.busy.set(false);
-              this.clearDeployPolls();
-              return;
-            }
-            if (service.status === 'FAILED') {
-              this.message.set('Deploy failed — check Deployments for the real reason (often missing GitHub workflow permission).');
-              this.messageTone.set('error');
-              this.busy.set(false);
-              this.clearDeployPolls();
-              return;
-            }
-            if (i === ticks.length - 1) {
-              this.busy.set(false);
-            }
-          },
-          error: () => {
-            if (i === ticks.length - 1) this.busy.set(false);
+    this.clearDeployPolls();
+    let ticks = 0;
+    const maxTicks = 90;
+    const tick = () => {
+      ticks++;
+      this.projectService.getService(this.projectId, this.serviceId).subscribe({
+        next: ({ service }) => {
+          this.applyService(service);
+          this.loadDeployments();
+          this.refreshLogs();
+          if (service.status === 'RUNNING') {
+            this.message.set('Deploy succeeded');
+            this.messageTone.set('ok');
+            this.busy.set(false);
+            this.clearDeployPolls();
+            return;
           }
-        });
-      }, ms);
-      this.deployPollTimers.push(t);
-    });
+          if (service.status === 'FAILED') {
+            const latest = this.deployments()[0];
+            const reason = latest?.errorMessage
+              || latest?.logs?.split('\n').filter(Boolean).at(-1)
+              || 'see Logs for the stage that failed';
+            this.message.set('Deploy failed — ' + reason);
+            this.messageTone.set('error');
+            this.busy.set(false);
+            this.setTab('logs');
+            this.clearDeployPolls();
+            return;
+          }
+          if (ticks >= maxTicks) {
+            this.busy.set(false);
+            return;
+          }
+          const t = setTimeout(tick, 2000);
+          this.deployPollTimers.push(t);
+        },
+        error: () => {
+          if (ticks >= maxTicks) {
+            this.busy.set(false);
+            return;
+          }
+          const t = setTimeout(tick, 2000);
+          this.deployPollTimers.push(t);
+        }
+      });
+    };
+    tick();
   }
 
   private clearDeployPolls() {

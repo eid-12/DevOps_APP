@@ -85,9 +85,18 @@ public class CiBootstrapServiceImpl implements CiBootstrapService {
         startCommand = validated.normalized();
         src.put("startCommand", startCommand);
 
-        String imageName = dockerHubNamespace() + "/" + sanitize(service.getName());
+        String imageName = String.valueOf(src.getOrDefault("imageName", "")).trim();
+        if (!StringUtils.hasText(imageName) || "null".equalsIgnoreCase(imageName) || !imageName.contains("/")) {
+            // Keep stable Hub repo names across re-sync (include service id suffix).
+            String idSuffix = service.getId() != null ? service.getId().replace("svc-", "") : sanitize(service.getName());
+            imageName = dockerHubNamespace() + "/" + sanitize(service.getName()) + "-" + idSuffix;
+        }
         src.put("imageName", imageName);
         src.put("runtime", runtime);
+        // Default on unless explicitly disabled
+        if (!src.containsKey("autoDeploy")) {
+            src.put("autoDeploy", true);
+        }
 
         String token = owner.getGithubAccessToken();
         if (!StringUtils.hasText(token)) {

@@ -204,6 +204,14 @@ public class ProjectController {
 
     // ── Deployments ───────────────────────────────────────────
 
+    @PostMapping("/services/{serviceId}/github/sync-ci")
+    public ServiceEntity syncGitHubCi(
+            @AuthenticationPrincipal UserEntity user,
+            @PathVariable String serviceId
+    ) {
+        return projectService.syncGitHubCi(serviceId, user);
+    }
+
     @PostMapping("/services/{serviceId}/deploy")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public DeploymentEntity deploy(

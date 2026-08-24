@@ -5,6 +5,7 @@ import com.cloudbase.dto.AdminDtos.HostingSettingsResponse;
 import com.cloudbase.dto.AdminDtos.HostingSettingsUpdateRequest;
 import com.cloudbase.dto.AdminDtos.InfrastructureOverview;
 import com.cloudbase.dto.AuthDtos.MessageResponse;
+import com.cloudbase.dto.PublicDtos.PlatformStatusResponse;
 import com.cloudbase.email.EmailService;
 import com.cloudbase.email.ResendProperties;
 import com.cloudbase.entity.DeploymentEntity;
@@ -203,21 +204,19 @@ public class AdminServiceImpl implements AdminService {
     }
 
     private void cancelActiveDeployments(String serviceId, Instant now, String reason) {
-        for (DeploymentEntity dep : deploymentRepository.findByServiceIdOrderByStartedAtDesc(serviceId)) {
-            if (dep.getStatus() == DeploymentStatus.QUEUED
-                    || dep.getStatus() == DeploymentStatus.BUILDING
-                    || dep.getStatus() == DeploymentStatus.DEPLOYING) {
-                dep.setStatus(DeploymentStatus.CANCELLED);
-                dep.setFinishedAt(now);
-                dep.setLogs((dep.getLogs() == null ? "" : dep.getLogs() + "\n")
-                        + "Cancelled — " + reason);
-                if (dep.getErrorMessage() == null || dep.getErrorMessage().isBlank()) {
-                    dep.setErrorMessage("Cancelled — " + reason);
-                }
-                deploymentRepository.save(dep);
-            } else {
-                break;
+        List<DeploymentEntity> active = deploymentRepository.findByServiceIdAndStatusInAndFinishedAtIsNull(
+                serviceId,
+                List.of(DeploymentStatus.QUEUED, DeploymentStatus.BUILDING, DeploymentStatus.DEPLOYING)
+        );
+        for (DeploymentEntity dep : active) {
+            dep.setStatus(DeploymentStatus.CANCELLED);
+            dep.setFinishedAt(now);
+            dep.setLogs((dep.getLogs() == null ? "" : dep.getLogs() + "\n")
+                    + "Cancelled — " + reason);
+            if (dep.getErrorMessage() == null || dep.getErrorMessage().isBlank()) {
+                dep.setErrorMessage("Cancelled — " + reason);
             }
+            deploymentRepository.save(dep);
         }
     }
 
@@ -324,6 +323,86 @@ public class AdminServiceImpl implements AdminService {
                 hostCpu,
                 hostRam
         );
+    }
+
+    @Override
+    public PlatformStatusResponse platformStatus() {
+        boolean online = false;
+        String portainerStatus = "disconnected";
+        int activeContainers = 0;
+        int totalContainers = 0;
+        int stacks = 0;
+        int images = 0;
+        int volumes = 0;
+        String hostCpu = "—";
+        String hostRam = "—";
+        String dockerVersion = "—";
+
+        try {
+            portainerClient.getStatus().block();
+            portainerStatus = "connected";
+            online = true;
+            Map<String, Object> endpoint = portainerClient.getEndpoint().block();
+            if (endpoint != null) {
+                Object snaps = endpoint.get("Snapshots");
+                if (snaps instanceof List<?> list && !list.isEmpty() && list.get(0) instanceof Map<?, ?> snap) {
+                    activeContainers = numberOrZero(snap.get("RunningContainerCount"));
+                    totalContainers = numberOrZero(snap.get("ContainerCount"));
+                    stacks = numberOrZero(snap.get("StackCount"));
+                    images = numberOrZero(snap.get("ImageCount"));
+                    volumes = numberOrZero(snap.get("VolumeCount"));
+                    Object cpu = snap.get("TotalCPU");
+                    if (cpu instanceof Number n) {
+                        hostCpu = String.valueOf(n.intValue());
+                    }
+                    Object mem = snap.get("TotalMemory");
+                    if (mem instanceof Number n) {
+                        double gb = n.doubleValue() / (1024d * 1024d * 1024d);
+                        hostRam = String.format(java.util.Locale.US, "%.1f GB", gb);
+                    }
+                    Object ver = snap.get("DockerVersion");
+                    if (ver != null && !String.valueOf(ver).isBlank()) {
+                        dockerVersion = String.valueOf(ver);
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            portainerStatus = "disconnected";
+            online = false;
+        }
+
+        String npmStatus = "disabled";
+        try {
+            Map<String, Object> npm = npmClient.getStatus().block();
+            if (npm != null && npm.get("status") != null) {
+                npmStatus = String.valueOf(npm.get("status"));
+            }
+        } catch (Exception ignored) {
+            npmStatus = "error";
+        }
+
+        String tunnelStatus = "connected".equals(portainerStatus) || "connected".equalsIgnoreCase(npmStatus)
+                ? "active"
+                : "unknown";
+
+        return new PlatformStatusResponse(
+                online,
+                portainerStatus,
+                npmStatus,
+                tunnelStatus,
+                activeContainers,
+                totalContainers,
+                stacks,
+                images,
+                volumes,
+                hostCpu,
+                hostRam,
+                dockerVersion
+        );
+    }
+
+    private static int numberOrZero(Object value) {
+        return value instanceof Number n ? n.intValue() : 0;
     }
 
     @Override

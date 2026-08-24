@@ -23,6 +23,8 @@ import reactor.core.scheduler.Schedulers;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -98,6 +100,23 @@ public class DeploymentOrchestrator {
         String imageTag = request != null ? request.imageTag() : null;
         String commitSha = request != null ? request.commitSha() : null;
 
+        // Clear orphan in-flight rows so UI cannot stick on an older DEPLOYING forever.
+        Instant now = Instant.now();
+        for (DeploymentEntity orphan : deploymentRepository.findByServiceIdAndStatusInAndFinishedAtIsNull(
+                service.getId(),
+                List.of(DeploymentStatus.QUEUED, DeploymentStatus.BUILDING, DeploymentStatus.DEPLOYING)
+        )) {
+            orphan.setStatus(DeploymentStatus.CANCELLED);
+            orphan.setFinishedAt(now);
+            orphan.setLogs((orphan.getLogs() == null ? "" : orphan.getLogs() + "\n")
+                    + "Cancelled — superseded by a new deploy");
+            if (orphan.getErrorMessage() == null || orphan.getErrorMessage().isBlank()) {
+                orphan.setErrorMessage("Cancelled — superseded by a new deploy");
+            }
+            deploymentRepository.save(orphan);
+            eventPublisher.publishDeploymentUpdate(orphan);
+        }
+
         DeploymentEntity deployment = DeploymentEntity.builder()
                 .id("dep-" + UUID.randomUUID().toString().substring(0, 8))
                 .serviceId(service.getId())
@@ -111,11 +130,14 @@ public class DeploymentOrchestrator {
                 .build();
         deployment = deploymentRepository.save(deployment);
 
-        service.setStatus(ServiceStatus.DEPLOYING);
+        boolean github = service.getSourceType() == ServiceSourceType.GITHUB;
+        service.setStatus(github ? ServiceStatus.BUILDING : ServiceStatus.DEPLOYING);
         service.setLatestDeploymentId(deployment.getId());
         serviceRepository.save(service);
         eventPublisher.publishServiceStatusUpdate(service);
         eventPublisher.publishDeploymentUpdate(deployment);
+        appendStage(deployment.getId(), DeploymentStatus.QUEUED, "queued",
+                "Deploy queued (" + (triggeredBy != null ? triggeredBy : "manual") + ")");
 
         final String serviceId = service.getId();
         final String deploymentId = deployment.getId();
@@ -129,46 +151,188 @@ public class DeploymentOrchestrator {
 
         String compose = composeGenerator.generateCompose(service, ownerId, imageTag);
         deployment.setComposeSnapshot(compose);
-        deployment.setStatus(DeploymentStatus.BUILDING);
         deploymentRepository.save(deployment);
-        eventPublisher.publishDeploymentUpdate(deployment);
+        appendStage(deploymentId, DeploymentStatus.BUILDING, "building", "Compose file generated");
 
         List<Map<String, String>> env = composeGenerator.buildPortainerEnv(service, extras);
         String stackName = stackName(service);
-
-        deployment.setStatus(DeploymentStatus.DEPLOYING);
-        deploymentRepository.save(deployment);
-        eventPublisher.publishDeploymentUpdate(deployment);
 
         Integer existingStackId = service.getPortainerStackId();
         boolean pullImage = service.getSourceType() != ServiceSourceType.DATABASE;
         final String containerName = composeGenerator.resolveContainerName(service);
 
         // GitHub: refuse when CI never built an image (avoids opaque Portainer 500).
-        if (service.getSourceType() == ServiceSourceType.GITHUB) {
+        if (github) {
+            appendStage(deploymentId, DeploymentStatus.BUILDING, "building",
+                    "Checking GitHub image on Docker Hub before Portainer…");
             String gate = githubDeployGateReason(service);
             if (gate != null) {
                 onStackFailure(serviceId, deploymentId, new IllegalStateException(gate));
-                return deployment;
+                return reloadDeployment(deployment);
             }
             String missingImage = missingDockerHubImageReason(service, imageTag);
             if (missingImage != null) {
                 onStackFailure(serviceId, deploymentId, new IllegalStateException(missingImage));
-                return deployment;
+                return reloadDeployment(deployment);
             }
+            appendStage(deploymentId, DeploymentStatus.BUILDING, "building",
+                    "Docker image found. Handing off to Portainer.");
         }
+
+        appendStage(deploymentId, DeploymentStatus.DEPLOYING, "deploying",
+                "Creating/updating Portainer stack " + stackName + "…");
+        service.setStatus(ServiceStatus.DEPLOYING);
+        serviceRepository.save(service);
+        eventPublisher.publishServiceStatusUpdate(service);
 
         portainerClient.upsertStack(stackName, compose, env, existingStackId, pullImage)
                 .onErrorMap(this::friendlyPortainerError)
-                .flatMap(result -> portainerClient.waitUntilRunning(containerName, 12, 2500)
-                        .thenReturn(result))
-                .flatMap(result -> provisionProxyAndVerifyApp(serviceId).thenReturn(result))
+                .doOnSubscribe(s -> appendStage(deploymentId, DeploymentStatus.DEPLOYING, "deploying",
+                        "Portainer API call started"))
+                .flatMap(result -> {
+                    appendStage(deploymentId, DeploymentStatus.DEPLOYING, "deploying",
+                            "Stack accepted. Waiting for the container to become running…");
+                    return portainerClient.waitUntilRunning(containerName, 12, 2500).thenReturn(result);
+                })
+                .flatMap(result -> {
+                    appendStage(deploymentId, DeploymentStatus.DEPLOYING, "verify",
+                            "Configuring public URL and verifying the app…");
+                    return provisionProxyAndVerifyApp(serviceId).thenReturn(result);
+                })
                 .subscribe(
                         result -> onStackSuccess(serviceId, deploymentId, result),
                         error -> onStackFailure(serviceId, deploymentId, error)
                 );
 
-        return deployment;
+        return reloadDeployment(deployment);
+    }
+
+    /**
+     * GitHub Actions progress / failure — shown in Deployments + Logs before Portainer runs.
+     */
+    public void onGitHubWorkflowEvent(
+            ServiceEntity service,
+            String action,
+            String conclusion,
+            String commitSha,
+            String runUrl
+    ) {
+        boolean progress = "requested".equalsIgnoreCase(action) || "in_progress".equalsIgnoreCase(action);
+        boolean failed = "completed".equalsIgnoreCase(action)
+                && conclusion != null
+                && !"success".equalsIgnoreCase(conclusion)
+                && !"null".equalsIgnoreCase(conclusion)
+                && !conclusion.isBlank();
+
+        List<DeploymentEntity> inflight = deploymentRepository.findByServiceIdAndStatusInAndFinishedAtIsNull(
+                service.getId(),
+                List.of(DeploymentStatus.QUEUED, DeploymentStatus.BUILDING, DeploymentStatus.DEPLOYING)
+        );
+        boolean portainerRunning = inflight.stream().anyMatch(d -> d.getStatus() == DeploymentStatus.DEPLOYING);
+
+        if (progress) {
+            if (portainerRunning) {
+                return;
+            }
+            DeploymentEntity d = inflight.stream().findFirst().orElse(null);
+            if (d == null) {
+                d = DeploymentEntity.builder()
+                        .id("dep-" + UUID.randomUUID().toString().substring(0, 8))
+                        .serviceId(service.getId())
+                        .projectId(service.getProject().getId())
+                        .status(DeploymentStatus.BUILDING)
+                        .triggeredBy("github-workflow")
+                        .commitSha(commitSha)
+                        .startedAt(Instant.now())
+                        .stage("building")
+                        .build();
+                d = deploymentRepository.save(d);
+                service.setStatus(ServiceStatus.BUILDING);
+                service.setLatestDeploymentId(d.getId());
+                serviceRepository.save(service);
+                eventPublisher.publishServiceStatusUpdate(service);
+                eventPublisher.publishDeploymentUpdate(d);
+            }
+            String extra = safeGitHubRunUrl(runUrl);
+            appendStage(d.getId(), DeploymentStatus.BUILDING, "building",
+                    "GitHub Actions is building the image" + extra);
+            return;
+        }
+
+        if (failed && !portainerRunning) {
+            DeploymentEntity d = inflight.stream().findFirst().orElse(null);
+            if (d == null) {
+                d = DeploymentEntity.builder()
+                        .id("dep-" + UUID.randomUUID().toString().substring(0, 8))
+                        .serviceId(service.getId())
+                        .projectId(service.getProject().getId())
+                        .status(DeploymentStatus.BUILDING)
+                        .triggeredBy("github-workflow")
+                        .commitSha(commitSha)
+                        .startedAt(Instant.now())
+                        .stage("building")
+                        .build();
+                d = deploymentRepository.save(d);
+                service.setLatestDeploymentId(d.getId());
+                serviceRepository.save(service);
+            }
+            String extra = safeGitHubRunUrl(runUrl).isEmpty() ? "" : ". Open the run:" + safeGitHubRunUrl(runUrl);
+            onStackFailure(service.getId(), d.getId(), new IllegalStateException(
+                    "GitHub Actions failed (" + conclusion + ")" + extra
+                            + ". Fix the workflow, then Redeploy."));
+        }
+    }
+
+    private DeploymentEntity reloadDeployment(DeploymentEntity deployment) {
+        return deploymentRepository.findById(deployment.getId()).orElse(deployment);
+    }
+
+    private void appendStage(String deploymentId, DeploymentStatus status, String stage, String message) {
+        transactionTemplate.executeWithoutResult(tx ->
+                deploymentRepository.findById(deploymentId).ifPresent(d -> {
+                    if (d.getStatus() == DeploymentStatus.CANCELLED
+                            || d.getStatus() == DeploymentStatus.SUCCESS
+                            || d.getStatus() == DeploymentStatus.FAILED) {
+                        return;
+                    }
+                    if (status != null) {
+                        d.setStatus(status);
+                    }
+                    d.setStage(stage);
+                    String line = "[" + clock() + "] [" + stageTitle(stage) + "] " + message;
+                    d.setLogs(appendLogLine(d.getLogs(), line));
+                    deploymentRepository.save(d);
+                    eventPublisher.publishDeploymentUpdate(d);
+                    eventPublisher.publishLog(d.getServiceId(), d.getId(), line);
+                }));
+    }
+
+    private static String appendLogLine(String existing, String line) {
+        if (existing == null || existing.isBlank()) {
+            return line;
+        }
+        return existing + "\n" + line;
+    }
+
+    private static String clock() {
+        return DateTimeFormatter.ofPattern("HH:mm:ss")
+                .withZone(ZoneId.systemDefault())
+                .format(Instant.now());
+    }
+
+    private static String stageTitle(String stage) {
+        if (stage == null) {
+            return "Deploy";
+        }
+        return switch (stage) {
+            case "queued" -> "Queued";
+            case "building" -> "Building";
+            case "deploying" -> "Deploying";
+            case "verify" -> "Verify";
+            case "success" -> "Success";
+            case "failed" -> "Failed";
+            default -> stage;
+        };
     }
 
     private Throwable friendlyPortainerError(Throwable error) {
@@ -736,14 +900,13 @@ public class DeploymentOrchestrator {
                     return;
                 }
                 deployment.setStatus(DeploymentStatus.SUCCESS);
+                deployment.setStage("success");
                 deployment.setFinishedAt(Instant.now());
                 if (stackId != null) {
                     deployment.setPortainerStackId(stackId);
                 }
-                deployment.setLogs((deployment.getLogs() == null ? "" : deployment.getLogs() + "\n")
-                        + "Portainer stack upserted successfully\n"
-                        + "Container verified running\n"
-                        + "Public app verified (not a demo page)");
+                deployment.setLogs(appendLogLine(deployment.getLogs(),
+                        "[" + clock() + "] [Success] Portainer stack upserted, container running, public app verified"));
                 deploymentRepository.save(deployment);
                 eventPublisher.publishDeploymentUpdate(deployment);
             });
@@ -776,10 +939,12 @@ public class DeploymentOrchestrator {
                     return;
                 }
                 deployment.setStatus(DeploymentStatus.FAILED);
+                deployment.setStage("failed");
                 deployment.setFinishedAt(Instant.now());
                 String msg = error != null && error.getMessage() != null ? error.getMessage() : "unknown error";
                 deployment.setErrorMessage(msg);
-                deployment.setLogs("Deployment failed: " + msg);
+                deployment.setLogs(appendLogLine(deployment.getLogs(),
+                        "[" + clock() + "] [Failed] " + msg));
                 deploymentRepository.save(deployment);
                 eventPublisher.publishDeploymentUpdate(deployment);
             });

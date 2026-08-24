@@ -11,6 +11,7 @@ import {
   ServiceLogLine,
   SharedVariable
 } from './models';
+import { withNormalizedDockerDetails } from '../shared/service-source.util';
 
 /**
  * HTTP wrappers for infrastructure orchestration endpoints
@@ -27,6 +28,12 @@ export class InfrastructureApiService {
     return this.http
       .post<BackendDeployment>(`${this.base}/projects/services/${serviceId}/deploy`, body ?? {})
       .pipe(map(mapDeployment));
+  }
+
+  syncGitHubCi(serviceId: string): Observable<Service> {
+    return this.http
+      .post<BackendService>(`${this.base}/projects/services/${serviceId}/github/sync-ci`, {})
+      .pipe(map(mapService));
   }
 
   rollback(serviceId: string, deploymentId: string): Observable<Deployment> {
@@ -165,7 +172,7 @@ export class InfrastructureApiService {
 
   getLogs(serviceId: string, tail = 200): Observable<ServiceLogLine[]> {
     return this.http
-      .get<Array<{ id?: string; timestamp?: string; level?: string; message?: string }>>(
+      .get<Array<{ id?: string; timestamp?: string; level?: string; message?: string; stream?: string }>>(
         `${this.base}/projects/services/${serviceId}/logs`,
         { params: { tail: String(tail) } }
       )
@@ -175,7 +182,8 @@ export class InfrastructureApiService {
             id: l.id ?? `log-${i}`,
             timestamp: l.timestamp ?? new Date().toISOString(),
             level: (l.level as ServiceLogLine['level']) ?? 'info',
-            message: l.message ?? ''
+            message: l.message ?? '',
+            stream: l.stream
           }))
         )
       );
@@ -303,6 +311,7 @@ interface BackendDeployment {
   finishedAt?: string;
   logs?: string;
   errorMessage?: string;
+  stage?: string;
 }
 
 interface BackendService {
@@ -361,7 +370,8 @@ function mapDeployment(d: BackendDeployment): Deployment {
     startedAt: d.startedAt,
     finishedAt: d.finishedAt,
     logs: d.logs,
-    errorMessage: d.errorMessage
+    errorMessage: d.errorMessage,
+    stage: d.stage
   };
 }
 
@@ -400,7 +410,10 @@ function mapService(s: BackendService): Service {
     projectId: s.projectId ?? s.project?.id ?? '',
     name: s.name,
     sourceType: s.sourceType,
-    sourceDetails: s.sourceDetails,
+    sourceDetails: withNormalizedDockerDetails(
+      s.sourceType,
+      (s.sourceDetails ?? {}) as unknown as Record<string, unknown>
+    ) as unknown as Service['sourceDetails'],
     status: s.status,
     subdomain: s.subdomain,
     customDomain: s.customDomain,

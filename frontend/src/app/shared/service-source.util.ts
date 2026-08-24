@@ -92,6 +92,40 @@ export function parseDockerImageRef(value: string): { imageName: string; imageTa
   return { imageName: raw, imageTag: 'latest' };
 }
 
+/** Stored Docker JSON may use imageName/imageTag or a single `image` field. */
+export function dockerImageParts(details: Record<string, unknown> | undefined | null): {
+  imageName: string;
+  imageTag: string;
+} {
+  const rec = details ?? {};
+  const name = String(rec['imageName'] ?? '').trim();
+  const tag = String(rec['imageTag'] ?? rec['imageTag'] ?? '').trim();
+  if (name && name !== 'undefined') {
+    return { imageName: name, imageTag: tag || 'latest' };
+  }
+  return parseDockerImageRef(String(rec['image'] ?? ''));
+}
+
+export function formatDockerImage(details: Record<string, unknown> | undefined | null): string {
+  const { imageName, imageTag } = dockerImageParts(details);
+  return imageName ? `${imageName}:${imageTag}` : '';
+}
+
+export function withNormalizedDockerDetails<T extends Record<string, unknown>>(
+  sourceType: string,
+  details: T | undefined | null
+): T {
+  const rec = { ...(details ?? {}) } as Record<string, unknown>;
+  if (sourceType === 'DOCKER') {
+    const parts = dockerImageParts(rec);
+    if (parts.imageName) {
+      rec['imageName'] = parts.imageName;
+      rec['imageTag'] = parts.imageTag;
+    }
+  }
+  return rec as T;
+}
+
 export function guessContainerPort(imageName: string): number {
   const n = (imageName || '').toLowerCase();
   if (n.includes('postgres')) return 5432;

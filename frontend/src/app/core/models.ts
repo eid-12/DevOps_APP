@@ -247,6 +247,8 @@ export interface Deployment {
   finishedAt?: string;
   logs?: string;
   errorMessage?: string;
+  /** Pipeline stage: queued | building | deploying | verify | success | failed */
+  stage?: string;
   /** When set, this deploy was created by rolling back to another deployment */
   rollbackOf?: string;
 }
@@ -258,6 +260,7 @@ export interface ServiceLogLine {
   timestamp: string;
   level: LogLevel;
   message: string;
+  stream?: string;
 }
 
 export interface TerminalLine {

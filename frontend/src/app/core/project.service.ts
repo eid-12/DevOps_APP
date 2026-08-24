@@ -271,6 +271,13 @@ export class ProjectService {
     }
   }
 
+  syncGitHubCi(serviceId: string): Observable<Service> {
+    if (this.useApi) {
+      return this.api.syncGitHubCi(serviceId);
+    }
+    return throwError(() => ({ error: { message: 'GitHub CI sync requires the live API' } }));
+  }
+
   rollback(serviceId: string, deploymentId: string): Observable<Deployment> {
     if (this.useApi) {
       return this.api.rollback(serviceId, deploymentId);

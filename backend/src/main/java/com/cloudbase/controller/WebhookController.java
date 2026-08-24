@@ -5,6 +5,7 @@ import com.cloudbase.entity.DeploymentEntity;
 import com.cloudbase.entity.ServiceEntity;
 import com.cloudbase.model.ServiceSourceType;
 import com.cloudbase.repository.ServiceRepository;
+import com.cloudbase.service.DeploymentOrchestrator;
 import com.cloudbase.service.PlatformSettingsService;
 import com.cloudbase.service.ProjectService;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -42,17 +43,20 @@ public class WebhookController {
 
     private final ServiceRepository serviceRepository;
     private final ProjectService projectService;
+    private final DeploymentOrchestrator orchestrator;
     private final ObjectMapper objectMapper;
     private final PlatformSettingsService platformSettings;
 
     public WebhookController(
             ServiceRepository serviceRepository,
             ProjectService projectService,
+            DeploymentOrchestrator orchestrator,
             ObjectMapper objectMapper,
             PlatformSettingsService platformSettings
     ) {
         this.serviceRepository = serviceRepository;
         this.projectService = projectService;
+        this.orchestrator = orchestrator;
         this.objectMapper = objectMapper;
         this.platformSettings = platformSettings;
     }
@@ -88,18 +92,9 @@ public class WebhookController {
 
     private ResponseEntity<Map<String, Object>> handleWorkflowRun(Map<String, Object> payload) {
         String action = String.valueOf(payload.getOrDefault("action", ""));
-        if (!"completed".equalsIgnoreCase(action)) {
-            return ResponseEntity.ok(Map.of("ignored", true, "reason", "action=" + action));
-        }
-
         Object runObj = payload.get("workflow_run");
         if (!(runObj instanceof Map<?, ?> run)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Missing workflow_run");
-        }
-
-        String conclusion = String.valueOf(run.get("conclusion"));
-        if (!"success".equalsIgnoreCase(conclusion)) {
-            return ResponseEntity.ok(Map.of("ignored", true, "reason", "conclusion=" + conclusion));
         }
 
         String workflowName = String.valueOf(run.get("name"));
@@ -110,6 +105,8 @@ public class WebhookController {
         String repoUrl = extractRepoUrl(payload);
         String branch = String.valueOf(run.get("head_branch"));
         String commitSha = String.valueOf(run.get("head_sha"));
+        String runUrl = run.get("html_url") == null ? "" : String.valueOf(run.get("html_url"));
+        String conclusion = String.valueOf(run.get("conclusion"));
         if (!StringUtils.hasText(repoUrl) || !StringUtils.hasText(branch)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Missing repository or branch");
         }
@@ -123,21 +120,42 @@ public class WebhookController {
                 })
                 .toList();
 
+        boolean progress = "requested".equalsIgnoreCase(action) || "in_progress".equalsIgnoreCase(action);
+        boolean completed = "completed".equalsIgnoreCase(action);
+        if (!progress && !completed) {
+            return ResponseEntity.ok(Map.of("ignored", true, "reason", "action=" + action));
+        }
+
         int triggered = 0;
+        int recorded = 0;
         for (ServiceEntity service : matches) {
             Map<String, Object> src = service.getSourceDetails();
             if (src == null) continue;
-            boolean autoDeploy = !(Boolean.FALSE.equals(src.get("autoDeploy")));
-            if (!autoDeploy) continue;
 
             String configuredBranch = String.valueOf(src.getOrDefault("branch", "main"));
             if (!configuredBranch.equalsIgnoreCase(branch)) continue;
+
+            boolean autoDeploy = !(Boolean.FALSE.equals(src.get("autoDeploy")));
+
+            if (progress) {
+                if (!autoDeploy) continue;
+                orchestrator.onGitHubWorkflowEvent(service, action, conclusion, commitSha, runUrl);
+                recorded++;
+                continue;
+            }
+
+            if (!"success".equalsIgnoreCase(conclusion)) {
+                orchestrator.onGitHubWorkflowEvent(service, action, conclusion, commitSha, runUrl);
+                recorded++;
+                continue;
+            }
+
+            if (!autoDeploy) continue;
 
             String imageTag = commitSha != null && commitSha.length() >= 7
                     ? commitSha.substring(0, 7)
                     : "latest";
 
-            // Persist image tag for compose defaults
             src.put("imageTag", imageTag);
             service.setSourceDetails(src);
             serviceRepository.save(service);
@@ -156,6 +174,9 @@ public class WebhookController {
         return ResponseEntity.accepted().body(Map.of(
                 "matched", matches.size(),
                 "triggered", triggered,
+                "recorded", recorded,
+                "action", action,
+                "conclusion", conclusion == null ? "" : conclusion,
                 "repository", repoUrl,
                 "branch", branch,
                 "commitSha", commitSha == null ? "" : commitSha
@@ -165,8 +186,10 @@ public class WebhookController {
     private void verifySignature(String rawBody, String signatureHeader) {
         String webhookSecret = webhookSecret();
         if (!StringUtils.hasText(webhookSecret)) {
-            log.warn("github.webhook-secret is empty - skipping signature verification (dev only)");
-            return;
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "GitHub webhook secret is not configured"
+            );
         }
         if (!StringUtils.hasText(signatureHeader) || !signatureHeader.startsWith("sha256=")) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing X-Hub-Signature-256");

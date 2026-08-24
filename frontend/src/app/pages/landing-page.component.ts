@@ -1,9 +1,26 @@
 import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
+import { HttpClient } from '@angular/common/http';
 import { AuthService } from '../core/auth.service';
-import { PortainerService } from '../core/portainer.service';
 import { IconComponent, IconName, IconTone } from '../shared/icon.component';
+import { environment } from '../../environments/environment';
+import { catchError, of, timeout } from 'rxjs';
+
+interface PlatformStatus {
+  online: boolean;
+  portainerStatus: string;
+  npmStatus: string;
+  tunnelStatus: string;
+  activeContainers: number;
+  totalContainers: number;
+  stacks: number;
+  images: number;
+  volumes: number;
+  hostCpu: string;
+  hostRam: string;
+  dockerVersion: string;
+}
 
 @Component({
   standalone: true,
@@ -126,7 +143,7 @@ import { IconComponent, IconName, IconTone } from '../shared/icon.component';
 })
 export class LandingPageComponent implements OnInit, OnDestroy {
   readonly auth = inject(AuthService);
-  private readonly portainer = inject(PortainerService);
+  private readonly http = inject(HttpClient);
 
   readonly stats = signal([
     { value: '— / —', label: 'Active Containers' },
@@ -146,11 +163,11 @@ export class LandingPageComponent implements OnInit, OnDestroy {
   readonly steps: Array<{ icon: IconName; tone: IconTone; title: string; desc: string }> = [
     { icon: 'github-link', tone: 'indigo', title: 'Link GitHub', desc: 'Connect your repository in one click using OAuth. CloudBase reads your code — nothing else.' },
     { icon: 'shield-check', tone: 'emerald', title: 'Admin Approves', desc: 'An admin activates your account, sets CPU & RAM quotas, and unlocks deployment capability.' },
-    { icon: 'rocket', tone: 'violet', title: 'Automatic Deployment', desc: 'Every git push triggers our Portainer & Nginx Proxy Manager pipeline. SSL included.' }
+    { icon: 'rocket', tone: 'violet', title: 'Automatic Deployment', desc: 'Every git push builds a new image and updates your live container automatically. SSL included.' }
   ];
 
   readonly features: Array<{ icon: IconName; tone: IconTone; title: string; desc: string; tags: string[] }> = [
-    { icon: 'pipeline', tone: 'amber', title: 'Automated Pipelines', desc: 'GitHub webhooks trigger auto-injected Dockerfiles and GitHub Actions workflows. Push code, get a live URL — zero manual steps.', tags: ['Webhooks', 'CI/CD', 'Docker Hub'] },
+    { icon: 'pipeline', tone: 'amber', title: 'Automated Pipelines', desc: 'GitHub Actions builds on every push. CloudBase injects Dockerfiles, workflows, and secrets — then Watchtower keeps containers current.', tags: ['Webhooks', 'CI/CD', 'Docker Hub'] },
     { icon: 'lock-shield', tone: 'emerald', title: 'Absolute Isolation', desc: 'Each project runs in a sandboxed container with a dynamically provisioned MySQL or PostgreSQL database. No cross-contamination.', tags: ['WSL2', 'Portainer', 'Per-Project DB'] },
     { icon: 'terminal-live', tone: 'sky', title: 'Real-time Streaming', desc: 'WebSocket-powered live console logs and active container shell access via xterm.js — monitor builds as they happen.', tags: ['WebSockets', 'xterm.js', 'Live Stats'] }
   ];
@@ -192,42 +209,64 @@ export class LandingPageComponent implements OnInit, OnDestroy {
 
   loadPortainerMetrics() {
     this.metricsLoading.set(true);
-    this.portainer.getHostMetrics().subscribe((metrics) => {
-      this.metricsLoading.set(false);
-      this.portainerOk.set(metrics.connected && !metrics.error);
+    const base = environment.apiBaseUrl || '/api';
+    this.http
+      .get<PlatformStatus>(`${base}/public/platform-status`, {
+        headers: { 'X-Skip-Spinner': '1' }
+      })
+      .pipe(
+        timeout(10000),
+        catchError(() =>
+          of({
+            online: false,
+            portainerStatus: 'disconnected',
+            npmStatus: 'error',
+            tunnelStatus: 'unknown',
+            activeContainers: 0,
+            totalContainers: 0,
+            stacks: 0,
+            images: 0,
+            volumes: 0,
+            hostCpu: '—',
+            hostRam: '—',
+            dockerVersion: '—'
+          } satisfies PlatformStatus)
+        )
+      )
+      .subscribe((metrics) => {
+        this.metricsLoading.set(false);
+        this.portainerOk.set(metrics.online);
 
-      if (metrics.error) {
-        this.liveStatus.set('Portainer unreachable');
-        this.connectionLabel.set('Offline');
-        return;
-      }
-
-      this.liveStatus.set(`Live from Mini PC · ${metrics.endpointName}`);
-      this.hostCpu.set(`${metrics.totalCpu}`);
-      this.hostRam.set(`${metrics.totalMemoryGb} GB`);
-      this.dockerVersion.set(metrics.dockerVersion);
-      this.connectionLabel.set(metrics.connected ? 'System Healthy' : 'Degraded');
-
-      this.stats.set([
-        {
-          // running / total from Portainer (e.g. 15 / 16)
-          value: `${metrics.runningContainers} / ${metrics.totalContainers}`,
-          label: 'Active Containers'
-        },
-        {
-          value: `${metrics.stacks}`,
-          label: 'Active Stacks'
-        },
-        {
-          value: `${metrics.images}`,
-          label: 'Docker Images'
-        },
-        {
-          value: `${metrics.volumes}`,
-          label: 'Volumes'
+        if (!metrics.online) {
+          this.liveStatus.set('Portainer unreachable');
+          this.connectionLabel.set('Offline');
+          this.hostCpu.set('—');
+          this.hostRam.set('—');
+          this.dockerVersion.set('—');
+          this.stats.set([
+            { value: '— / —', label: 'Active Containers' },
+            { value: '—', label: 'Active Stacks' },
+            { value: '—', label: 'Docker Images' },
+            { value: '—', label: 'Volumes' }
+          ]);
+          return;
         }
-      ]);
-    });
+
+        this.liveStatus.set('Live from Mini PC');
+        this.connectionLabel.set('System Healthy');
+        this.hostCpu.set(metrics.hostCpu || '—');
+        this.hostRam.set(metrics.hostRam || '—');
+        this.dockerVersion.set(metrics.dockerVersion || '—');
+        this.stats.set([
+          {
+            value: `${metrics.activeContainers} / ${metrics.totalContainers || metrics.activeContainers}`,
+            label: 'Active Containers'
+          },
+          { value: `${metrics.stacks}`, label: 'Active Stacks' },
+          { value: `${metrics.images}`, label: 'Docker Images' },
+          { value: `${metrics.volumes}`, label: 'Volumes' }
+        ]);
+      });
   }
 
   private runTerminalAnimation() {

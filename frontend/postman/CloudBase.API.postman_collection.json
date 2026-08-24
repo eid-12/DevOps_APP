@@ -31,7 +31,7 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"dev@cloudbase.dev\",\n  \"password\": \"Dev@2026\"\n}"
+              "raw": "{\n  \"email\": \"you@your-domain\",\n  \"password\": \"YourPassword@1\"\n}"
             },
             "url": "{{baseUrl}}/auth/login"
           }
@@ -43,7 +43,7 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"dev@cloudbase.dev\"\n}"
+              "raw": "{\n  \"email\": \"you@your-domain\"\n}"
             },
             "url": "{{baseUrl}}/auth/forgot-password"
           }

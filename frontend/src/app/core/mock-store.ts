@@ -38,8 +38,8 @@ const defaultNotifications = (): NotificationPrefs => ({
 export class MockStore {
   /** Passwords keyed by user id (stable when email changes). */
   private readonly passwords = new Map<string, string>([
-    ['u-admin', 'Admin@2026'],
-    ['u-dev', 'Dev@2026']
+    ['u-admin', 'local-mock'],
+    ['u-dev', 'local-mock']
   ]);
 
   /** One vanity slug per user: userId → { slug, serviceId } */
@@ -49,7 +49,7 @@ export class MockStore {
     {
       id: 'u-admin',
       name: 'CloudBase Admin',
-      email: 'admin@cloudbase.dev',
+      email: 'admin@localhost',
       role: 'ADMIN',
       accountStatus: 'ACTIVE',
       deploymentEnabled: true,
@@ -62,7 +62,7 @@ export class MockStore {
     {
       id: 'u-dev',
       name: 'Developer One',
-      email: 'dev@cloudbase.dev',
+      email: 'dev@localhost',
       role: 'USER',
       accountStatus: 'ACTIVE',
       deploymentEnabled: true,
@@ -249,7 +249,7 @@ export class MockStore {
       serviceId: 'svc-gh-1',
       projectId: 'proj-1001',
       status: 'SUCCESS',
-      triggeredBy: 'dev@cloudbase.dev',
+      triggeredBy: 'dev@localhost',
       commitSha: 'a3f91c2',
       startedAt: new Date(Date.now() - 3600000 * 26).toISOString(),
       finishedAt: new Date(Date.now() - 3600000 * 25.8).toISOString(),
@@ -260,7 +260,7 @@ export class MockStore {
       serviceId: 'svc-gh-1',
       projectId: 'proj-1001',
       status: 'SUCCESS',
-      triggeredBy: 'dev@cloudbase.dev',
+      triggeredBy: 'dev@localhost',
       commitSha: 'b71e044',
       startedAt: new Date(Date.now() - 3600000 * 6).toISOString(),
       finishedAt: new Date(Date.now() - 3600000 * 5.9).toISOString(),
@@ -271,7 +271,7 @@ export class MockStore {
       serviceId: 'svc-db-1',
       projectId: 'proj-1001',
       status: 'SUCCESS',
-      triggeredBy: 'dev@cloudbase.dev',
+      triggeredBy: 'dev@localhost',
       imageTag: 'postgres:16',
       startedAt: new Date(Date.now() - 3600000 * 48).toISOString(),
       finishedAt: new Date(Date.now() - 3600000 * 47.9).toISOString()
@@ -281,7 +281,7 @@ export class MockStore {
       serviceId: 'svc-docker-1',
       projectId: 'proj-1002',
       status: 'FAILED',
-      triggeredBy: 'dev@cloudbase.dev',
+      triggeredBy: 'dev@localhost',
       imageTag: 'nginx:alpine',
       startedAt: new Date(Date.now() - 3600000 * 12).toISOString(),
       finishedAt: new Date(Date.now() - 3600000 * 11.95).toISOString(),
@@ -294,7 +294,7 @@ export class MockStore {
       id: 'aud-1',
       timestamp: new Date(Date.now() - 3600000 * 5).toISOString(),
       actorName: 'CloudBase Admin',
-      actorEmail: 'admin@cloudbase.dev',
+      actorEmail: 'admin@localhost',
       action: 'ACCOUNT_ACTIVATED',
       target: 'Developer One',
       details: 'Account activated and allowed to sign in'
@@ -303,7 +303,7 @@ export class MockStore {
       id: 'aud-2',
       timestamp: new Date(Date.now() - 3600000 * 4).toISOString(),
       actorName: 'CloudBase Admin',
-      actorEmail: 'admin@cloudbase.dev',
+      actorEmail: 'admin@localhost',
       action: 'DEPLOY_ACCESS_ENABLED',
       target: 'Developer One',
       details: 'Deployment access enabled'
@@ -312,7 +312,7 @@ export class MockStore {
       id: 'aud-3',
       timestamp: new Date(Date.now() - 3600000 * 2).toISOString(),
       actorName: 'CloudBase Admin',
-      actorEmail: 'admin@cloudbase.dev',
+      actorEmail: 'admin@localhost',
       action: 'PROJECT_CREATED',
       target: 'Maps Backend',
       details: 'Project canvas created with GitHub + PostgreSQL services'

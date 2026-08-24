@@ -37,7 +37,8 @@ public class VanitySubdomainService {
             "imap", "internal", "login", "mail", "manage", "metrics", "mx", "npm", "ns", "ns1", "ns2",
             "oauth", "pop", "portainer", "prod", "production", "proxy", "register", "root", "signup",
             "smtp", "ssl", "staging", "static", "status", "support", "test", "txt", "webhook", "www",
-            "ws", "wss", "null", "undefined", "localhost", "base", "system", "owner", "staff"
+            "ws", "wss", "null", "undefined", "localhost", "base", "system", "owner", "staff",
+            "panel", "portal", "edge", "mawrid"
     );
 
     private final UserRepository userRepository;

@@ -32,6 +32,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/auth/verify-email", "/api/auth/resend-verification").permitAll()
                 .requestMatchers("/api/auth/github/callback").permitAll()
                 .requestMatchers("/api/webhooks/**").permitAll()
+                .requestMatchers("/api/public/**").permitAll()
                 .requestMatchers("/ws/**").permitAll()
                 .requestMatchers("/actuator/health", "/actuator/info").permitAll()
                 .requestMatchers("/actuator/**").hasRole("ADMIN")

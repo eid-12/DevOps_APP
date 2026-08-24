@@ -24,6 +24,7 @@ import {
   defaultStartCommand,
   guessContainerPort,
   parseDockerImageRef,
+  formatDockerImage,
   slugifyServiceName
 } from '../shared/service-source.util';
 import { publicHost } from '../shared/public-host.util';
@@ -1248,7 +1249,7 @@ export class ProjectDetailPageComponent implements OnInit {
     if (svc.sourceType === 'GITHUB') return `${d['repositoryUrl'] ?? ''} @ ${d['branch'] ?? 'main'}`;
     if (svc.sourceType === 'DOCKER') {
       const port = d['containerPort'] != null ? ` :${d['containerPort']}` : '';
-      return `${d['imageName']}:${d['imageTag'] ?? 'latest'}${port}`;
+      return `${formatDockerImage(d)}${port}`;
     }
     const db = String(d['dbType'] ?? 'DATABASE');
     const port = d['containerPort'] != null ? ` :${d['containerPort']}` : '';

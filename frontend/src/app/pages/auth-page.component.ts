@@ -20,23 +20,13 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { finalize } from 'rxjs/operators';
 import { AuthService } from '../core/auth.service';
 import { isSafeReturnUrl } from '../core/auth.guard';
-import { environment } from '../../environments/environment';
-
 type AuthMode = 'login' | 'register' | 'forgot' | 'reset' | 'verify';
 type FieldName = 'name' | 'email' | 'password' | 'confirmPassword' | 'code';
-
-interface DemoAccount {
-  id: 'admin' | 'developer';
-  label: string;
-  email: string;
-  password: string;
-  pill: string;
-}
 
 /** Stricter than Angular's default email validator. */
 const EMAIL_PATTERN = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 
-/** Min 8, upper, lower, digit, special — matches demo passwords like Admin@2026. */
+/** Min 8, upper, lower, digit, special. */
 const STRONG_PASSWORD = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#._-]).{8,}$/;
 
 function passwordMatchValidator(passwordKey: string, confirmKey: string): ValidatorFn {
@@ -70,22 +60,6 @@ function passwordMatchValidator(passwordKey: string, confirmKey: string): Valida
           <p class="section-desc">
             Sign in to manage deployments, monitor containers, and access your private cloud dashboard.
           </p>
-
-          @if (showDemoAccounts) {
-            <div class="auth-demo-list">
-              <p class="field-label">Demo accounts</p>
-              @for (account of demos; track account.id) {
-                <button type="button" class="auth-demo-row" (click)="fillDemo(account)">
-                  <span class="pill" [class]="account.pill">{{ account.label }}</span>
-                  <span class="auth-demo-creds">
-                    <code>{{ account.email }}</code>
-                    <span class="muted"> / </span>
-                    <code>{{ account.password }}</code>
-                  </span>
-                </button>
-              }
-            </div>
-          }
         </aside>
 
         <section class="panel auth-form-panel">
@@ -298,44 +272,12 @@ function passwordMatchValidator(passwordKey: string, confirmKey: string): Valida
   styles: [`
     :host { display: block; }
 
-    .auth-demo-list {
-      display: grid;
-      gap: 10px;
-      margin-top: 28px;
-    }
-
     .field-label {
       margin: 0;
       font-size: 12px;
       font-weight: 600;
       color: var(--muted-light);
       letter-spacing: 0.04em;
-    }
-
-    .auth-demo-row {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      flex-wrap: wrap;
-      width: 100%;
-      text-align: left;
-      padding: 12px 14px;
-      border-radius: 12px;
-      border: 1px solid rgba(148, 163, 184, 0.14);
-      background: rgba(2, 6, 23, 0.35);
-      color: inherit;
-      cursor: pointer;
-      transition: border-color 0.15s ease, background 0.15s ease;
-    }
-
-    .auth-demo-row:hover {
-      border-color: rgba(99, 102, 241, 0.35);
-      background: rgba(99, 102, 241, 0.06);
-    }
-
-    .auth-demo-creds {
-      font-size: 12px;
-      color: var(--muted-light);
     }
 
     .auth-tabs {
@@ -465,31 +407,10 @@ export class AuthPageComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
 
-  readonly showDemoAccounts =
-    !!(environment as { showDemoAccounts?: boolean }).showDemoAccounts
-    || !(environment as { useApi?: boolean }).useApi;
-
   readonly modes: ReadonlyArray<{ id: AuthMode; label: string }> = [
     { id: 'login', label: 'Sign in' },
     { id: 'register', label: 'Sign up' },
     { id: 'forgot', label: 'Reset' }
-  ];
-
-  readonly demos: ReadonlyArray<DemoAccount> = [
-    {
-      id: 'admin',
-      label: 'Admin',
-      email: 'admin@cloudbase.dev',
-      password: 'Admin@2026',
-      pill: 'pill-violet'
-    },
-    {
-      id: 'developer',
-      label: 'Developer',
-      email: 'dev@cloudbase.dev',
-      password: 'Dev@2026',
-      pill: 'pill-emerald'
-    }
   ];
 
   readonly mode = signal<AuthMode>('login');
@@ -627,18 +548,6 @@ export class AuthPageComponent implements OnInit {
 
   toggleShowConfirmPassword(): void {
     this.showConfirmPassword.update((v) => !v);
-  }
-
-  fillDemo(account: DemoAccount): void {
-    this.applyMode('login', true);
-    this.form.patchValue({
-      email: account.email,
-      password: account.password,
-      confirmPassword: account.password
-    });
-    this.form.markAsPristine();
-    this.submitted.set(false);
-    this.feedback.set(null);
   }
 
   showError(controlName: FieldName): boolean {

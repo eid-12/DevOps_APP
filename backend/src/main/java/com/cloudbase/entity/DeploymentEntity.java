@@ -43,4 +43,8 @@ public class DeploymentEntity {
     /** Short failure reason for UI (also mirrored into logs). */
     @Column(columnDefinition = "TEXT")
     private String errorMessage;
+
+    /** Last pipeline stage: queued, building, deploying, verify, success, failed. */
+    @Column(length = 40)
+    private String stage;
 }

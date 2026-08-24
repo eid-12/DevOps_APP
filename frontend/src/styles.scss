@@ -3580,8 +3580,28 @@ code { font-family: 'Cascadia Code', 'Consolas', 'Courier New', monospace; font-
   font-size: 12px;
   line-height: 1.45;
   white-space: pre-wrap;
-  max-height: 140px;
+  max-height: 280px;
   overflow: auto;
+}
+
+.dep-stage {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+
+.deploy-step.failed {
+  color: #f87171;
+}
+
+.log-stream {
+  color: #a78bfa;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-right: 6px;
 }
 
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
@@ -4591,6 +4611,10 @@ code { font-family: 'Cascadia Code', 'Consolas', 'Courier New', monospace; font-
 
   &.active {
     color: #a8b2c0;
+  }
+
+  &.failed {
+    color: #f87171;
   }
 }
 

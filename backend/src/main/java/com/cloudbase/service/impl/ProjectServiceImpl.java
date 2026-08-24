@@ -311,17 +311,15 @@ public class ProjectServiceImpl implements ProjectService {
 
     private void cancelActiveDeploymentsQuietly(String serviceId) {
         Instant now = Instant.now();
-        for (DeploymentEntity dep : deploymentRepository.findByServiceIdOrderByStartedAtDesc(serviceId)) {
-            if (dep.getStatus() == DeploymentStatus.QUEUED
-                    || dep.getStatus() == DeploymentStatus.BUILDING
-                    || dep.getStatus() == DeploymentStatus.DEPLOYING) {
-                dep.setStatus(DeploymentStatus.CANCELLED);
-                dep.setFinishedAt(now);
-                dep.setLogs((dep.getLogs() == null ? "" : dep.getLogs() + "\n") + "Cancelled by delete");
-                deploymentRepository.save(dep);
-            } else {
-                break;
-            }
+        List<DeploymentEntity> active = deploymentRepository.findByServiceIdAndStatusInAndFinishedAtIsNull(
+                serviceId,
+                List.of(DeploymentStatus.QUEUED, DeploymentStatus.BUILDING, DeploymentStatus.DEPLOYING)
+        );
+        for (DeploymentEntity dep : active) {
+            dep.setStatus(DeploymentStatus.CANCELLED);
+            dep.setFinishedAt(now);
+            dep.setLogs((dep.getLogs() == null ? "" : dep.getLogs() + "\n") + "Cancelled by delete");
+            deploymentRepository.save(dep);
         }
     }
 
@@ -329,19 +327,17 @@ public class ProjectServiceImpl implements ProjectService {
     public ServiceEntity stopService(String serviceId, UserEntity user) {
         requireDeploymentEnabled(user);
         ServiceEntity service = getService(serviceId, user);
-        // Abort in-flight deploys so UI cannot stick on DEPLOYING forever
+        // Abort ALL in-flight deploys (including orphans under newer SUCCESS rows)
         Instant now = Instant.now();
-        for (DeploymentEntity dep : deploymentRepository.findByServiceIdOrderByStartedAtDesc(serviceId)) {
-            if (dep.getStatus() == DeploymentStatus.QUEUED
-                    || dep.getStatus() == DeploymentStatus.BUILDING
-                    || dep.getStatus() == DeploymentStatus.DEPLOYING) {
-                dep.setStatus(DeploymentStatus.CANCELLED);
-                dep.setFinishedAt(now);
-                dep.setLogs((dep.getLogs() == null ? "" : dep.getLogs() + "\n") + "Cancelled by stop");
-                deploymentRepository.save(dep);
-            } else {
-                break;
-            }
+        List<DeploymentEntity> active = deploymentRepository.findByServiceIdAndStatusInAndFinishedAtIsNull(
+                serviceId,
+                List.of(DeploymentStatus.QUEUED, DeploymentStatus.BUILDING, DeploymentStatus.DEPLOYING)
+        );
+        for (DeploymentEntity dep : active) {
+            dep.setStatus(DeploymentStatus.CANCELLED);
+            dep.setFinishedAt(now);
+            dep.setLogs((dep.getLogs() == null ? "" : dep.getLogs() + "\n") + "Cancelled by stop");
+            deploymentRepository.save(dep);
         }
         try {
             containerRuntime.stop(service);
@@ -377,6 +373,30 @@ public class ProjectServiceImpl implements ProjectService {
         planQuotaService.assertCanDeploy(user);
         ServiceEntity service = getService(serviceId, user);
         return orchestrator.startDeploy(service, user.getEmail(), request, null);
+    }
+
+    @Override
+    public ServiceEntity syncGitHubCi(String serviceId, UserEntity user) {
+        requireDeploymentEnabled(user);
+        ServiceEntity service = getService(serviceId, user);
+        if (service.getSourceType() != ServiceSourceType.GITHUB) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "CI sync is only for GitHub services");
+        }
+        // Ensure auto-deploy stays on when user asks to sync CI/webhook
+        Map<String, Object> details = service.getSourceDetails() != null
+                ? new HashMap<>(service.getSourceDetails())
+                : new HashMap<>();
+        if (!details.containsKey("autoDeploy")) {
+            details.put("autoDeploy", true);
+        }
+        service.setSourceDetails(details);
+        ServiceEntity saved = serviceRepository.save(service);
+        Map<String, Object> enriched = ciBootstrapService.bootstrapGitHubService(user, saved);
+        saved.setSourceDetails(enriched);
+        if (enriched.get("containerPort") instanceof Number n) {
+            saved.setContainerPort(n.intValue());
+        }
+        return serviceRepository.save(saved);
     }
 
     @Override
@@ -567,10 +587,12 @@ public class ProjectServiceImpl implements ProjectService {
     @Override
     public List<Map<String, Object>> getServiceLogs(String serviceId, UserEntity user, int tail) {
         ServiceEntity service = getService(serviceId, user);
+        List<Map<String, Object>> deploy = deploymentLogLines(serviceId, Math.max(40, Math.min(80, tail)));
+        List<Map<String, Object>> container = List.of();
         try {
-            List<Map<String, Object>> containerLogs = containerRuntime.fetchLogs(service, tail);
-            if (containerLogs != null && !containerLogs.isEmpty()) {
-                return containerLogs;
+            List<Map<String, Object>> fetched = containerRuntime.fetchLogs(service, tail);
+            if (fetched != null && !fetched.isEmpty()) {
+                container = fetched;
             }
         } catch (ResponseStatusException e) {
             if (e.getStatusCode() != HttpStatus.NOT_FOUND && e.getStatusCode() != HttpStatus.BAD_GATEWAY) {
@@ -579,9 +601,24 @@ public class ProjectServiceImpl implements ProjectService {
         } catch (Exception ignored) {
             // fall through to deployment log trail
         }
-        List<Map<String, Object>> fromDeploy = deploymentLogLines(serviceId, Math.max(20, tail));
-        if (!fromDeploy.isEmpty()) {
-            return fromDeploy;
+        if (!deploy.isEmpty() && !container.isEmpty()) {
+            List<Map<String, Object>> merged = new ArrayList<>(deploy.size() + container.size() + 1);
+            merged.addAll(deploy);
+            merged.add(Map.of(
+                    "id", "split-container",
+                    "timestamp", Instant.now().toString(),
+                    "level", "info",
+                    "stream", "system",
+                    "message", "── Container logs (Portainer) ──"
+            ));
+            merged.addAll(container);
+            return merged;
+        }
+        if (!container.isEmpty()) {
+            return container;
+        }
+        if (!deploy.isEmpty()) {
+            return deploy;
         }
         String hint = switch (service.getStatus()) {
             case BUILDING -> "Build in progress. Container logs appear after the image is ready and Redeploy finishes.";
@@ -959,12 +996,17 @@ public class ProjectServiceImpl implements ProjectService {
         dep.setStatus(DeploymentStatus.CANCELLED);
         dep.setFinishedAt(Instant.now());
         dep.setLogs((dep.getLogs() == null ? "" : dep.getLogs() + "\n") + "Cancelled by user");
+        if (dep.getErrorMessage() == null || dep.getErrorMessage().isBlank()) {
+            dep.setErrorMessage("Cancelled by user");
+        }
         DeploymentEntity saved = deploymentRepository.save(dep);
 
+        // Only clear service deploy-state when this was the current/latest attempt.
         serviceRepository.findById(serviceId).ifPresent(s -> {
-            if (s.getStatus() == ServiceStatus.DEPLOYING
+            boolean isLatest = deploymentId.equals(s.getLatestDeploymentId());
+            if (isLatest && (s.getStatus() == ServiceStatus.DEPLOYING
                     || s.getStatus() == ServiceStatus.BUILDING
-                    || s.getStatus() == ServiceStatus.PENDING) {
+                    || s.getStatus() == ServiceStatus.PENDING)) {
                 s.setStatus(ServiceStatus.STOPPED);
                 serviceRepository.save(s);
             }
