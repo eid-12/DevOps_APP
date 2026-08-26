@@ -22,6 +22,9 @@ public interface AdminService {
 
     UserAccount updateRole(UserEntity actor, String userId, UserRole role);
 
+    /** Admin override when mailbox verification cannot complete. */
+    UserAccount verifyUserEmail(UserEntity actor, String userId);
+
     InfrastructureOverview infrastructureOverview();
 
     /** Public landing metrics (no auth, no secrets). */

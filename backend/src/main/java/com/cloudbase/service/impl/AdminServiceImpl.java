@@ -222,6 +222,12 @@ public class AdminServiceImpl implements AdminService {
 
     @Override
     public MessageResponse sendPasswordReset(UserEntity actor, String userId) {
+        if (!emailService.isEnabled()) {
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "Email delivery is not configured. Add a Resend API key under Hosting, then try again."
+            );
+        }
         UserEntity user = requireUser(userId);
         String token = jwtService.generatePasswordResetToken(user.getId());
         String resetUrl = UriComponentsBuilder
@@ -251,6 +257,28 @@ public class AdminServiceImpl implements AdminService {
     }
 
     @Override
+    public UserAccount verifyUserEmail(UserEntity actor, String userId) {
+        UserEntity user = requireUser(userId);
+        if (user.isEmailVerified() && user.getAccountStatus() == AccountStatus.ACTIVE) {
+            return AuthServiceImpl.toModel(user);
+        }
+        user.setEmailVerified(true);
+        user.setEmailVerificationCode(null);
+        user.setEmailVerificationExpiresAt(null);
+        if (user.getAccountStatus() == AccountStatus.PENDING_ACTIVATION) {
+            user.setAccountStatus(AccountStatus.ACTIVE);
+        }
+        UserEntity saved = userRepository.save(user);
+        auditService.record(
+                actor,
+                AuditAction.ACCOUNT_ACTIVATED,
+                saved.getName(),
+                "Email marked verified by admin"
+        );
+        return AuthServiceImpl.toModel(saved);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public List<AuditLogEntry> listAuditLogs() {
         return auditService.listRecent().stream()
@@ -268,65 +296,47 @@ public class AdminServiceImpl implements AdminService {
 
     @Override
     public InfrastructureOverview infrastructureOverview() {
-        long runningServices = serviceRepository.findAll().stream()
-                .filter(s -> s.getStatus().name().equals("RUNNING"))
-                .count();
-
-        String portainerStatus = "disconnected";
-        int activeContainers = (int) runningServices;
-        String hostCpu = "-";
-        String hostRam = "-";
-        try {
-            portainerClient.getStatus().block();
-            portainerStatus = "connected";
-            Map<String, Object> endpoint = portainerClient.getEndpoint().block();
-            if (endpoint != null) {
-                Object snaps = endpoint.get("Snapshots");
-                if (snaps instanceof List<?> list && !list.isEmpty() && list.get(0) instanceof Map<?, ?> snap) {
-                    Object running = snap.get("RunningContainerCount");
-                    if (running instanceof Number n) {
-                        activeContainers = n.intValue();
-                    }
-                    Object cpu = snap.get("TotalCPU");
-                    if (cpu instanceof Number n) {
-                        hostCpu = n.intValue() + " CPUs";
-                    }
-                    Object mem = snap.get("TotalMemory");
-                    if (mem instanceof Number n) {
-                        double gb = n.doubleValue() / (1024d * 1024d * 1024d);
-                        hostRam = String.format(java.util.Locale.US, "%.1f GB", gb);
-                    }
-                }
-            }
-        } catch (Exception ignored) {
-        }
-
-        String npmStatus = "disabled";
-        try {
-            Map<String, Object> npm = npmClient.getStatus().block();
-            if (npm != null && npm.get("status") != null) {
-                npmStatus = String.valueOf(npm.get("status"));
-            }
-        } catch (Exception ignored) {
-            npmStatus = "error";
-        }
-
-        String tunnelStatus = "active".equalsIgnoreCase(npmStatus) || "connected".equals(portainerStatus)
-                ? "active"
-                : "unknown";
-
+        HostSnapshot snap = readHostSnapshot();
         return new InfrastructureOverview(
-                portainerStatus,
-                npmStatus,
-                tunnelStatus,
-                activeContainers,
-                hostCpu,
-                hostRam
+                snap.portainerStatus,
+                snap.npmStatus,
+                snap.tunnelStatus,
+                snap.activeContainers,
+                snap.totalContainers,
+                snap.stacks,
+                snap.images,
+                snap.volumes,
+                snap.healthyContainers,
+                snap.unhealthyContainers,
+                snap.endpointId,
+                snap.endpointName,
+                snap.hostCpu,
+                snap.hostRam,
+                snap.dockerVersion,
+                snap.error
         );
     }
 
     @Override
     public PlatformStatusResponse platformStatus() {
+        HostSnapshot snap = readHostSnapshot();
+        return new PlatformStatusResponse(
+                snap.online,
+                snap.portainerStatus,
+                snap.npmStatus,
+                snap.tunnelStatus,
+                snap.activeContainers,
+                snap.totalContainers,
+                snap.stacks,
+                snap.images,
+                snap.volumes,
+                snap.hostCpu,
+                snap.hostRam,
+                snap.dockerVersion
+        );
+    }
+
+    private HostSnapshot readHostSnapshot() {
         boolean online = false;
         String portainerStatus = "disconnected";
         int activeContainers = 0;
@@ -334,9 +344,14 @@ public class AdminServiceImpl implements AdminService {
         int stacks = 0;
         int images = 0;
         int volumes = 0;
+        int healthyContainers = 0;
+        int unhealthyContainers = 0;
+        Integer endpointId = null;
+        String endpointName = "Mini PC";
         String hostCpu = "—";
         String hostRam = "—";
         String dockerVersion = "—";
+        String error = null;
 
         try {
             portainerClient.getStatus().block();
@@ -344,6 +359,14 @@ public class AdminServiceImpl implements AdminService {
             online = true;
             Map<String, Object> endpoint = portainerClient.getEndpoint().block();
             if (endpoint != null) {
+                Object id = endpoint.get("Id");
+                if (id instanceof Number n) {
+                    endpointId = n.intValue();
+                }
+                Object name = endpoint.get("Name");
+                if (name != null && !String.valueOf(name).isBlank()) {
+                    endpointName = String.valueOf(name);
+                }
                 Object snaps = endpoint.get("Snapshots");
                 if (snaps instanceof List<?> list && !list.isEmpty() && list.get(0) instanceof Map<?, ?> snap) {
                     activeContainers = numberOrZero(snap.get("RunningContainerCount"));
@@ -351,6 +374,11 @@ public class AdminServiceImpl implements AdminService {
                     stacks = numberOrZero(snap.get("StackCount"));
                     images = numberOrZero(snap.get("ImageCount"));
                     volumes = numberOrZero(snap.get("VolumeCount"));
+                    healthyContainers = numberOrZero(snap.get("HealthyContainerCount"));
+                    unhealthyContainers = numberOrZero(snap.get("UnhealthyContainerCount"));
+                    if (healthyContainers == 0 && activeContainers > 0) {
+                        healthyContainers = activeContainers;
+                    }
                     Object cpu = snap.get("TotalCPU");
                     if (cpu instanceof Number n) {
                         hostCpu = String.valueOf(n.intValue());
@@ -366,9 +394,12 @@ public class AdminServiceImpl implements AdminService {
                     }
                 }
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
             portainerStatus = "disconnected";
             online = false;
+            error = e.getMessage() == null || e.getMessage().isBlank()
+                    ? "Portainer is offline"
+                    : e.getMessage();
         }
 
         String npmStatus = "disabled";
@@ -385,7 +416,7 @@ public class AdminServiceImpl implements AdminService {
                 ? "active"
                 : "unknown";
 
-        return new PlatformStatusResponse(
+        return new HostSnapshot(
                 online,
                 portainerStatus,
                 npmStatus,
@@ -395,10 +426,36 @@ public class AdminServiceImpl implements AdminService {
                 stacks,
                 images,
                 volumes,
+                healthyContainers,
+                unhealthyContainers,
+                endpointId,
+                endpointName,
                 hostCpu,
                 hostRam,
-                dockerVersion
+                dockerVersion,
+                error
         );
+    }
+
+    private record HostSnapshot(
+            boolean online,
+            String portainerStatus,
+            String npmStatus,
+            String tunnelStatus,
+            int activeContainers,
+            int totalContainers,
+            int stacks,
+            int images,
+            int volumes,
+            int healthyContainers,
+            int unhealthyContainers,
+            Integer endpointId,
+            String endpointName,
+            String hostCpu,
+            String hostRam,
+            String dockerVersion,
+            String error
+    ) {
     }
 
     private static int numberOrZero(Object value) {

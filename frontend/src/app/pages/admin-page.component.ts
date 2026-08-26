@@ -4,7 +4,7 @@ import { FormsModule, NgForm } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { AdminService } from '../core/admin.service';
 import { AuthService } from '../core/auth.service';
-import { PortainerService, PortainerHostMetrics } from '../core/portainer.service';
+import { PortainerHostMetrics } from '../core/portainer.service';
 import { UserAccount, AuditLogEntry, HostingSettings, HostingSettingsUpdate } from '../core/models';
 import { IconComponent } from '../shared/icon.component';
 import { StyledSelectComponent, StyledSelectOption } from '../shared/styled-select.component';
@@ -265,10 +265,15 @@ const STRONG_PASSWORD = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#._-]).{8,
                             class="btn btn-sm btn-ghost"
                             (click)="activateAccount(user)"
                             [disabled]="user.accountStatus === 'ACTIVE' || !user.emailVerified"
-                            [title]="!user.emailVerified ? 'User must verify email first' : 'Mark account active'"
+                            [title]="!user.emailVerified ? 'Verify email first' : 'Mark account active'"
                           >
                             Activate
                           </button>
+                          @if (!user.emailVerified) {
+                            <button class="btn btn-sm btn-ghost" (click)="verifyEmail(user)" title="Mark this inbox as verified">
+                              Verify email
+                            </button>
+                          }
                           <button class="btn btn-sm btn-danger-soft" (click)="suspendAccount(user)" [disabled]="user.accountStatus === 'SUSPENDED'">
                             Suspend
                           </button>
@@ -465,7 +470,6 @@ const STRONG_PASSWORD = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#._-]).{8,
 export class AdminPageComponent implements OnInit {
   private readonly adminService = inject(AdminService);
   private readonly auth = inject(AuthService);
-  private readonly portainerService = inject(PortainerService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
@@ -821,11 +825,48 @@ export class AdminPageComponent implements OnInit {
   loadPortainerMetrics() {
     this.metricsLoading.set(true);
     this.portainerError.set('');
-    this.portainerService.getHostMetrics().subscribe(metrics => {
-      this.metricsLoading.set(false);
-      this.portainer.set(metrics);
-      this.portainerOk.set(metrics.connected && !metrics.error);
-      if (metrics.error) this.portainerError.set(metrics.error);
+    this.adminService.infrastructure().subscribe({
+      next: ov => {
+        this.metricsLoading.set(false);
+        const connected = (ov.portainerStatus || '').toLowerCase() === 'connected';
+        const running = ov.runningContainers ?? ov.activeContainers ?? 0;
+        const total = ov.totalContainers ?? running;
+        const metrics: PortainerHostMetrics = {
+          connected,
+          endpointId: ov.endpointId ?? 0,
+          endpointName: ov.endpointName || 'Mini PC',
+          runningContainers: running,
+          totalContainers: total,
+          healthyContainers: ov.healthyContainers ?? running,
+          unhealthyContainers: ov.unhealthyContainers ?? 0,
+          stacks: ov.stacks ?? 0,
+          images: ov.images ?? 0,
+          volumes: ov.volumes ?? 0,
+          totalCpu: this.parseCpu(ov.hostCpuUsage),
+          totalMemoryGb: this.parseRam(ov.hostRamUsage),
+          dockerVersion: ov.dockerVersion || '—',
+          error: connected ? undefined : (ov.error || 'Portainer is offline')
+        };
+        this.portainer.set(metrics);
+        this.portainerOk.set(connected);
+        this.portainerError.set(connected ? '' : (metrics.error || 'Portainer is offline'));
+      },
+      error: e => {
+        this.metricsLoading.set(false);
+        this.portainerOk.set(false);
+        this.portainer.set(null);
+        this.portainerError.set(e?.error?.message ?? 'Failed to load infrastructure.');
+      }
+    });
+  }
+
+  verifyEmail(user: UserAccount) {
+    this.adminService.verifyEmail(user.id).subscribe({
+      next: () => {
+        this.setGovernanceMessage(`${user.name} email marked verified.`);
+        this.loadAll();
+      },
+      error: e => this.setGovernanceMessage(e?.error?.message ?? 'Failed.', 'error')
     });
   }
 
@@ -990,5 +1031,17 @@ export class AdminPageComponent implements OnInit {
   private setGovernanceMessage(message: string, kind: 'success' | 'error' = 'success') {
     this.governanceMessageKind.set(kind);
     this.governanceMessage.set(message);
+  }
+
+  private parseCpu(raw: string | undefined): number {
+    if (!raw) return 0;
+    const n = parseFloat(raw.replace(/[^\d.]/g, ''));
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  private parseRam(raw: string | undefined): number {
+    if (!raw) return 0;
+    const n = parseFloat(raw.replace(/[^\d.]/g, ''));
+    return Number.isFinite(n) ? n : 0;
   }
 }

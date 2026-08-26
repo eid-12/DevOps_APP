@@ -169,7 +169,7 @@ export class LandingPageComponent implements OnInit, OnDestroy {
   readonly features: Array<{ icon: IconName; tone: IconTone; title: string; desc: string; tags: string[] }> = [
     { icon: 'pipeline', tone: 'amber', title: 'Automated Pipelines', desc: 'GitHub Actions builds on every push. CloudBase injects Dockerfiles, workflows, and secrets — then Watchtower keeps containers current.', tags: ['Webhooks', 'CI/CD', 'Docker Hub'] },
     { icon: 'lock-shield', tone: 'emerald', title: 'Absolute Isolation', desc: 'Each project runs in a sandboxed container with a dynamically provisioned MySQL or PostgreSQL database. No cross-contamination.', tags: ['WSL2', 'Portainer', 'Per-Project DB'] },
-    { icon: 'terminal-live', tone: 'sky', title: 'Real-time Streaming', desc: 'WebSocket-powered live console logs and active container shell access via xterm.js — monitor builds as they happen.', tags: ['WebSockets', 'xterm.js', 'Live Stats'] }
+    { icon: 'terminal-live', tone: 'sky', title: 'Live deploy trail', desc: 'Watch Queued → Building → Deploying → Verify on the service page, then open container logs and an HTTP shell when the stack is running.', tags: ['Deploy stages', 'Logs', 'Exec'] }
   ];
 
   readonly stack = [

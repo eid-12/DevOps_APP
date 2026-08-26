@@ -61,6 +61,14 @@ public class AdminController {
         return adminService.updateRole(admin, userId, request.role());
     }
 
+    @PostMapping("/users/{userId}/verify-email")
+    public UserAccount verifyUserEmail(
+            @AuthenticationPrincipal UserEntity admin,
+            @PathVariable String userId
+    ) {
+        return adminService.verifyUserEmail(admin, userId);
+    }
+
     @GetMapping("/infrastructure")
     public InfrastructureOverview infrastructure(@AuthenticationPrincipal UserEntity admin) {
         return adminService.infrastructureOverview();

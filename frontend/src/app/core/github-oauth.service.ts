@@ -2,6 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../environments/environment';
+import { AppConfigService } from './app-config.service';
 
 const STATE_KEY = 'cloudbase.github.oauth.state';
 const PENDING_KEY = 'cloudbase.github.oauth.pending';
@@ -31,6 +32,7 @@ export interface GitHubProfileFromApi {
 @Injectable({ providedIn: 'root' })
 export class GitHubOAuthService {
   private readonly http = inject(HttpClient);
+  private readonly appConfig = inject(AppConfigService);
   private readonly apiBase = environment.apiBaseUrl || '/api';
   private readonly pendingState = signal<GitHubOAuthPending | null>(this.readPending());
 
@@ -38,22 +40,19 @@ export class GitHubOAuthService {
   readonly hasPendingCode = computed(() => !!this.pendingState()?.code);
 
   get clientId(): string {
-    return (environment as { githubClientId?: string }).githubClientId?.trim() ?? '';
+    return this.appConfig.githubClientId();
   }
 
   get redirectUri(): string {
-    return (
-      (environment as { githubRedirectUri?: string }).githubRedirectUri?.trim() ||
-      `${window.location.origin}/auth/github/callback`
-    );
+    return this.appConfig.githubRedirectUri();
   }
 
   get scopes(): string {
-    return (environment as { githubScopes?: string }).githubScopes?.trim() || 'read:user repo user:email workflow';
+    return this.appConfig.githubScopes();
   }
 
   isConfigured(): boolean {
-    return this.clientId.length > 0;
+    return this.appConfig.githubConfigured();
   }
 
   /** GitHub sign-out page (user must confirm). */
@@ -75,7 +74,7 @@ export class GitHubOAuthService {
    */
   startLogin(_opts?: { forceAccountPick?: boolean }): void {
     if (!this.isConfigured()) {
-      throw new Error('Set environment.githubClientId to your GitHub OAuth App Client ID.');
+      throw new Error('GitHub OAuth is not configured. An admin must set the Client ID under Hosting.');
     }
 
     const state = this.createState();

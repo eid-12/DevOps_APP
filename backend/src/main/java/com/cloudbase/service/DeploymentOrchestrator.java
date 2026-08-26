@@ -1,6 +1,7 @@
 package com.cloudbase.service;
 
 import com.cloudbase.dto.ProjectDtos.DeployServiceRequest;
+import com.cloudbase.email.EmailService;
 import com.cloudbase.entity.DeploymentEntity;
 import com.cloudbase.entity.ServiceEntity;
 import com.cloudbase.entity.UserEntity;
@@ -12,6 +13,7 @@ import com.cloudbase.portainer.ComposeGenerator;
 import com.cloudbase.portainer.PortainerClient;
 import com.cloudbase.repository.DeploymentRepository;
 import com.cloudbase.repository.ServiceRepository;
+import com.cloudbase.repository.UserRepository;
 import com.cloudbase.service.NotificationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,6 +55,8 @@ public class DeploymentOrchestrator {
     private final WebClient publicHttp;
     private final VanitySubdomainService vanitySubdomainService;
     private final TransactionTemplate transactionTemplate;
+    private final UserRepository userRepository;
+    private final EmailService emailService;
 
     public DeploymentOrchestrator(
             ServiceRepository serviceRepository,
@@ -65,7 +69,9 @@ public class DeploymentOrchestrator {
             PlatformSettingsService platformSettings,
             WebClient.Builder webClientBuilder,
             @org.springframework.context.annotation.Lazy VanitySubdomainService vanitySubdomainService,
-            TransactionTemplate transactionTemplate
+            TransactionTemplate transactionTemplate,
+            UserRepository userRepository,
+            EmailService emailService
     ) {
         this.serviceRepository = serviceRepository;
         this.deploymentRepository = deploymentRepository;
@@ -78,6 +84,8 @@ public class DeploymentOrchestrator {
         this.publicHttp = webClientBuilder.build();
         this.vanitySubdomainService = vanitySubdomainService;
         this.transactionTemplate = transactionTemplate;
+        this.userRepository = userRepository;
+        this.emailService = emailService;
     }
 
     private String baseDomain() {
@@ -915,6 +923,7 @@ public class DeploymentOrchestrator {
                         service.getName() + " is running.",
                         href
                 );
+                emailDeployOutcome(service, true, service.getName() + " is running.", href);
             });
 
             deploymentRepository.findById(deploymentId).ifPresent(deployment -> {
@@ -955,6 +964,7 @@ public class DeploymentOrchestrator {
                         service.getName() + ": " + msg,
                         href
                 );
+                emailDeployOutcome(service, false, msg, href);
             });
             deploymentRepository.findById(deploymentId).ifPresent(deployment -> {
                 if (deployment.getStatus() == DeploymentStatus.CANCELLED) {
@@ -973,6 +983,33 @@ public class DeploymentOrchestrator {
             log.error("Deploy failed service={} deployment={}: {}", serviceId, deploymentId,
                     error != null ? error.getMessage() : "unknown");
         });
+    }
+
+    private void emailDeployOutcome(ServiceEntity service, boolean success, String detail, String href) {
+        try {
+            String ownerId = service.getProject() == null ? null : service.getProject().getOwnerId();
+            if (ownerId == null || ownerId.isBlank()) {
+                return;
+            }
+            userRepository.findById(ownerId).ifPresent(owner -> {
+                if (success && !owner.isNotifyEmailDeployments()) {
+                    return;
+                }
+                if (!success && !owner.isNotifyEmailFailures()) {
+                    return;
+                }
+                emailService.sendDeployResult(
+                        owner.getEmail(),
+                        owner.getName(),
+                        service.getName(),
+                        success,
+                        detail,
+                        href
+                );
+            });
+        } catch (Exception e) {
+            log.warn("Deploy email skipped for {}: {}", service.getId(), e.getMessage());
+        }
     }
 
     private void ensureDbSecrets(ServiceEntity service, Map<String, String> extras) {

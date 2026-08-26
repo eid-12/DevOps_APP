@@ -22,8 +22,18 @@ public final class AdminDtos {
             String nginxProxyManagerStatus,
             String cloudflareTunnelStatus,
             int activeContainers,
+            int totalContainers,
+            int stacks,
+            int images,
+            int volumes,
+            int healthyContainers,
+            int unhealthyContainers,
+            Integer endpointId,
+            String endpointName,
             String hostCpuUsage,
-            String hostRamUsage
+            String hostRamUsage,
+            String dockerVersion,
+            String error
     ) {
     }
 

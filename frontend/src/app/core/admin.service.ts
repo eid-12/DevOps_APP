@@ -87,6 +87,19 @@ export class AdminService {
     }
   }
 
+  verifyEmail(userId: string): Observable<UserAccount> {
+    const denied = this.requireAdmin();
+    if (denied) return denied;
+    if (this.useApi) {
+      return this.http.post<UserAccount>(`${this.apiBase}/admin/users/${userId}/verify-email`, {});
+    }
+    try {
+      return of(this.store.setAccountStatus(userId, 'ACTIVE', this.actor())).pipe(delay(200));
+    } catch {
+      return throwError(() => ({ error: { message: 'User not found' } })).pipe(delay(150));
+    }
+  }
+
   infrastructure(): Observable<InfrastructureOverview> {
     const denied = this.requireAdmin();
     if (denied) return denied;

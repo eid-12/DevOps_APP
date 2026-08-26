@@ -19,6 +19,7 @@ import {
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { finalize } from 'rxjs/operators';
 import { AuthService } from '../core/auth.service';
+import { AppConfigService } from '../core/app-config.service';
 import { isSafeReturnUrl } from '../core/auth.guard';
 type AuthMode = 'login' | 'register' | 'forgot' | 'reset' | 'verify';
 type FieldName = 'name' | 'email' | 'password' | 'confirmPassword' | 'code';
@@ -403,6 +404,7 @@ function passwordMatchValidator(passwordKey: string, confirmKey: string): Valida
 export class AuthPageComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly auth = inject(AuthService);
+  private readonly appConfig = inject(AppConfigService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
@@ -446,11 +448,14 @@ export class AuthPageComponent implements OnInit {
   );
 
   readonly copy = computed(() => {
+    const emailOn = this.appConfig.emailEnabled();
     switch (this.mode()) {
       case 'register':
         return {
           title: 'Create your account',
-          subtitle: 'We’ll email a 6-digit code to verify your address.'
+          subtitle: emailOn
+            ? 'We’ll email a 6-digit code to verify your address.'
+            : 'Create an account, then wait for an admin to enable Deploy.'
         };
       case 'verify':
         return {
@@ -460,7 +465,9 @@ export class AuthPageComponent implements OnInit {
       case 'forgot':
         return {
           title: 'Reset your password',
-          subtitle: 'We’ll email a secure reset link if the account exists.'
+          subtitle: emailOn
+            ? 'We’ll email a secure reset link if the account exists.'
+            : 'Email delivery is off. Ask an administrator to reset your password.'
         };
       case 'reset':
         return {

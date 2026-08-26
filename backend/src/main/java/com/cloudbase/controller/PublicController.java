@@ -1,6 +1,9 @@
 package com.cloudbase.controller;
 
+import com.cloudbase.dto.PublicDtos.AppConfigResponse;
 import com.cloudbase.dto.PublicDtos.PlatformStatusResponse;
+import com.cloudbase.email.EmailService;
+import com.cloudbase.github.GitHubOAuthClient;
 import com.cloudbase.service.AdminService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
@@ -13,8 +16,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Unauthenticated endpoints for the marketing landing page (live Mini PC metrics).
- * Cached and rate-limited so anonymous callers cannot hammer Portainer/NPM.
+ * Unauthenticated endpoints for the marketing landing page (live Mini PC metrics)
+ * and SPA bootstrap (GitHub OAuth client id, email availability).
  */
 @RestController
 @RequestMapping("/api/public")
@@ -25,11 +28,34 @@ public class PublicController {
     private static final long RATE_WINDOW_MS = 60_000L;
 
     private final AdminService adminService;
+    private final GitHubOAuthClient gitHubOAuthClient;
+    private final EmailService emailService;
     private final AtomicReference<CachedStatus> cache = new AtomicReference<>();
     private final ConcurrentHashMap<String, RateWindow> windows = new ConcurrentHashMap<>();
 
-    public PublicController(AdminService adminService) {
+    public PublicController(
+            AdminService adminService,
+            GitHubOAuthClient gitHubOAuthClient,
+            EmailService emailService
+    ) {
         this.adminService = adminService;
+        this.gitHubOAuthClient = gitHubOAuthClient;
+        this.emailService = emailService;
+    }
+
+    @GetMapping("/app-config")
+    public AppConfigResponse appConfig() {
+        String clientId = gitHubOAuthClient.publicClientId();
+        if (clientId == null) {
+            clientId = "";
+        }
+        return new AppConfigResponse(
+                clientId,
+                gitHubOAuthClient.publicRedirectUri(),
+                gitHubOAuthClient.publicScopes(),
+                gitHubOAuthClient.isConfigured() && !clientId.isBlank(),
+                emailService.isEnabled()
+        );
     }
 
     @GetMapping("/platform-status")

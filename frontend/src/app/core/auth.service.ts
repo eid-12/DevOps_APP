@@ -209,6 +209,11 @@ export class AuthService {
     if (this.useApi) {
       return this.http.post<AuthResponse>(`${this.apiBase}/auth/register`, payload).pipe(
         map(res => this.normalizeAuthResponse(res)),
+        tap(result => {
+          if (result.token) {
+            this.persistSession(result);
+          }
+        }),
         catchError(err => throwError(() => err))
       );
     }

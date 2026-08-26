@@ -14,6 +14,9 @@ public interface EmailService {
 
     void sendPasswordReset(String toEmail, String name, String resetUrl);
 
+    /** Optional deploy outcome mail (honours user notification prefs in the caller). */
+    void sendDeployResult(String toEmail, String name, String serviceName, boolean success, String detail, String relativePath);
+
     /** 6-digit code to prove the user owns the inbox. */
     void sendEmailVerificationCode(String toEmail, String name, String code);
 

@@ -65,8 +65,8 @@ DevOps_APP/
 
 There are **no default logins**. Seed admin/developer accounts are removed on migrate (`V18`).
 
-1. Register at `/auth` and verify email.
-2. Promote the first administrator in Postgres:
+1. Register at `/auth`. If email (Resend) is on, verify the 6-digit code. If email is off, the account is ready immediately.
+2. Promote the first administrator in Postgres (or set `CLOUDBASE_BOOTSTRAP_ADMIN_EMAIL` / `CLOUDBASE_BOOTSTRAP_ADMIN_PASSWORD` on first boot):
 
 ```sql
 UPDATE users

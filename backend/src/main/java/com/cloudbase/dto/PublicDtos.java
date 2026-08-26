@@ -5,6 +5,16 @@ public final class PublicDtos {
     private PublicDtos() {
     }
 
+    /** Public SPA bootstrap (no secrets). GitHub client ID is designed to be public. */
+    public record AppConfigResponse(
+            String githubClientId,
+            String githubRedirectUri,
+            String githubScopes,
+            boolean githubConfigured,
+            boolean emailEnabled
+    ) {
+    }
+
     /** Safe host metrics for the public landing page (no secrets). */
     public record PlatformStatusResponse(
             boolean online,

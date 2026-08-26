@@ -68,6 +68,19 @@ public class GitHubOAuthClient {
         return StringUtils.hasText(clientId()) && StringUtils.hasText(clientSecret());
     }
 
+    /** Public OAuth App client ID (safe to expose to the SPA). */
+    public String publicClientId() {
+        return clientId();
+    }
+
+    public String publicRedirectUri() {
+        return redirectUri();
+    }
+
+    public String publicScopes() {
+        return scopes();
+    }
+
     public String redirectUri() {
         if (settings.hasOverride(PlatformSettingsService.GITHUB_REDIRECT_URI)) {
             String v = settings.get(PlatformSettingsService.GITHUB_REDIRECT_URI);

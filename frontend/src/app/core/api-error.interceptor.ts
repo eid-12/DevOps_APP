@@ -18,7 +18,9 @@ const SILENT_URL_PARTS = [
   '/check-domain',
   '/check-vanity',
   '/exec',
-  '/terminal'
+  '/terminal',
+  '/public/app-config',
+  '/public/platform-status'
 ];
 
 function shouldSilence(url: string): boolean {

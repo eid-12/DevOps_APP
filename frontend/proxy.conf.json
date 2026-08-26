@@ -5,6 +5,13 @@
     "changeOrigin": true,
     "logLevel": "info"
   },
+  "/ws": {
+    "target": "http://localhost:8080",
+    "secure": false,
+    "changeOrigin": true,
+    "ws": true,
+    "logLevel": "info"
+  },
   "/portainer-api": {
     "target": "https://manage.cloudbase.website",
     "secure": false,

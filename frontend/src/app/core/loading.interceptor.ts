@@ -20,7 +20,9 @@ const SKIP_SPINNER_PARTS = [
   '/check-vanity',
   '/deployments',
   '/usage',
-  '/actuator'
+  '/actuator',
+  '/public/app-config',
+  '/public/platform-status'
 ];
 
 function shouldSkipSpinner(url: string, headers: { has(name: string): boolean }): boolean {

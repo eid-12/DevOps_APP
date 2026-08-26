@@ -129,6 +129,23 @@ public class AuthServiceImpl implements AuthService {
                 .emailVerificationExpiresAt(Instant.now().plus(CODE_TTL_MINUTES, ChronoUnit.MINUTES))
                 .build();
 
+        if (!emailService.isEnabled()) {
+            user.setEmailVerified(true);
+            user.setAccountStatus(AccountStatus.ACTIVE);
+            user.setEmailVerificationCode(null);
+            user.setEmailVerificationExpiresAt(null);
+            userRepository.save(user);
+            String token = jwtService.generateToken(user.getId(), user.getRole().name());
+            var exp = jwtService.getExpiration(token);
+            return new AuthResponse(
+                    token,
+                    toModel(user),
+                    "Account created. An admin must enable Deploy before you ship apps.",
+                    exp.toInstant().toString(),
+                    jwtService.getExpiresInSeconds()
+            );
+        }
+
         userRepository.save(user);
         emailService.sendEmailVerificationCode(user.getEmail(), user.getName(), code);
         emailRateLimiter.recordSend(EmailRateLimiter.Action.VERIFICATION, user.getEmail());
@@ -187,6 +204,12 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public MessageResponse resendVerificationCode(String email) {
+        if (!emailService.isEnabled()) {
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "Email delivery is not configured. Ask an administrator to verify your account."
+            );
+        }
         emailRateLimiter.checkCanSend(EmailRateLimiter.Action.VERIFICATION, email);
 
         UserEntity user = userRepository.findByEmail(email)
@@ -208,6 +231,12 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public MessageResponse forgotPassword(String email) {
+        if (!emailService.isEnabled()) {
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "Email delivery is not configured. Ask an administrator to reset your password."
+            );
+        }
         String generic = "If an account exists for that email, a reset link has been sent.";
         // Always rate-limit by submitted address (even if no account) to stop spam.
         emailRateLimiter.checkCanSend(EmailRateLimiter.Action.PASSWORD_RESET, email);

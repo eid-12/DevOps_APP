@@ -122,6 +122,46 @@ public class ResendEmailService implements EmailService {
     }
 
     @Override
+    public void sendDeployResult(
+            String toEmail,
+            String name,
+            String serviceName,
+            boolean success,
+            String detail,
+            String relativePath
+    ) {
+        String path = relativePath == null || relativePath.isBlank() ? "/dashboard" : relativePath;
+        if (!path.startsWith("/")) {
+            path = "/" + path;
+        }
+        String href = properties.appBaseUrl() + path;
+        String status = success ? "succeeded" : "failed";
+        String safeDetail = detail == null || detail.isBlank() ? "" : escape(detail);
+        String detailHtml = safeDetail.isEmpty()
+                ? ""
+                : "<p style=\"margin:0 0 16px;font-size:14px;color:#64748b;line-height:1.6\">" + safeDetail + "</p>";
+        String body = """
+                <p style="margin:0 0 12px;font-size:16px;color:#0f172a">Hi %s,</p>
+                <p style="margin:0 0 16px;font-size:15px;color:#334155;line-height:1.6">
+                  Deploy of <strong>%s</strong> %s.
+                </p>
+                %s
+                %s
+                """.formatted(
+                escape(name),
+                escape(serviceName),
+                status,
+                detailHtml,
+                cta(href, "Open service")
+        );
+        send(
+                toEmail,
+                "CloudBase - deploy " + status + ": " + serviceName,
+                wrap("Deploy", success ? "Deploy succeeded" : "Deploy failed", body)
+        );
+    }
+
+    @Override
     public void sendEmailVerificationCode(String toEmail, String name, String code) {
         if (!isEnabled()) {
             log.info("Email verification code for {} ({}): {}", toEmail, name, code);

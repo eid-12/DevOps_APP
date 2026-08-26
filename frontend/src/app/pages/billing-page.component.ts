@@ -46,7 +46,7 @@ import { PlanInfo, UsageSummary } from '../core/models';
           </ul>
 
           <div class="pill pill-amber" style="margin-top:16px;display:block">
-            Pro is coming later. Every account uses Free for now.
+            Every account uses the Free plan on this host. There is no paid upgrade.
           </div>
         }
       </section>

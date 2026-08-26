@@ -159,7 +159,7 @@ const STRONG_PASSWORD_PATTERN = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#.
             </p>
           } @else {
             <div class="pill pill-amber railway-alert" style="margin-bottom:12px">
-              Set <code>environment.githubClientId</code> to enable OAuth.
+              GitHub OAuth is not configured. An admin must set the Client ID under Hosting.
             </div>
           }
         }
@@ -336,9 +336,12 @@ const STRONG_PASSWORD_PATTERN = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#.
       <!-- Notifications -->
       <section class="panel svc-panel">
         <h3>Notifications</h3>
+        <p class="muted" style="font-size:13px;margin:0 0 12px;line-height:1.45">
+          In-app alerts always work. Email alerts send when Resend is enabled on this host.
+        </p>
         <label class="toggle-field"><input type="checkbox" [(ngModel)]="notif.emailDeployments" /><span>Email on successful deploys</span></label>
         <label class="toggle-field"><input type="checkbox" [(ngModel)]="notif.emailFailures" /><span>Email on failed deploys</span></label>
-        <label class="toggle-field"><input type="checkbox" [(ngModel)]="notif.emailWeeklyUsage" /><span>Weekly usage summary</span></label>
+        <label class="toggle-field"><input type="checkbox" [(ngModel)]="notif.emailWeeklyUsage" /><span>Weekly usage summary (saved for later)</span></label>
         <div class="modal-actions" style="margin-top:14px">
           <button type="button" class="btn btn-primary" (click)="saveNotif()" [disabled]="savingNotif()">
             {{ savingNotif() ? 'Saving…' : 'Save Preferences' }}
@@ -413,7 +416,7 @@ const STRONG_PASSWORD_PATTERN = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#.
       } @else {
       <section class="panel svc-panel account-span-2">
         <div class="svc-panel-head"><h3>API Tokens</h3></div>
-        <p class="muted" style="font-size:13px">Personal API tokens for CLI/CI are coming soon. Use the dashboard and GitHub Actions for deploys today.</p>
+        <p class="muted" style="font-size:13px">Deploy from the dashboard or GitHub Actions. Personal CLI tokens are not part of this release.</p>
       </section>
       }
     </div>
