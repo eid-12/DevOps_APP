@@ -27,3 +27,6 @@ backend/*.log
 *.pem
 backend/src/main/resources/application-local.properties
 frontend/src/environments/environment.ts
+
+# Scratch files
+test.txt
