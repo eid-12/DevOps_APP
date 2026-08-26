@@ -2,6 +2,8 @@
 
 Private PaaS for a Mini PC (Windows + WSL2 + Docker). Developers ship GitHub repos, Docker images, and databases as containers through **Portainer**, with public HTTPS URLs via **Nginx Proxy Manager**.
 
+**Live:** [www.cloudbase.website](https://www.cloudbase.website) · API: [api.cloudbase.website](https://api.cloudbase.website)
+
 Architecture: [`docs/architecture.md`](docs/architecture.md).
 
 ---
@@ -83,37 +85,20 @@ WHERE email = 'you@your-domain';
 
 These names are reserved so tenants cannot claim them as vanity URLs.
 
-### Already in use on this host
+### Live production
 
 | Hostname | Service |
 |----------|---------|
+| [`www.cloudbase.website`](https://www.cloudbase.website) | CloudBase UI |
+| [`api.cloudbase.website`](https://api.cloudbase.website) | Public API + GitHub webhooks (`CLOUDBASE_PUBLIC_API_URL`) |
 | `manage.cloudbase.website` | Portainer |
 | `npm.cloudbase.website` | Nginx Proxy Manager |
 | `mawrid.cloudbase.website` | Transactional email |
 
-### Pick one for the CloudBase UI
-
-| Hostname | Recommendation |
-|----------|----------------|
-| `app.cloudbase.website` | **Best default** — short, SaaS-style (`app.vercel.com` pattern) |
-| `console.cloudbase.website` | Clear “control plane” name |
-| `cloud.cloudbase.website` | Brand-forward |
-| `panel.cloudbase.website` | Familiar for hosting panels |
-| `portal.cloudbase.website` | Formal / enterprise tone |
-| `www.cloudbase.website` | Marketing landing; redirect to the UI host |
-
-### Always create these next to the UI
-
-| Hostname | Use |
-|----------|-----|
-| `api.cloudbase.website` | Public API + GitHub webhooks (`CLOUDBASE_PUBLIC_API_URL`) |
-| `www.cloudbase.website` | Redirect to the UI host |
-
-Optional: `status.cloudbase.website` for a public status page.
+GitHub OAuth callback: `https://www.cloudbase.website/auth/github/callback`  
+Webhook URL: `https://api.cloudbase.website/api/webhooks/github`
 
 Tenant apps stay on random hosts (`cloudbase8472.cloudbase.website`) or one claimed vanity (`myapp.cloudbase.website`).
-
-Point `app` (or your chosen UI host) at the frontend. Point `api` at the backend, **or** serve both from one NPM host and proxy `/api` to the API. Set GitHub OAuth callback to `{UI_ORIGIN}/auth/github/callback` and the webhook URL to `{API_ORIGIN}/api/webhooks/github`.
 
 ---
 
@@ -151,20 +136,23 @@ npm start
 
 ## Production checklist
 
-Set real secrets. Do not keep the development defaults.
+Copy `.env.example` to `.env` and fill real secrets. Docker Compose **will not start** without `DB_PASS`, `JWT_SECRET`, and `GITHUB_WEBHOOK_SECRET`.
 
 | Variable | Required |
 |----------|----------|
 | `JWT_SECRET` | Yes — ≥ 32 random characters |
-| `DB_PASS` | Yes |
+| `DB_PASS` | Yes — not the development default |
 | `PORTAINER_URL` / `PORTAINER_API_KEY` / `PORTAINER_ENDPOINT_ID` | Yes |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` / `GITHUB_REDIRECT_URI` | For GitHub login |
-| `GITHUB_WEBHOOK_SECRET` | **Yes for GitHub auto-deploy** — reject events if empty |
+| `GITHUB_WEBHOOK_SECRET` | **Required** — unsigned webhooks are rejected |
 | `CLOUDBASE_BASE_DOMAIN` | Yes (e.g. `cloudbase.website`) |
 | `CLOUDBASE_PUBLIC_API_URL` | Yes — public HTTPS API, no trailing slash |
+| `CLOUDBASE_BOOTSTRAP_ADMIN_EMAIL` / `CLOUDBASE_BOOTSTRAP_ADMIN_PASSWORD` | First admin only (ignored after one ADMIN exists) |
 | `NPM_*` | If NPM is enabled |
 | `RESEND_API_KEY` / `RESEND_FROM` | If email is enabled |
 | `DOCKER_HUB_USERNAME` / `DOCKER_HUB_TOKEN` | For private images |
+
+Start the API with `--spring.profiles.active=prod` (Compose already sets this). GitHub webhook URL: `{API_ORIGIN}/api/webhooks/github`.
 
 ---
 
@@ -193,8 +181,10 @@ Postman: `frontend/postman/CloudBase.API.postman_collection.json`.
 - Sessions expire; protected routes require a live `/auth/me` check.
 - Start commands are argv-only (no shell). Volumes cannot target `/etc`, `/proc`, …
 - `/api/admin/**` requires `ROLE_ADMIN`.
-- GitHub webhooks must use `GITHUB_WEBHOOK_SECRET`. Leaving it empty skips signature checks (dev only — do not ship that way).
-- Never commit `JWT_SECRET`, Portainer keys, NPM passwords, GitHub secrets, or `frontend/src/environments/environment.ts`.
+- GitHub webhooks **require** `GITHUB_WEBHOOK_SECRET`. Unsigned payloads are rejected.
+- `/ws` requires a session JWT; log/deploy topics are limited to services you can access.
+- `/api/public/platform-status` is cached and rate-limited.
+- Never commit `JWT_SECRET`, Portainer keys, NPM passwords, GitHub secrets, `.env`, or `frontend/src/environments/environment.ts`.
 
 ---
 
