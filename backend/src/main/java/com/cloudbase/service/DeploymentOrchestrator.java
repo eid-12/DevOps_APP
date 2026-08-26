@@ -21,6 +21,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -255,7 +256,7 @@ public class DeploymentOrchestrator {
             }
             String extra = safeGitHubRunUrl(runUrl);
             appendStage(d.getId(), DeploymentStatus.BUILDING, "building",
-                    "GitHub Actions is building the image" + extra);
+                    "GitHub Actions is building the image" + (extra.isEmpty() ? "" : " — " + extra));
             return;
         }
 
@@ -276,9 +277,10 @@ public class DeploymentOrchestrator {
                 service.setLatestDeploymentId(d.getId());
                 serviceRepository.save(service);
             }
-            String extra = safeGitHubRunUrl(runUrl).isEmpty() ? "" : ". Open the run:" + safeGitHubRunUrl(runUrl);
+            String extra = safeGitHubRunUrl(runUrl);
             onStackFailure(service.getId(), d.getId(), new IllegalStateException(
-                    "GitHub Actions failed (" + conclusion + ")" + extra
+                    "GitHub Actions failed (" + conclusion + ")"
+                            + (extra.isEmpty() ? "" : ". Open the run: " + extra)
                             + ". Fix the workflow, then Redeploy."));
         }
     }
@@ -318,6 +320,26 @@ public class DeploymentOrchestrator {
         return DateTimeFormatter.ofPattern("HH:mm:ss")
                 .withZone(ZoneId.systemDefault())
                 .format(Instant.now());
+    }
+
+    /** Only embed https://github.com/... run URLs from webhooks. */
+    private static String safeGitHubRunUrl(String runUrl) {
+        if (runUrl == null || runUrl.isBlank()) {
+            return "";
+        }
+        try {
+            URI uri = URI.create(runUrl.trim());
+            String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
+            if (!"https".equalsIgnoreCase(uri.getScheme())) {
+                return "";
+            }
+            if (!"github.com".equals(host) && !host.endsWith(".github.com")) {
+                return "";
+            }
+            return uri.toString();
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     private static String stageTitle(String stage) {

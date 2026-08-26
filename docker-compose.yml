@@ -8,7 +8,7 @@ services:
     environment:
       POSTGRES_DB: cloudbase
       POSTGRES_USER: cloudbase
-      POSTGRES_PASSWORD: ${DB_PASS:-cloudbase_secret}
+      POSTGRES_PASSWORD: ${DB_PASS:?Set DB_PASS}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -31,8 +31,9 @@ services:
     environment:
       DB_URL: jdbc:postgresql://postgres:5432/cloudbase
       DB_USER: cloudbase
-      DB_PASS: ${DB_PASS:-cloudbase_secret}
-      JWT_SECRET: ${JWT_SECRET:-cloudbase-prod-secret-min-32chars-padding}
+      DB_PASS: ${DB_PASS:?Set DB_PASS}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
+      SPRING_PROFILES_ACTIVE: prod
       PORTAINER_URL: ${PORTAINER_URL:-http://host.docker.internal:9000}
       PORTAINER_API_KEY: ${PORTAINER_API_KEY:-}
       PORTAINER_ENDPOINT_ID: ${PORTAINER_ENDPOINT_ID:-1}
@@ -45,10 +46,13 @@ services:
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
       GITHUB_REDIRECT_URI: ${GITHUB_REDIRECT_URI:-http://localhost:8080/api/auth/github/callback}
       GITHUB_SUCCESS_REDIRECT: ${GITHUB_SUCCESS_REDIRECT:-http://localhost:4200/account?github=connected}
-      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:?Set GITHUB_WEBHOOK_SECRET}
       CLOUDBASE_BASE_DOMAIN: ${CLOUDBASE_BASE_DOMAIN:-cloudbase.website}
       CLOUDBASE_DOCKER_NETWORK: ${CLOUDBASE_DOCKER_NETWORK:-cloudbase}
       CLOUDBASE_DOCKERHUB_NAMESPACE: ${CLOUDBASE_DOCKERHUB_NAMESPACE:-cloudbase}
+      CLOUDBASE_PUBLIC_API_URL: ${CLOUDBASE_PUBLIC_API_URL:-}
+      CLOUDBASE_BOOTSTRAP_ADMIN_EMAIL: ${CLOUDBASE_BOOTSTRAP_ADMIN_EMAIL:-}
+      CLOUDBASE_BOOTSTRAP_ADMIN_PASSWORD: ${CLOUDBASE_BOOTSTRAP_ADMIN_PASSWORD:-}
     ports:
       - "8080:8080"
     extra_hosts:
@@ -63,7 +67,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "4200:80"
+      - "4200:3000"
 
 volumes:
   postgres_data:

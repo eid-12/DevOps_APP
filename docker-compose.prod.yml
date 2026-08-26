@@ -1,0 +1,86 @@
+# Production stack for Portainer (Mini PC). Pulls prebuilt images.
+# Requires the external Docker network `cloudbase` (NPM is already on it).
+# Do not publish Postgres to the host.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cloudbase-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: cloudbase
+      POSTGRES_USER: cloudbase
+      POSTGRES_PASSWORD: ${DB_PASS:?Set DB_PASS}
+    volumes:
+      - cloudbase_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cloudbase"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+    networks:
+      - cloudbase
+
+  backend:
+    image: minipcer/cloudbase-backend:latest
+    container_name: cloudbase-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://cloudbase-postgres:5432/cloudbase
+      DB_USER: cloudbase
+      DB_PASS: ${DB_PASS:?Set DB_PASS}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
+      SPRING_PROFILES_ACTIVE: prod
+      PORTAINER_URL: ${PORTAINER_URL:-https://manage.cloudbase.website}
+      PORTAINER_API_KEY: ${PORTAINER_API_KEY:-}
+      PORTAINER_ENDPOINT_ID: ${PORTAINER_ENDPOINT_ID:-3}
+      NPM_ENABLED: ${NPM_ENABLED:-true}
+      NPM_URL: ${NPM_URL:-https://npm.cloudbase.website}
+      NPM_EMAIL: ${NPM_EMAIL:-}
+      NPM_PASSWORD: ${NPM_PASSWORD:-}
+      NPM_CERTIFICATE_ID: ${NPM_CERTIFICATE_ID:-14}
+      NPM_SSL_FORCED: ${NPM_SSL_FORCED:-false}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      GITHUB_REDIRECT_URI: ${GITHUB_REDIRECT_URI:-https://www.cloudbase.website/auth/github/callback}
+      GITHUB_SUCCESS_REDIRECT: ${GITHUB_SUCCESS_REDIRECT:-https://www.cloudbase.website/account?github=connected}
+      GITHUB_FAILURE_REDIRECT: ${GITHUB_FAILURE_REDIRECT:-https://www.cloudbase.website/account?github=error}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:?Set GITHUB_WEBHOOK_SECRET}
+      CLOUDBASE_BASE_DOMAIN: ${CLOUDBASE_BASE_DOMAIN:-cloudbase.website}
+      CLOUDBASE_DOCKER_NETWORK: ${CLOUDBASE_DOCKER_NETWORK:-cloudbase}
+      CLOUDBASE_DOCKERHUB_NAMESPACE: ${CLOUDBASE_DOCKERHUB_NAMESPACE:-minipcer}
+      CLOUDBASE_PUBLIC_API_URL: ${CLOUDBASE_PUBLIC_API_URL:-https://api.cloudbase.website}
+      CLOUDBASE_VOLUME_ROOT: ${CLOUDBASE_VOLUME_ROOT:-/var/lib/cloudbase/users}
+      CLOUDBASE_BOOTSTRAP_ADMIN_EMAIL: ${CLOUDBASE_BOOTSTRAP_ADMIN_EMAIL:-}
+      CLOUDBASE_BOOTSTRAP_ADMIN_PASSWORD: ${CLOUDBASE_BOOTSTRAP_ADMIN_PASSWORD:-}
+      APP_BASE_URL: ${APP_BASE_URL:-https://www.cloudbase.website}
+      RESEND_ENABLED: ${RESEND_ENABLED:-false}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM: ${RESEND_FROM:-CloudBase <noreply@mawrid.cloudbase.website>}
+      RESEND_DOMAIN: ${RESEND_DOMAIN:-mawrid.cloudbase.website}
+      RESEND_ADMIN_NOTIFY: ${RESEND_ADMIN_NOTIFY:-}
+      DOCKER_HUB_USERNAME: ${DOCKER_HUB_USERNAME:-minipcer}
+      DOCKER_HUB_TOKEN: ${DOCKER_HUB_TOKEN:-}
+    volumes:
+      - /var/lib/cloudbase/users:/var/lib/cloudbase/users
+    networks:
+      - cloudbase
+
+  frontend:
+    image: minipcer/cloudbase-frontend:latest
+    container_name: cloudbase-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    networks:
+      - cloudbase
+
+volumes:
+  cloudbase_postgres_data:
+
+networks:
+  cloudbase:
+    external: true
