@@ -1,0 +1,138 @@
+:host {
+  display: block;
+}
+
+.field-label {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted-light);
+  letter-spacing: 0.04em;
+}
+
+.auth-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 22px;
+  padding: 4px;
+  border-radius: 12px;
+  background: rgba(2, 6, 23, 0.45);
+  border: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.auth-tab {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--muted-light);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 9px 8px;
+  border-radius: 9px;
+  cursor: pointer;
+
+  &.is-active {
+    background: rgba(99, 102, 241, 0.2);
+    color: #e2e8f0;
+  }
+}
+
+.auth-form-title {
+  margin: 0 0 6px;
+  font-size: 1.35rem;
+  letter-spacing: -0.02em;
+}
+
+.auth-form-sub {
+  margin: 0 0 22px;
+  font-size: 0.92rem;
+}
+
+.auth-form {
+  display: grid;
+  gap: 16px;
+}
+
+.auth-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+
+  label {
+    margin: 0;
+  }
+}
+
+.password-wrap {
+  position: relative;
+  display: block;
+
+  input {
+    width: 100%;
+    padding-right: 44px;
+  }
+}
+
+.password-toggle {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: var(--muted-light);
+  cursor: pointer;
+  padding: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  &:hover {
+    color: var(--text);
+  }
+}
+
+.password-rules {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+  color: #64748b;
+
+  li.ok {
+    color: #34d399;
+  }
+}
+
+.auth-link {
+  border: 0;
+  background: transparent;
+  color: var(--primary-light);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.auth-error {
+  color: #fca5a5;
+  font-size: 12px;
+}
+
+.auth-submit {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.auth-switch {
+  margin: 20px 0 0;
+  text-align: center;
+  font-size: 0.88rem;
+}

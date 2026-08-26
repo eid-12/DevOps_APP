@@ -141,7 +141,7 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
         @if (!auth.isGitHubConnected() && canDeploy() && !isSuspended()) {
           <div class="pill pill-amber railway-alert github-banner">
             GitHub is not connected.
-            <a routerLink="/account" fragment="github-connect" style="margin-left:8px;color:inherit;text-decoration:underline">Account</a>
+            <a routerLink="/account" fragment="github-connect" class="link-inline">Account</a>
             — connect to deploy from GitHub.
           </div>
         }
@@ -165,7 +165,7 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
           @if (isOverPlan()) {
             <div class="pill pill-red railway-alert">
               Free plan resource limit exceeded. Downsize RAM/CPU/storage before creating more.
-              <a routerLink="/billing" style="margin-left:8px;color:inherit;text-decoration:underline">Billing</a>
+              <a routerLink="/billing" class="link-inline">Billing</a>
             </div>
           }
         }
@@ -242,7 +242,7 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
                   </div>
                 </div>
                 @if (project.status === 'ARCHIVED') {
-                  <span class="pill pill-amber" style="margin-bottom:8px;display:inline-flex">Archived</span>
+                  <span class="pill pill-amber u-mb-8 u-inline-flex">Archived</span>
                 }
                 @if (project.description) {
                   <p class="railway-card-desc">{{ project.description }}</p>
@@ -316,7 +316,7 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
             @if (createError()) {
               <div class="pill pill-red railway-alert">{{ createError() }}</div>
             }
-            <div class="field" style="margin-bottom: 14px;">
+            <div class="field field-gap">
               <label>Project Name</label>
               <input
                 [ngModel]="emptyName || ''"
@@ -326,11 +326,11 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
                 (keydown.enter)="submitEmptyProject()"
               />
             </div>
-            <div class="field" style="margin-bottom: 14px;">
+            <div class="field field-gap">
               <label>Description (optional)</label>
               <input [(ngModel)]="emptyDescription" placeholder="What is this project for?" />
             </div>
-            <div class="field" style="margin-bottom: 18px;">
+            <div class="field field-gap-lg">
               <label>Environment</label>
               <app-environment-select [(value)]="emptyEnvironment" />
             </div>
@@ -368,7 +368,7 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
             @if (createKind() === 'github' && !auth.isGitHubConnected()) {
               <div class="pill pill-amber railway-alert">
                 Connect GitHub from Account first, then pick a repository.
-                <a routerLink="/account" fragment="github-connect" style="margin-left:6px;color:inherit;text-decoration:underline">Account</a>
+                <a routerLink="/account" fragment="github-connect" class="link-inline-sm">Account</a>
               </div>
             }
 
@@ -394,7 +394,7 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
                       (valueChange)="onGitHubRepoPicked($event)"
                     />
                     @if (reposError()) {
-                      <p class="muted" style="color:#f87171;font-size:12px;margin:6px 0 0">{{ reposError() }}</p>
+                      <p class="muted u-text-danger u-text-12 empty-hint">{{ reposError() }}</p>
                     }
                   </div>
                 }
@@ -413,7 +413,7 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
               }
 
               @if (createKind() === 'docker') {
-                <p class="muted" style="font-size:12px;margin:0 0 10px">
+                <p class="muted muted-hint">
                   Pull any public image from Docker Hub (or your namespace <code>minipcer/…</code>).
                 </p>
                 <div class="field">
@@ -439,7 +439,7 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
                 <div class="field">
                   <label>Container listen port</label>
                   <input type="number" [(ngModel)]="draft.containerPort" min="1" max="65535" />
-                  <p class="empty-sub" style="margin:6px 0 0">Port inside this container only (Nginx/Hello = 80, Grafana = 3000). Not a host port — many services can all use 80 safely. Public access is via a random HTTPS URL.</p>
+                  <p class="empty-sub empty-hint">Port inside this container only (Nginx/Hello = 80, Grafana = 3000). Not a host port — many services can all use 80 safely. Public access is via a random HTTPS URL.</p>
                 </div>
                 <div class="field">
                   <label>Start command <span class="muted">(optional)</span></label>
@@ -448,7 +448,7 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
                     placeholder="Leave empty to use image default"
                     autocomplete="off"
                     spellcheck="false"
-                    style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px"
+                    class="u-mono-input"
                   />
                 </div>
               }
@@ -460,7 +460,7 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
                     [value]="draft.dbType"
                     (valueChange)="onDbTypeChange($event)"
                   />
-                  <p class="empty-sub" style="margin:6px 0 0">{{ dbPreset(draft.dbType).hint }}</p>
+                  <p class="empty-sub empty-hint">{{ dbPreset(draft.dbType).hint }}</p>
                 </div>
                 <div class="field">
                   <label>Internal port</label>
@@ -482,13 +482,13 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
                     </div>
                   }
                   @if (!draft.envVars.length) {
-                    <p class="empty-sub" style="margin:0">Optional — add keys your app needs at runtime.</p>
+                    <p class="empty-sub u-m-0">Optional — add keys your app needs at runtime.</p>
                   }
                 </div>
               }
 
               @if (createKind() === 'database') {
-                <p class="muted" style="font-size:12px;margin:0 0 10px">
+                <p class="muted muted-hint">
                   Persistent volume is required for databases so data survives restarts.
                 </p>
               } @else if (createKind() === 'docker') {
@@ -499,7 +499,7 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
               }
               @if (createKind() !== 'github' && (draft.useVolume || createKind() === 'database')) {
                 <div class="field">
-                  <label>Mount Path <span class="muted" style="font-weight:400">(inside container only)</span></label>
+                  <label>Mount Path <span class="muted u-fw-400">(inside container only)</span></label>
                   <input [(ngModel)]="draft.mountPath" [placeholder]="createKind() === 'database' ? dbPreset(draft.dbType).mountPath : '/data'" />
                   <small class="muted">Host disk path is fixed by CloudBase. Example: /data or /var/lib/postgresql/data</small>
                 </div>
@@ -536,15 +536,15 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
           @if (editError()) {
             <div class="pill pill-red railway-alert">{{ editError() }}</div>
           }
-          <div class="field" style="margin-bottom:14px">
+          <div class="field field-gap">
             <label>Project Name</label>
             <input [(ngModel)]="editName" autocomplete="off" />
           </div>
-          <div class="field" style="margin-bottom:14px">
+          <div class="field field-gap">
             <label>Description</label>
             <input [(ngModel)]="editDescription" placeholder="Optional description" />
           </div>
-          <div class="field" style="margin-bottom:18px">
+          <div class="field field-gap-lg">
             <label>Environment</label>
             <app-environment-select [(value)]="editEnvironment" />
           </div>

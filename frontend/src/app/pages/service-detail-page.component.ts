@@ -120,7 +120,7 @@ interface MetricSample {
     </header>
 
     @if (!canManage() && service()) {
-      <div class="pill pill-red railway-alert" style="margin-bottom:14px">
+      <div class="pill pill-red railway-alert field-gap">
         Deploy access is locked. Deploy, restart, stop, env/network changes, and delete are blocked until an admin enables Deploy.
       </div>
     }
@@ -154,7 +154,7 @@ interface MetricSample {
       <div class="railway-empty panel">
         <p>Service not found.</p>
         <p class="empty-sub">It may have been deleted or you lack access.</p>
-        <button type="button" class="btn btn-ghost btn-sm" style="margin-top:10px" (click)="goBack()">← Back to project</button>
+        <button type="button" class="btn btn-ghost btn-sm u-mt-10" (click)="goBack()">← Back to project</button>
       </div>
     } @else {
       <nav class="svc-tabs" role="tablist">
@@ -256,7 +256,7 @@ interface MetricSample {
                   <dd>
                     @if (publicUrl(service()!)) {
                       <a [href]="publicUrl(service()!)" target="_blank" rel="noopener">{{ publicHost(service()!) }}</a>
-                      <button type="button" class="btn btn-ghost btn-sm" style="margin-left:6px" (click)="copyText(publicUrl(service()!)!)">Copy</button>
+                      <button type="button" class="btn btn-ghost btn-sm u-ml-6" (click)="copyText(publicUrl(service()!)!)">Copy</button>
                     } @else {
                       <span class="muted">Not assigned</span>
                     }
@@ -272,12 +272,12 @@ interface MetricSample {
             </dl>
 
             @if (service()!.sourceType === 'DATABASE' && dbConn()) {
-              <h4 style="margin-top:18px">Connection</h4>
+              <h4 class="u-mt-18">Connection</h4>
               <div class="conn-box">
                 <code class="mono">{{ dbConn()!['url'] }}</code>
                 <button type="button" class="btn btn-ghost btn-sm" (click)="copyText(dbConn()!['url'])">Copy URL</button>
               </div>
-              <dl class="svc-dl" style="margin-top:10px">
+              <dl class="svc-dl u-mt-10">
                 @for (key of dbConnKeys(); track key) {
                   @if (key !== 'url') {
                     <div>
@@ -307,10 +307,10 @@ interface MetricSample {
           </div>
 
           @if (!deployments().length) {
-            <div class="railway-empty" style="padding:20px 8px">
+            <div class="railway-empty u-pad-empty-sm">
               <p>No deployments yet.</p>
               <p class="empty-sub">Click Deploy Now to pull/build and start this service.</p>
-              <button type="button" class="btn btn-primary btn-sm" style="margin-top:10px" (click)="deploy()" [disabled]="busy() || !canDeployNow()">Deploy Now</button>
+              <button type="button" class="btn btn-primary btn-sm u-mt-10" (click)="deploy()" [disabled]="busy() || !canDeployNow()">Deploy Now</button>
             </div>
           } @else {
             <div class="dep-list">
@@ -421,7 +421,7 @@ interface MetricSample {
                 <strong>{{ target.triggeredBy }}</strong>
               </div>
             </div>
-            <div class="pill pill-amber" style="margin:14px 0;display:block">
+            <div class="pill pill-amber u-block u-mt-14 u-mb-14">
               Current live deploy will be replaced. Traffic switches after health checks pass.
             </div>
             <div class="modal-actions">
@@ -459,7 +459,7 @@ interface MetricSample {
             </div>
           </div>
           @if (service()!.status !== 'RUNNING') {
-            <div class="pill pill-amber" style="margin-bottom:12px;display:block;white-space:normal;line-height:1.45">
+            <div class="pill pill-amber pill-block u-mb-12">
               @if (service()!.status === 'BUILDING') {
                 Showing deploy / build activity. Container logs appear after the image is ready and Redeploy finishes.
               } @else if (service()!.status === 'FAILED') {
@@ -480,7 +480,7 @@ interface MetricSample {
                 <span class="log-msg">{{ line.message }}</span>
               </div>
             } @empty {
-              <div class="muted" style="padding:16px">
+              <div class="muted u-p-16">
                 No log lines yet. Deploy the service, then Refresh or enable Live to stream output.
               </div>
             }
@@ -493,10 +493,10 @@ interface MetricSample {
         <section class="panel svc-panel term-panel">
           <div class="svc-panel-head">
             <h3>Terminal</h3>
-            <span class="muted mono" style="font-size:12px">{{ service()!.name }}&#64;cloudbase:~$</span>
+            <span class="muted mono u-text-12">{{ service()!.name }}&#64;cloudbase:~$</span>
           </div>
           @if (service()!.status !== 'RUNNING') {
-            <div class="pill pill-amber" style="margin-bottom:12px">
+            <div class="pill pill-amber u-mb-12">
               Container is {{ service()!.status }}. Deploy the service to open a shell.
             </div>
           }
@@ -532,7 +532,7 @@ interface MetricSample {
           <div class="svc-panel-head">
             <div>
               <h3>Environment Variables</h3>
-              <p class="muted" style="margin:4px 0 0;font-size:12px">Service-scoped keys + inherited project config</p>
+              <p class="muted u-text-12 u-mt-4">Service-scoped keys + inherited project config</p>
             </div>
             <div class="var-head-actions">
               <span class="sync-chip" [ngClass]="varsSyncTone()">{{ varsSyncLabel() }}</span>
@@ -546,7 +546,7 @@ interface MetricSample {
               <a class="btn btn-ghost btn-sm" [routerLink]="['/projects', projectId]" [queryParams]="{ tab: 'variables' }">Manage →</a>
             </div>
             @if (!inheritedVars().length) {
-              <p class="muted" style="margin:0;font-size:13px">
+              <p class="muted muted-tight">
                 No project variables attached to this service. Attach keys from Project → Variables.
               </p>
             } @else {
@@ -582,7 +582,7 @@ interface MetricSample {
                         <span class="muted">{{ opt.hint }}</span>
                       </button>
                     } @empty {
-                      <p class="muted" style="margin:0;padding:8px;font-size:12px">No reference targets yet.</p>
+                      <p class="muted u-m-0 u-p-8 u-text-12">No reference targets yet.</p>
                     }
                   </div>
                 }
@@ -621,7 +621,7 @@ interface MetricSample {
             </div>
           </div>
 
-          <div class="modal-actions" style="margin-top:16px">
+          <div class="modal-actions u-mt-16">
             <button type="button" class="btn btn-primary" (click)="saveVars()" [disabled]="saving() || !canManage() || !varsDirty()">
               {{ saving() ? 'Saving…' : 'Save Variables' }}
             </button>
@@ -639,7 +639,7 @@ interface MetricSample {
         <section class="metrics-section">
           <div class="metrics-toolbar">
             <div class="metrics-ranges">
-              <span class="muted" style="font-size:12px;margin-right:8px;align-self:center">Live (this session)</span>
+              <span class="muted u-text-12 u-mr-8 u-self-center">Live (this session)</span>
               @for (r of metricsRanges; track r) {
                 <button
                   type="button"
@@ -724,26 +724,26 @@ interface MetricSample {
         <section class="panel svc-panel">
           <h3>Networking</h3>
           @if (service()!.sourceType === 'DATABASE') {
-            <p class="muted" style="margin-bottom:16px">
+            <p class="muted u-mb-16">
               Databases stay on the private Docker network — no public URL or custom domain.
               Other services in this project connect by container name and port.
             </p>
           } @else {
-            <p class="muted" style="margin-bottom:16px">
+            <p class="muted u-mb-16">
               Public HTTP via Cloudflare Tunnel + Nginx Proxy Manager.
               Platform hosts are random numbers (not guessable). Bring your own domain for a branded URL.
             </p>
 
-            <div class="field" style="margin-bottom:18px">
+            <div class="field field-gap-lg">
               <label>Platform URL (read-only)</label>
               @if (service()!.subdomain) {
-                <p class="svc-live-url" style="margin:8px 0 0">
+                <p class="svc-live-url u-mt-8">
                   <a [href]="'https://' + service()!.subdomain" target="_blank" rel="noopener">
                     https://{{ service()!.subdomain }}
                   </a>
-                  <button type="button" class="btn btn-ghost btn-sm" style="margin-left:6px" (click)="copyText('https://' + service()!.subdomain!)">Copy</button>
+                  <button type="button" class="btn btn-ghost btn-sm u-ml-6" (click)="copyText('https://' + service()!.subdomain!)">Copy</button>
                 </p>
-                <p class="muted" style="margin-top:8px;font-size:13px">
+                <p class="muted check-msg">
                   @if (vanityStatus()?.thisServiceHoldsVanity) {
                     This service holds your <strong>one</strong> vanity subdomain. Other services stay on random URLs.
                   } @else {
@@ -755,11 +755,11 @@ interface MetricSample {
               }
             </div>
 
-            <div class="field" style="margin-bottom:22px">
+            <div class="field field-gap-xl">
               <label>Vanity subdomain (1 per account)</label>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              <div class="form-row">
                 <input
-                  style="flex:1;min-width:140px;max-width:220px"
+                  class="form-row-grow"
                   [(ngModel)]="vanityDraft"
                   (ngModelChange)="onVanityDraftChange($event)"
                   placeholder="myapp"
@@ -778,9 +778,8 @@ interface MetricSample {
               </div>
               @if (vanityCheck(); as vcheck) {
                 <p
-                  class="muted"
-                  style="margin-top:8px;font-size:13px"
-                  [style.color]="vcheck.available ? 'var(--ok, #3d9a6a)' : 'var(--danger, #c44)'"
+                  class="muted check-msg"
+                  [class.is-ok]="vcheck.available" [class.is-bad]="!vcheck.available"
                 >
                   {{ vcheck.available ? '✓' : '✗' }} {{ vcheck.reason }}
                   @if (vcheck.domain) {
@@ -788,16 +787,16 @@ interface MetricSample {
                   }
                 </p>
               } @else if (vanityStatus()?.claimedSlug && !vanityStatus()?.thisServiceHoldsVanity) {
-                <p class="muted" style="margin-top:8px;font-size:13px;color:var(--danger, #c44)">
+                <p class="muted check-msg is-bad">
                   Account already uses <code>{{ vanityStatus()?.claimedFqdn }}</code> on another service.
                   Release it there, or claim the <em>same</em> slug here to move it.
                 </p>
               }
-              <p class="muted" style="margin-top:8px;font-size:13px">
+              <p class="muted check-msg">
                 Rules: 3–30 chars, lowercase, start with a letter. Names must be unique — already taken is rejected.
                 All other services keep random <code>cloudbase####</code> URLs.
               </p>
-              <div class="modal-actions" style="margin-top:12px;gap:8px;display:flex;flex-wrap:wrap">
+              <div class="modal-actions modal-actions u-mt-12 form-row">
                 <button
                   type="button"
                   class="btn btn-primary"
@@ -816,9 +815,9 @@ interface MetricSample {
 
             <div class="field">
               <label>Custom domain</label>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              <div class="form-row">
                 <input
-                  style="flex:1;min-width:200px"
+                  class="form-row-grow-lg"
                   [(ngModel)]="domainDraft"
                   (ngModelChange)="onDomainDraftChange($event)"
                   placeholder="app.example.com"
@@ -835,9 +834,8 @@ interface MetricSample {
               </div>
               @if (domainCheck(); as check) {
                 <p
-                  class="muted"
-                  style="margin-top:8px;font-size:13px"
-                  [style.color]="check.available ? 'var(--ok, #3d9a6a)' : 'var(--danger, #c44)'"
+                  class="muted check-msg"
+                  [class.is-ok]="check.available" [class.is-bad]="!check.available"
                 >
                   {{ check.available ? '✓' : '✗' }} {{ check.reason }}
                   @if (check.domain) {
@@ -845,7 +843,7 @@ interface MetricSample {
                   }
                 </p>
               }
-              <p class="muted" style="margin-top:8px;font-size:13px">
+              <p class="muted check-msg">
                 Point a CNAME (or ALIAS) for this hostname to <code>cloudbase.website</code>, then save.
                 Leave empty and save to remove. Use Check before saving a new hostname.
               </p>
@@ -858,7 +856,7 @@ interface MetricSample {
                 </a>
               </p>
             }
-            <div class="modal-actions" style="margin-top:16px;gap:8px;display:flex;flex-wrap:wrap">
+            <div class="modal-actions modal-actions u-mt-16 form-row">
               <button
                 type="button"
                 class="btn btn-primary"
@@ -875,7 +873,7 @@ interface MetricSample {
             </div>
           }
 
-          <div class="net-ports" style="margin-top:24px">
+          <div class="net-ports">
             <h4>Ports</h4>
             @if (service()!.sourceType === 'DATABASE') {
               <div class="port-row"><span>TCP</span><code>{{ serviceContainerPort() }}</code><span class="pill pill-amber">private network</span></div>
@@ -905,17 +903,17 @@ interface MetricSample {
             <div class="settings-pane">
               @if (settingsSection() === 'source') {
                 <h3>Source</h3>
-                <div class="field" style="margin-bottom:14px">
+                <div class="field field-gap">
                   <label>Service Name</label>
                   <input [(ngModel)]="nameDraft" />
                 </div>
 
                 @if (service()!.sourceType === 'GITHUB') {
-                  <div class="field" style="margin-bottom:14px">
+                  <div class="field field-gap">
                     <label>Runtime / Language</label>
                     <app-runtime-select [value]="runtimeDraft" (valueChange)="onSettingsRuntimeChange($event)" />
                   </div>
-                  <div class="field" style="margin-bottom:14px">
+                  <div class="field field-gap">
                     <label>Start command</label>
                     <input
                       [(ngModel)]="startCommandDraft"
@@ -923,16 +921,16 @@ interface MetricSample {
                       placeholder="java -jar /app/app.jar"
                       autocomplete="off"
                       spellcheck="false"
-                      style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px"
+                      class="u-mono-input"
                     />
                   </div>
                   <div class="field"><label>Repository URL</label><input [(ngModel)]="sourceDraft.repoUrl" [placeholder]="'https://github.com/' + (auth.githubUsername() || 'user') + '/repo'" /></div>
                   <div class="field"><label>Branch</label><input [(ngModel)]="sourceDraft.branch" /></div>
                   <label class="toggle-field"><input type="checkbox" [(ngModel)]="sourceDraft.autoDeploy" /><span>Auto deploy on push</span></label>
-                  <p class="hint" style="margin:8px 0 0;opacity:.75;font-size:13px;line-height:1.4">
+                  <p class="hint hint-note">
                     When enabled: push to GitHub → Actions builds &amp; pushes the image → the live container updates automatically (Watchtower). Webhook redeploy also runs when the public API is reachable.
                   </p>
-                  <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                  <div class="form-row u-mt-12">
                     <button type="button" class="btn btn-ghost btn-sm" [disabled]="busy() || !canManage()" (click)="syncGitHubCi()">
                       {{ busy() ? 'Syncing…' : 'Sync GitHub CI / webhook' }}
                     </button>
@@ -943,7 +941,7 @@ interface MetricSample {
                     }
                   </div>
                   @if (githubCiFriendly()) {
-                    <div class="pill" [class.pill-emerald]="githubCiOk()" [class.pill-amber]="!githubCiOk()" style="margin-top:12px;display:block;white-space:normal;line-height:1.4">
+                    <div class="pill" [class.pill-emerald]="githubCiOk()" [class.pill-amber]="!githubCiOk()" class="pill-block u-mt-12 u-lh-14">
                       <strong>Build:</strong> {{ githubCiFriendly() }}
                     </div>
                   }
@@ -963,7 +961,7 @@ interface MetricSample {
                       placeholder="Leave empty for image default"
                       autocomplete="off"
                       spellcheck="false"
-                      style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px"
+                      class="u-mono-input"
                     />
                   </div>
                 }
@@ -975,8 +973,8 @@ interface MetricSample {
                       [value]="sourceDraft.dbType"
                       [disabled]="true"
                     />
-                    <p class="empty-sub" style="margin:6px 0 0">{{ dbPreset(sourceDraft.dbType).hint }}</p>
-                    <p class="empty-sub" style="margin:6px 0 0;color:#f59e0b">Locked after create — type and port cannot be changed.</p>
+                    <p class="empty-sub empty-hint">{{ dbPreset(sourceDraft.dbType).hint }}</p>
+                    <p class="empty-sub empty-hint u-text-warn">Locked after create — type and port cannot be changed.</p>
                   </div>
                   <div class="field">
                     <label>Internal port</label>
@@ -984,7 +982,7 @@ interface MetricSample {
                   </div>
                 }
 
-                <div class="modal-actions" style="margin:16px 0 8px">
+                <div class="modal-actions u-mt-16 u-mb-8">
                   <button type="button" class="btn btn-primary" (click)="saveIdentity()" [disabled]="saving() || !canManage() || !nameDraft.trim()">
                     {{ saving() ? 'Saving…' : 'Save' }}
                   </button>
@@ -996,7 +994,7 @@ interface MetricSample {
                 <div class="field">
                   <label>Root Directory</label>
                   <input [(ngModel)]="sourceDraft.rootDirectory" placeholder="backend (optional — empty = repo root)" />
-                  <p class="empty-sub" style="margin:6px 0 0">Docker build context for monorepos.</p>
+                  <p class="empty-sub empty-hint">Docker build context for monorepos.</p>
                 </div>
                 <div class="field">
                   <label>Build command</label>
@@ -1005,10 +1003,10 @@ interface MetricSample {
                     placeholder="npm run build (optional)"
                     autocomplete="off"
                     spellcheck="false"
-                    style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px"
+                    class="u-mono-input"
                   />
                 </div>
-                <div class="modal-actions" style="margin:16px 0 8px">
+                <div class="modal-actions u-mt-16 u-mb-8">
                   <button type="button" class="btn btn-primary" (click)="saveIdentity()" [disabled]="saving() || !canManage()">
                     {{ saving() ? 'Saving…' : 'Save' }}
                   </button>
@@ -1034,7 +1032,7 @@ interface MetricSample {
                     <input type="number" [(ngModel)]="sourceDraft.restartRetries" min="1" max="50" />
                   </div>
                 }
-                <div class="modal-actions" style="margin:16px 0 8px">
+                <div class="modal-actions u-mt-16 u-mb-8">
                   <button type="button" class="btn btn-primary" (click)="saveIdentity()" [disabled]="saving() || !canManage()">
                     {{ saving() ? 'Saving…' : 'Save' }}
                   </button>
@@ -1057,7 +1055,7 @@ interface MetricSample {
                     <input type="number" [(ngModel)]="quotaDraft.storageGb" min="1" step="1" />
                   </div>
                 </div>
-                <label class="toggle-field" style="margin:14px 0">
+                <label class="toggle-field u-mt-14 u-mb-14">
                   <input type="checkbox" [(ngModel)]="useVolume" />
                   <span>Attach persistent volume</span>
                 </label>
@@ -1073,7 +1071,7 @@ interface MetricSample {
                     </div>
                   </div>
                 }
-                <div class="modal-actions" style="margin-top:16px">
+                <div class="modal-actions u-mt-16">
                   <button type="button" class="btn btn-primary" (click)="saveSettings()" [disabled]="saving() || !canManage()">
                     {{ saving() ? 'Saving…' : 'Save' }}
                   </button>
@@ -1081,7 +1079,7 @@ interface MetricSample {
               }
 
               @if (settingsSection() === 'danger') {
-                <div class="danger-zone" style="margin-top:0">
+                <div class="danger-zone danger-zone-flush">
                   <h4>Danger zone</h4>
                   <p class="muted">Deleting removes the Portainer stack/containers and NPM proxy — CloudBase verifies both are gone before erasing the DB row. Type the service name to confirm.</p>
                   <button type="button" class="btn btn-danger-soft" (click)="openDeleteService()" [disabled]="!canManage()">

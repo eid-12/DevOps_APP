@@ -45,7 +45,7 @@ import { PlanInfo, UsageSummary } from '../core/models';
             <li>Community support</li>
           </ul>
 
-          <div class="pill pill-amber" style="margin-top:16px;display:block">
+          <div class="pill pill-amber u-mt-16 u-block">
             Every account uses the Free plan on this host. There is no paid upgrade.
           </div>
         }

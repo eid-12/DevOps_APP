@@ -47,42 +47,7 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
     ConfirmDeleteDialogComponent,
     TagModule
   ],
-  styles: [`
-    .services-grid {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 20px;
-      align-items: flex-start;
-    }
-    .service-card {
-      width: min(280px, 100%);
-      min-width: 0;
-      overflow: visible;
-      box-sizing: border-box;
-    }
-    .service-card-footer {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      position: relative;
-      z-index: 2;
-    }
-    .service-url {
-      display: block;
-      width: 100%;
-      max-width: 100%;
-      margin: 0 0 10px;
-      padding: 0;
-      box-sizing: border-box;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      font-size: 12px;
-      color: var(--primary-light, #818cf8);
-      text-decoration: none;
-    }
-    .service-url:hover { text-decoration: underline; }
-  `],
+  styleUrls: ['./project-detail-page.component.scss'],
   template: `
 <div class="page railway-page">
   <div class="container">
@@ -154,7 +119,7 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
         <div class="svc-panel-head">
           <div>
             <h3>Shared variables</h3>
-            <p class="muted" style="margin:4px 0 0;font-size:13px">
+            <p class="muted u-text-13 u-mt-4">
               Project-scoped keys inherited by selected services (Railway-style shared config).
             </p>
           </div>
@@ -194,7 +159,7 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
                 </div>
               </div>
             </div>
-            <label class="toggle-field" style="margin-top:10px">
+            <label class="toggle-field u-mt-10">
               <input type="checkbox" [(ngModel)]="sharedDraft.isSecret" />
               <span>Secret (mask value)</span>
             </label>
@@ -207,7 +172,7 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
                 </button>
               </div>
               @if (!project()?.services?.length) {
-                <p class="muted" style="margin:0;font-size:13px">No services in this project yet.</p>
+                <p class="muted muted-tight">No services in this project yet.</p>
               } @else {
                 <div class="shared-service-chips">
                   @for (svc of project()!.services; track svc.id) {
@@ -221,7 +186,7 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
               }
             </div>
 
-            <div class="modal-actions" style="margin-top:16px">
+            <div class="modal-actions u-mt-16">
               <button type="button" class="btn btn-ghost" (click)="cancelSharedEdit()" [disabled]="sharedSaving()">Cancel</button>
               <button type="button" class="btn btn-primary" (click)="saveSharedVar()" [disabled]="sharedSaving() || !sharedDraft.key.trim()">
                 {{ sharedSaving() ? 'Saving…' : (sharedDraft.id ? 'Save Variable' : 'Create Variable') }}
@@ -233,7 +198,7 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
         @if (sharedLoading()) {
           <p class="muted">Loading variables…</p>
         } @else if (!sharedVars().length && !editingShared()) {
-          <div class="railway-empty" style="padding:28px 16px">
+          <div class="railway-empty u-pad-empty">
             <p>No shared variables yet</p>
             <p class="empty-sub">Add keys once, then attach them to any service in this project.</p>
           </div>
@@ -296,7 +261,7 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
           <p>No services yet</p>
           <p class="empty-sub">Add a GitHub repo, Docker image, or database to get started.</p>
           @if (canManage()) {
-            <button type="button" class="btn btn-primary" style="margin-top:16px" (click)="openPicker()">
+            <button type="button" class="btn btn-primary u-mt-16" (click)="openPicker()">
               + Add Service
             </button>
           }
@@ -443,11 +408,11 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
                   (valueChange)="onGitHubRepoPicked($event)"
                 />
                 @if (reposError()) {
-                  <p class="muted" style="color:#f87171;font-size:12px;margin:6px 0 0">{{ reposError() }}</p>
+                  <p class="muted u-text-danger u-text-12 empty-hint">{{ reposError() }}</p>
                 }
               </div>
             } @else {
-              <div class="pill pill-amber railway-alert" style="margin-bottom:4px">
+              <div class="pill pill-amber railway-alert u-mb-4">
                 Connect GitHub first to pick a repository.
               </div>
             }
@@ -463,7 +428,7 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
           }
 
           @if (addMode() === 'docker') {
-            <p class="muted" style="font-size:12px;margin:0 0 10px">
+            <p class="muted muted-hint">
               Pull any public image from Docker Hub (or your namespace).
             </p>
             <div class="field">
@@ -489,7 +454,7 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
             <div class="field">
               <label>Container listen port</label>
               <input type="number" [(ngModel)]="draft.containerPort" min="1" max="65535" />
-              <p class="empty-sub" style="margin:6px 0 0">
+              <p class="empty-sub empty-hint">
                 Port inside this container only (Nginx = 80, Grafana = 3000). Not the host port —
                 many apps can use 80 safely. Public access uses a random HTTPS URL.
               </p>
@@ -501,7 +466,7 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
                 placeholder="Leave empty to use image default"
                 autocomplete="off"
                 spellcheck="false"
-                style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px"
+                class="u-mono-input"
               />
             </div>
           }
@@ -513,7 +478,7 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
                 [value]="draft.dbType"
                 (valueChange)="onDbTypeChange($event)"
               />
-              <p class="empty-sub" style="margin:6px 0 0">{{ dbPreset(draft.dbType).hint }}</p>
+              <p class="empty-sub empty-hint">{{ dbPreset(draft.dbType).hint }}</p>
             </div>
             <div class="field">
               <label>Internal port</label>
@@ -535,13 +500,13 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
                 </div>
               }
               @if (!draft.envVars.length) {
-                <p class="empty-sub" style="margin:0">Optional — add keys your app needs at runtime.</p>
+                <p class="empty-sub u-m-0">Optional — add keys your app needs at runtime.</p>
               }
             </div>
           }
 
           @if (addMode() === 'database') {
-            <p class="muted" style="font-size:12px;margin:0 0 10px">
+            <p class="muted muted-hint">
               Persistent volume is required for databases so data survives restarts.
             </p>
           } @else if (addMode() === 'docker') {
@@ -552,7 +517,7 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
           }
           @if (addMode() !== 'github' && (draft.useVolume || addMode() === 'database')) {
             <div class="field">
-              <label>Mount Path <span class="muted" style="font-weight:400">(inside container only)</span></label>
+              <label>Mount Path <span class="muted u-fw-400">(inside container only)</span></label>
               <input [(ngModel)]="draft.mountPath" [placeholder]="addMode() === 'database' ? dbPreset(draft.dbType).mountPath : '/data'" />
               <small class="muted">Host disk path is fixed by CloudBase. Example: /data or /var/lib/postgresql/data</small>
             </div>
@@ -589,15 +554,15 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
       @if (settingsError()) {
         <div class="pill pill-red railway-alert">{{ settingsError() }}</div>
       }
-      <div class="field" style="margin-bottom:14px">
+      <div class="field field-gap">
         <label>Project Name</label>
         <input [(ngModel)]="settingsName" />
       </div>
-      <div class="field" style="margin-bottom:14px">
+      <div class="field field-gap">
         <label>Description</label>
         <input [(ngModel)]="settingsDescription" placeholder="Optional description" />
       </div>
-      <div class="field" style="margin-bottom:18px">
+      <div class="field field-gap-lg">
         <label>Environment</label>
         <app-environment-select [(value)]="settingsEnvironment" />
       </div>
@@ -614,7 +579,7 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
         } @else {
           <button type="button" class="btn btn-ghost btn-sm" (click)="restoreProject()" [disabled]="savingSettings()">Restore Project</button>
         }
-        <button type="button" class="btn btn-danger-soft btn-sm" style="margin-left:8px" (click)="openDeleteProject()" [disabled]="savingSettings() || !canManage()">Delete Project</button>
+        <button type="button" class="btn btn-danger-soft btn-sm u-ml-8" (click)="openDeleteProject()" [disabled]="savingSettings() || !canManage()">Delete Project</button>
       </div>
     </div>
   </div>

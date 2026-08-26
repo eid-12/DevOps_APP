@@ -16,6 +16,10 @@
             "index": "src/index.html",
             "tsConfig": "tsconfig.app.json",
             "polyfills": ["zone.js"],
+            "inlineStyleLanguage": "scss",
+            "stylePreprocessorOptions": {
+              "includePaths": ["src/styles"]
+            },
             "assets": [
               {
                 "glob": "favicon.svg",
@@ -28,7 +32,7 @@
               "node_modules/primeng/resources/themes/lara-dark-indigo/theme.css",
               "node_modules/primeng/resources/primeng.min.css",
               "node_modules/primeflex/primeflex.css",
-              "src/styles.scss"
+              "src/styles/styles.scss"
             ],
             "budgets": [
               {

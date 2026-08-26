@@ -1,0 +1,62 @@
+// Design tokens — SCSS source of truth. CSS custom properties stay for runtime/theming.
+
+$font-sans: 'Geist', 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+$font-mono: 'Cascadia Code', 'Consolas', 'Courier New', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+$bg: #0b0d10;
+$surface: #111217;
+$surface-soft: #15171c;
+$surface-elevated: #1a1d24;
+$border: rgba(255, 255, 255, 0.08);
+$border-strong: rgba(255, 255, 255, 0.14);
+$text: #ededed;
+$muted: #8a8f98;
+$muted-light: #a8adb7;
+$primary: #c4b5fd;
+$primary-light: #ddd6fe;
+$violet: #a78bfa;
+$accent: #34d399;
+$accent-light: #6ee7b7;
+$danger: #f87171;
+$amber: #fbbf24;
+$ok: #3d9a6a;
+
+$radius: 10px;
+$radius-lg: 12px;
+$shadow: 0 20px 50px rgba(0, 0, 0, 0.55);
+$glow: none;
+$canvas-dot: rgba(255, 255, 255, 0.045);
+
+$bp-sm: 480px;
+$bp-md: 640px;
+$bp-tablet: 768px;
+$bp-lg: 900px;
+$bp-xl: 1024px;
+$bp-2xl: 1200px;
+
+$space-scale: 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 28, 32, 48;
+
+:root {
+  --bg: #{$bg};
+  --surface: #{$surface};
+  --surface-soft: #{$surface-soft};
+  --surface-elevated: #{$surface-elevated};
+  --border: #{$border};
+  --border-strong: #{$border-strong};
+  --text: #{$text};
+  --muted: #{$muted};
+  --muted-light: #{$muted-light};
+  --primary: #{$primary};
+  --primary-light: #{$primary-light};
+  --violet: #{$violet};
+  --accent: #{$accent};
+  --accent-light: #{$accent-light};
+  --danger: #{$danger};
+  --amber: #{$amber};
+  --ok: #{$ok};
+  --radius: #{$radius};
+  --radius-lg: #{$radius-lg};
+  --shadow: #{$shadow};
+  --glow: #{$glow};
+  --canvas-dot: #{$canvas-dot};
+}

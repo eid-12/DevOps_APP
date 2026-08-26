@@ -23,7 +23,7 @@ import { PressableDirective } from '../shared/directives/pressable.directive';
         @if (i === 0) {
           <section class="panel svc-panel">
             <h3>{{ s.title }}</h3>
-            <p class="muted" style="font-size:13px;margin-bottom:10px">{{ s.body }}</p>
+            <p class="muted u-text-13 u-mb-10">{{ s.body }}</p>
             @if (s.link) {
               <a class="btn btn-ghost btn-sm" appPressable [routerLink]="s.link" [queryParams]="s.queryParams || null">{{ s.cta }}</a>
             }
@@ -33,14 +33,14 @@ import { PressableDirective } from '../shared/directives/pressable.directive';
           @defer (on viewport; prefetch on idle) {
             <section class="panel svc-panel">
               <h3>{{ s.title }}</h3>
-              <p class="muted" style="font-size:13px;margin-bottom:10px">{{ s.body }}</p>
+              <p class="muted u-text-13 u-mb-10">{{ s.body }}</p>
               @if (s.link) {
                 <a class="btn btn-ghost btn-sm" appPressable [routerLink]="s.link" [queryParams]="s.queryParams || null">{{ s.cta }}</a>
               }
             </section>
           } @placeholder {
             <section class="panel svc-panel help-defer-placeholder">
-              <p class="muted" style="margin:0">Loading…</p>
+              <p class="muted u-m-0">Loading…</p>
             </section>
           }
         }

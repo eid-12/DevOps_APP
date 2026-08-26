@@ -31,7 +31,7 @@ const STRONG_PASSWORD = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#._-]).{8,
   template: `
     <div class="page">
       <div class="container">
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; flex-wrap: wrap; margin-bottom: 28px;" class="page-header">
+        <div class="page-header">
           <div>
             <p class="section-label">Admin Console</p>
             <h1 class="section-title">Platform Governance</h1>
@@ -51,8 +51,8 @@ const STRONG_PASSWORD = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#._-]).{8,
         <!-- Account Tab -->
         @if (tab() === 'account') {
           <section class="admin-account-grid">
-            <div class="panel" style="padding: 20px;">
-              <h3 style="margin-top:0">Profile</h3>
+            <div class="panel panel-pad">
+              <h3 class="panel-title">Profile</h3>
               <form #profileForm="ngForm" (ngSubmit)="saveAdminProfile(profileForm)" novalidate>
                 <div class="field">
                   <label for="admin-name">Full name</label>
@@ -75,8 +75,8 @@ const STRONG_PASSWORD = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#._-]).{8,
               </form>
             </div>
 
-            <div class="panel" style="padding: 20px;">
-              <h3 style="margin-top:0">Security</h3>
+            <div class="panel panel-pad">
+              <h3 class="panel-title">Security</h3>
               <form #pwdForm="ngForm" (ngSubmit)="saveAdminPassword(pwdForm)" novalidate>
                 <div class="field">
                   <label for="admin-cur">Current password</label>
@@ -104,7 +104,7 @@ const STRONG_PASSWORD = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#._-]).{8,
             </div>
 
             @if (accountMessage()) {
-              <div class="pill" style="padding:12px 16px;grid-column:1/-1;border-radius:12px"
+              <div class="pill alert-banner u-span-all"
                    [class.pill-emerald]="accountMessageKind()==='success'"
                    [class.pill-red]="accountMessageKind()==='error'">
                 {{ accountMessage() }}
@@ -116,8 +116,8 @@ const STRONG_PASSWORD = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#._-]).{8,
         <!-- Hosting Tab -->
         @if (tab() === 'hosting') {
           <section>
-            <div class="panel" style="padding: 20px; margin-bottom: 16px;">
-              <p class="muted" style="margin:0 0 12px;font-size:13px">
+            <div class="panel panel-pad u-mb-16">
+              <p class="muted u-mb-12 u-text-13">
                 Only fields you change are saved — the rest of the settings stay untouched.
                 Leave blank secret/text fields alone to keep current values (blank never clears).
                 @if (hosting(); as h) {
@@ -146,8 +146,8 @@ const STRONG_PASSWORD = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#._-]).{8,
 
                   <h3>Nginx Proxy Manager</h3>
                   <div class="grid grid-4 admin-filters">
-                    <div class="field" style="display:flex;align-items:flex-end;gap:8px">
-                      <label style="display:flex;align-items:center;gap:8px;margin:0">
+                    <div class="field field-end">
+                      <label class="inline-check">
                         <input type="checkbox" [(ngModel)]="hostingDraft.npmEnabled" name="npmEnabled" /> Enabled
                       </label>
                     </div>
@@ -155,8 +155,8 @@ const STRONG_PASSWORD = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#._-]).{8,
                     <div class="field"><label>Email</label><input [(ngModel)]="hostingDraft.npmEmail" name="npmEmail" /></div>
                     <div class="field"><label>Password</label><input [(ngModel)]="hostingDraft.npmPassword" name="npmPassword" type="password" placeholder="Leave blank to keep" autocomplete="new-password" /></div>
                     <div class="field"><label>Certificate ID</label><input [(ngModel)]="hostingDraft.npmCertificateId" name="npmCertificateId" /></div>
-                    <div class="field" style="display:flex;align-items:flex-end">
-                      <label style="display:flex;align-items:center;gap:8px;margin:0">
+                    <div class="field field-end">
+                      <label class="inline-check">
                         <input type="checkbox" [(ngModel)]="hostingDraft.npmSslForced" name="npmSslForced" /> Force SSL
                       </label>
                     </div>
@@ -186,12 +186,12 @@ const STRONG_PASSWORD = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#._-]).{8,
                     <div class="field"><label>Volume root</label><input [(ngModel)]="hostingDraft.volumeRoot" name="volumeRoot" /></div>
                   </div>
 
-                  <div style="display:flex;gap:10px;align-items:center;margin-top:16px;flex-wrap:wrap">
+                  <div class="hosting-actions">
                     <button type="submit" class="btn btn-primary" appPressable [disabled]="savingHosting() || !hostingHasChanges()">
                       {{ savingHosting() ? 'Saving…' : 'Save Hosting Settings' }}
                     </button>
                     @if (hostingMessage()) {
-                      <span class="pill" [class.pill-emerald]="hostingMessageKind()==='success'" [class.pill-red]="hostingMessageKind()==='error'" style="padding:8px 12px;border-radius:10px">
+                      <span class="pill" [class.pill-emerald]="hostingMessageKind()==='success'" [class.pill-red]="hostingMessageKind()==='error'" class="u-pad-pill u-radius-10">
                         {{ hostingMessage() }}
                       </span>
                     }
@@ -205,7 +205,7 @@ const STRONG_PASSWORD = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#._-]).{8,
         <!-- Governance Tab -->
         @if (tab() === 'governance') {
           <section>
-            <div class="panel" style="padding: 18px; margin-bottom: 16px;">
+            <div class="panel u-pad-panel-sm u-mb-16">
               <div class="grid grid-4 admin-filters">
                 <div class="field">
                   <label>Search Users</label>
@@ -305,7 +305,7 @@ const STRONG_PASSWORD = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#._-]).{8,
                   }
                   @if (filteredUsers().length === 0) {
                     <tr>
-                      <td colspan="8" class="muted" style="text-align: center; padding: 24px;">No users match the current filters.</td>
+                      <td colspan="8" class="muted table-empty">No users match the current filters.</td>
                     </tr>
                   }
                 </tbody>
@@ -313,13 +313,13 @@ const STRONG_PASSWORD = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#._-]).{8,
             </div>
 
             @if (filteredUsers().length > 0) {
-              <div class="admin-pager" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 12px;">
-                <span class="muted" style="font-size: 13px;">
+              <div class="admin-pager">
+                <span class="muted u-text-13">
                   Showing {{ pageRangeLabel() }} of {{ filteredUsers().length }}
                 </span>
-                <div style="display: flex; gap: 8px; align-items: center;">
+                <div class="admin-pager-btns">
                   <button class="btn btn-sm btn-ghost" type="button" (click)="prevPage()" [disabled]="pageIndex <= 0">Previous</button>
-                  <span class="muted" style="font-size: 13px;">Page {{ pageIndex + 1 }} / {{ totalPages() }}</span>
+                  <span class="muted u-text-13">Page {{ pageIndex + 1 }} / {{ totalPages() }}</span>
                   <button class="btn btn-sm btn-ghost" type="button" (click)="nextPage()" [disabled]="pageIndex >= totalPages() - 1">Next</button>
                 </div>
               </div>
@@ -327,7 +327,7 @@ const STRONG_PASSWORD = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#._-]).{8,
 
             @if (governanceMessage()) {
               <div class="pill" [class.pill-emerald]="governanceMessageKind() === 'success'" [class.pill-red]="governanceMessageKind() === 'error'"
-                   style="padding: 12px 16px; margin-top: 16px; border-radius: 12px;">
+                   class="alert-banner u-mt-16">
                 {{ governanceMessage() }}
               </div>
             }
@@ -347,7 +347,7 @@ const STRONG_PASSWORD = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#._-]).{8,
             </div>
 
             @if (portainerError()) {
-              <div class="pill pill-red" style="padding: 12px 16px; margin-bottom: 16px; border-radius: 12px;">
+              <div class="pill pill-red alert-banner u-mb-16">
                 {{ portainerError() }}
               </div>
             }
@@ -364,7 +364,7 @@ const STRONG_PASSWORD = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#._-]).{8,
             }
 
             @if (portainer(); as info) {
-              <div class="live-bar" style="margin-bottom: 20px;">
+              <div class="live-bar u-mb-20">
                 <span>{{ info.endpointName }}</span>
                 <span>·</span>
                 <span>Endpoint #{{ info.endpointId }}</span>
@@ -441,7 +441,7 @@ const STRONG_PASSWORD = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#._-]).{8,
                         <td class="muted" [attr.title]="formatAuditTime(log.timestamp)">{{ log.timestamp | timeAgo }}</td>
                         <td>
                           <div class="cell-strong">{{ log.actorName }}</div>
-                          <div class="muted" style="font-size: 12px;">{{ log.actorEmail }}</div>
+                          <div class="muted u-text-12">{{ log.actorEmail }}</div>
                         </td>
                         <td>
                           <span [class]="auditActionClass(log.action)">{{ auditActionLabel(log.action) }}</span>
@@ -452,14 +452,14 @@ const STRONG_PASSWORD = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#._-]).{8,
                     }
                     @if (auditLogs().length === 0) {
                       <tr>
-                        <td colspan="5" class="muted" style="text-align: center; padding: 24px;">No audit events yet.</td>
+                        <td colspan="5" class="muted table-empty">No audit events yet.</td>
                       </tr>
                     }
                   </tbody>
                 </table>
               </div>
             } @placeholder {
-              <div class="panel muted" style="padding: 24px; text-align: center;">Loading audit trail…</div>
+              <div class="panel muted u-p-24 u-text-center">Loading audit trail…</div>
             }
           </section>
         }

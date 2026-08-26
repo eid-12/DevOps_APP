@@ -1,0 +1,82 @@
+.icon-wrap {
+  display: inline-grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  border: 1px solid rgba(99, 102, 241, 0.22);
+  background: linear-gradient(145deg, rgba(99, 102, 241, 0.14), rgba(15, 23, 42, 0.6));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  color: #c7d2fe;
+
+  &.icon-sm {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+
+    svg {
+      width: 18px;
+      height: 18px;
+    }
+  }
+
+  &.icon-lg {
+    width: 58px;
+    height: 58px;
+    border-radius: 16px;
+
+    svg {
+      width: 28px;
+      height: 28px;
+    }
+  }
+
+  svg {
+    width: 26px;
+    height: 26px;
+  }
+}
+
+.icon-indigo {
+  color: #9bb8d4;
+  border-color: rgba(107, 154, 196, 0.28);
+  background: rgba(107, 154, 196, 0.1);
+}
+
+.icon-violet {
+  color: #a8b2c0;
+  border-color: rgba(125, 138, 156, 0.28);
+  background: rgba(125, 138, 156, 0.1);
+}
+
+.icon-emerald {
+  color: #8fcbb0;
+  border-color: rgba(90, 158, 130, 0.28);
+  background: rgba(90, 158, 130, 0.1);
+}
+
+.icon-sky {
+  color: #8ec5d9;
+  border-color: rgba(100, 160, 185, 0.28);
+  background: rgba(100, 160, 185, 0.1);
+}
+
+.icon-amber {
+  color: #d4b44a;
+  border-color: rgba(201, 162, 39, 0.28);
+  background: rgba(201, 162, 39, 0.1);
+}
+
+.pulse-dot {
+  animation: iconPulse 1.8s ease-in-out infinite;
+}
+
+@keyframes iconPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}

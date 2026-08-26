@@ -118,8 +118,8 @@ interface PlatformStatus {
         <div class="grid grid-3 section-gap">
           <article class="panel panel-glow feature-card" *ngFor="let feat of features">
             <app-icon [name]="feat.icon" [tone]="feat.tone"></app-icon>
-            <h3 style="margin: 0 0 10px;">{{ feat.title }}</h3>
-            <p class="muted" style="margin: 0; font-size: 14px; line-height: 1.65;">{{ feat.desc }}</p>
+            <h3 class="feature-card-title">{{ feat.title }}</h3>
+            <p class="muted feature-card-desc">{{ feat.desc }}</p>
             <div class="feature-tags">
               <span class="pill pill-indigo" *ngFor="let tag of feat.tags">{{ tag }}</span>
             </div>

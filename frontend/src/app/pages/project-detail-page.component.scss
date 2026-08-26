@@ -1,0 +1,40 @@
+.services-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.service-card {
+  width: min(280px, 100%);
+  min-width: 0;
+  overflow: visible;
+  box-sizing: border-box;
+}
+
+.service-card-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  position: relative;
+  z-index: 2;
+}
+
+.service-url {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  margin: 0 0 10px;
+  padding: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--primary-light, #818cf8);
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}

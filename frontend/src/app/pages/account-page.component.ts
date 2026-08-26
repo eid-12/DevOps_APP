@@ -85,15 +85,15 @@ const STRONG_PASSWORD_PATTERN = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#.
             <div>
               <strong>{{ auth.user()?.github?.displayName || ('@' + (auth.user()?.github?.username || 'github')) }}</strong>
               @if (auth.user()?.github?.displayName && auth.user()?.github?.username) {
-                <div class="muted" style="font-size:13px;margin-top:2px">&#64;{{ auth.user()?.github?.username }}</div>
+                <div class="muted u-text-13 u-mt-2">&#64;{{ auth.user()?.github?.username }}</div>
               }
-              <p class="muted" style="margin:4px 0 0;font-size:13px">
+              <p class="muted u-text-13 u-mt-4">
                 Connected {{ auth.user()?.github?.connectedAt | timeAgo }}
                 · scopes: {{ (auth.user()?.github?.scopes || []).join(', ') }}
               </p>
             </div>
           </div>
-          <div class="modal-actions" style="margin-top:14px;display:flex;flex-wrap:wrap;gap:8px">
+          <div class="modal-actions u-mt-14 u-flex u-flex-wrap u-gap-8">
             <p-button
               label="Switch GitHub account"
               severity="secondary"
@@ -111,7 +111,7 @@ const STRONG_PASSWORD_PATTERN = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#.
           </div>
         } @else if (githubSwitchOpen()) {
           <div class="github-switch-wizard">
-            <p class="pill pill-amber railway-alert" style="display:block;white-space:normal;line-height:1.45;margin-bottom:14px">
+            <p class="pill pill-amber railway-alert pill-block u-mb-14">
               GitHub keeps the old user signed in inside this browser. CloudBase cannot override that.
               Sign out of GitHub first, then connect the new account.
             </p>
@@ -138,12 +138,12 @@ const STRONG_PASSWORD_PATTERN = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#.
                 </button>
               </li>
             </ol>
-            <button type="button" class="btn btn-ghost btn-sm" style="margin-top:8px" (click)="cancelGitHubSwitch()">
+            <button type="button" class="btn btn-ghost btn-sm u-mt-8" (click)="cancelGitHubSwitch()">
               Cancel
             </button>
           </div>
         } @else {
-          <p class="muted" style="margin-bottom:14px;font-size:13px">
+          <p class="muted u-mb-14 u-text-13">
             Connect GitHub to deploy private repositories, enable auto-deploy on push, and sync branches.
           </p>
           @if (githubOAuth.isConfigured()) {
@@ -153,12 +153,12 @@ const STRONG_PASSWORD_PATTERN = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#.
               [loading]="githubBusy()"
               (onClick)="connectGitHubOAuth()"
             />
-            <p class="muted" style="margin-top:10px;font-size:12px;line-height:1.45">
+            <p class="muted u-mt-10 u-text-12 u-lh-145">
               If the wrong GitHub user keeps coming back, use <strong>Switch GitHub account</strong> after connecting once,
               or sign out at github.com/logout first.
             </p>
           } @else {
-            <div class="pill pill-amber railway-alert" style="margin-bottom:12px">
+            <div class="pill pill-amber railway-alert u-mb-12">
               GitHub OAuth is not configured. An admin must set the Client ID under Hosting.
             </div>
           }
@@ -203,9 +203,9 @@ const STRONG_PASSWORD_PATTERN = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#.
               disabled
               class="w-full"
             />
-            <p class="muted" style="margin:0;font-size:12px">Login email — cannot be changed.</p>
+            <p class="muted u-m-0 u-text-12">Login email — cannot be changed.</p>
           </div>
-          <div class="modal-actions" style="margin-top:14px">
+          <div class="modal-actions u-mt-14">
             <button type="submit" class="btn btn-primary" appPressable [disabled]="savingProfile() || profileForm.invalid">
               {{ savingProfile() ? 'Saving…' : 'Save Profile' }}
             </button>
@@ -273,7 +273,7 @@ const STRONG_PASSWORD_PATTERN = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#.
               <small class="auth-error">New passwords do not match.</small>
             }
           </div>
-          <div class="modal-actions" style="margin-top:14px">
+          <div class="modal-actions u-mt-14">
             <button
               type="submit"
               class="btn btn-primary"
@@ -326,23 +326,23 @@ const STRONG_PASSWORD_PATTERN = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#.
               </div>
             </div>
           } @else {
-            <p class="muted" style="padding:8px 0">{{ usageError() || 'Loading usage…' }}</p>
+            <p class="muted u-py-8">{{ usageError() || 'Loading usage…' }}</p>
           }
         } @placeholder {
-          <p class="muted" style="padding:8px 0">Loading usage…</p>
+          <p class="muted u-py-8">Loading usage…</p>
         }
       </section>
 
       <!-- Notifications -->
       <section class="panel svc-panel">
         <h3>Notifications</h3>
-        <p class="muted" style="font-size:13px;margin:0 0 12px;line-height:1.45">
+        <p class="muted u-text-13 u-mb-12 u-lh-145">
           In-app alerts always work. Email alerts send when Resend is enabled on this host.
         </p>
         <label class="toggle-field"><input type="checkbox" [(ngModel)]="notif.emailDeployments" /><span>Email on successful deploys</span></label>
         <label class="toggle-field"><input type="checkbox" [(ngModel)]="notif.emailFailures" /><span>Email on failed deploys</span></label>
         <label class="toggle-field"><input type="checkbox" [(ngModel)]="notif.emailWeeklyUsage" /><span>Weekly usage summary (saved for later)</span></label>
-        <div class="modal-actions" style="margin-top:14px">
+        <div class="modal-actions u-mt-14">
           <button type="button" class="btn btn-primary" (click)="saveNotif()" [disabled]="savingNotif()">
             {{ savingNotif() ? 'Saving…' : 'Save Preferences' }}
           </button>
@@ -364,8 +364,8 @@ const STRONG_PASSWORD_PATTERN = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#.
             </dd>
           </div>
           @if (!auth.hasDeployAccess() && auth.user()?.role !== 'ADMIN') {
-            <div style="grid-column:1/-1">
-              <div class="pill pill-red railway-alert" style="display:block;white-space:normal;line-height:1.45">
+            <div class="u-span-all">
+              <div class="pill pill-red railway-alert pill-block">
                 Deploy access is locked. Create, deploy, edit, stop, and delete actions are blocked until an admin clicks Enable Deploy on your account.
               </div>
             </div>
@@ -388,9 +388,9 @@ const STRONG_PASSWORD_PATTERN = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#.
           <h3>API Tokens</h3>
           <button type="button" class="btn btn-ghost btn-sm" (click)="createToken()" [disabled]="tokenBusy()">+ New Token</button>
         </div>
-        <p class="muted" style="margin-bottom:12px;font-size:13px">Use tokens for CI/CD and the CloudBase CLI.</p>
+        <p class="muted u-mb-12 u-text-13">Use tokens for CI/CD and the CloudBase CLI.</p>
         @if (newTokenSecret()) {
-          <div class="pill pill-amber railway-alert" style="display:block;margin-bottom:12px">
+          <div class="pill pill-amber railway-alert u-block u-mb-12">
             Copy this token now — it won’t be shown again:<br>
             <code class="mono" [appCopyText]="newTokenSecret()!">{{ newTokenSecret() }}</code>
           </div>
@@ -400,9 +400,9 @@ const STRONG_PASSWORD_PATTERN = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#.
             <div class="token-row">
               <div>
                 <strong>{{ t.name }}</strong>
-                <div class="muted mono" style="font-size:12px">{{ t.prefix }}…</div>
+                <div class="muted mono u-text-12">{{ t.prefix }}…</div>
               </div>
-              <div class="muted" style="font-size:12px">
+              <div class="muted u-text-12">
                 Created {{ t.createdAt | timeAgo }}
                 @if (t.lastUsedAt) { · Last used {{ t.lastUsedAt | timeAgo }} }
               </div>
@@ -416,7 +416,7 @@ const STRONG_PASSWORD_PATTERN = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#.
       } @else {
       <section class="panel svc-panel account-span-2">
         <div class="svc-panel-head"><h3>API Tokens</h3></div>
-        <p class="muted" style="font-size:13px">Deploy from the dashboard or GitHub Actions. Personal CLI tokens are not part of this release.</p>
+        <p class="muted u-text-13">Deploy from the dashboard or GitHub Actions. Personal CLI tokens are not part of this release.</p>
       </section>
       }
     </div>

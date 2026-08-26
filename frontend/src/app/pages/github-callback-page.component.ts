@@ -14,9 +14,9 @@ import { GitHubOAuthService } from '../core/github-oauth.service';
   imports: [CommonModule],
   template: `
 <div class="page railway-page">
-  <div class="container" style="max-width:560px;padding-top:48px">
+  <div class="container github-callback">
     <section class="panel svc-panel">
-      <h1 class="railway-page-title" style="font-size:22px;margin-bottom:8px">GitHub</h1>
+      <h1 class="railway-page-title github-callback-title">GitHub</h1>
 
       @if (status() === 'working') {
         <p class="muted">Exchanging authorization code…</p>
@@ -24,12 +24,12 @@ import { GitHubOAuthService } from '../core/github-oauth.service';
 
       @if (status() === 'ok') {
         <div class="pill pill-green railway-alert">Connected as &#64;{{ login() }}</div>
-        <p class="muted" style="font-size:13px;margin:12px 0">Opening Account…</p>
+        <p class="muted u-text-13 u-mt-12 u-mb-12">Opening Account…</p>
       }
 
       @if (status() === 'error') {
         <div class="pill pill-red railway-alert">{{ error() }}</div>
-        <div class="modal-actions" style="margin-top:16px">
+        <div class="modal-actions u-mt-16">
           <button type="button" class="btn btn-ghost" (click)="goAccount()">Back to Account</button>
         </div>
       }

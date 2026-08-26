@@ -1,0 +1,203 @@
+@use 'tokens' as *;
+@use 'mixins' as *;
+
+// Spacing + type helpers that replace leftover inline `style=""` attributes.
+
+@each $n in $space-scale {
+  .u-mt-#{$n} { margin-top: #{$n}px; }
+  .u-mb-#{$n} { margin-bottom: #{$n}px; }
+  .u-ml-#{$n} { margin-left: #{$n}px; }
+  .u-mr-#{$n} { margin-right: #{$n}px; }
+  .u-p-#{$n} { padding: #{$n}px; }
+  .u-pt-#{$n} { padding-top: #{$n}px; }
+  .u-pb-#{$n} { padding-bottom: #{$n}px; }
+}
+
+.u-m-0 { margin: 0; }
+.u-mt-0 { margin-top: 0; }
+.u-mb-0 { margin-bottom: 0; }
+.u-mx-0 { margin-left: 0; margin-right: 0; }
+.u-my-0 { margin-top: 0; margin-bottom: 0; }
+.u-mt-4 { margin-top: 4px; }
+
+.u-py-8 { padding: 8px 0; }
+.u-px-0 { padding-left: 0; padding-right: 0; }
+.u-pad-empty { padding: 28px 16px; }
+.u-pad-empty-sm { padding: 20px 8px; }
+.u-pad-panel { padding: 20px; }
+.u-pad-panel-sm { padding: 18px; }
+.u-pad-alert { padding: 12px 16px; }
+.u-pad-pill { padding: 8px 12px; }
+
+.u-text-12 { font-size: 12px; }
+.u-text-13 { font-size: 13px; }
+.u-text-14 { font-size: 14px; }
+.u-text-22 { font-size: 22px; }
+.u-fw-400 { font-weight: 400; }
+.u-lh-14 { line-height: 1.4; }
+.u-lh-145 { line-height: 1.45; }
+.u-lh-165 { line-height: 1.65; }
+.u-ws-normal { white-space: normal; }
+.u-text-center { text-align: center; }
+.u-text-danger { color: $danger; }
+.u-text-warn { color: $amber; }
+.u-opacity-75 { opacity: 0.75; }
+
+.u-block { display: block; }
+.u-inline-flex { display: inline-flex; }
+.u-flex { display: flex; }
+.u-flex-wrap { flex-wrap: wrap; }
+.u-flex-1 { flex: 1; }
+.u-gap-8 { gap: 8px; }
+.u-gap-10 { gap: 10px; }
+.u-items-center { align-items: center; }
+.u-items-end { align-items: flex-end; }
+.u-items-start { align-items: flex-start; }
+.u-justify-between { justify-content: space-between; }
+.u-self-center { align-self: center; }
+.u-span-all { grid-column: 1 / -1; }
+.u-min-w-140 { min-width: 140px; }
+.u-min-w-200 { min-width: 200px; }
+.u-max-w-220 { max-width: 220px; }
+.u-max-w-560 { max-width: 560px; }
+.u-radius-10 { border-radius: 10px; }
+.u-radius-12 { border-radius: 12px; }
+
+.u-mono-input {
+  @include mono(13px);
+}
+
+.link-inline {
+  margin-left: 8px;
+  color: inherit;
+  text-decoration: underline;
+}
+
+.link-inline-sm {
+  margin-left: 6px;
+  color: inherit;
+  text-decoration: underline;
+}
+
+.field-gap { margin-bottom: 14px; }
+.field-gap-lg { margin-bottom: 18px; }
+.field-gap-xl { margin-bottom: 22px; }
+
+.pill-block {
+  @include pill-block;
+}
+
+.panel-pad {
+  padding: 20px;
+}
+
+.panel-title {
+  margin-top: 0;
+}
+
+.muted-tight {
+  margin: 0;
+  font-size: 13px;
+}
+
+.muted-hint {
+  margin: 0 0 10px;
+  font-size: 12px;
+}
+
+.empty-hint {
+  margin: 6px 0 0;
+}
+
+.form-row {
+  @include flex($align: center, $wrap: wrap, $gap: 8px);
+}
+
+.form-row-grow {
+  flex: 1;
+  min-width: 140px;
+  max-width: 220px;
+}
+
+.form-row-grow-lg {
+  flex: 1;
+  min-width: 200px;
+}
+
+.inline-check {
+  @include flex($align: center, $gap: 8px);
+  margin: 0;
+}
+
+.field-end {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.hosting-actions {
+  @include flex($align: center, $wrap: wrap, $gap: 10px);
+  margin-top: 16px;
+}
+
+.admin-pager {
+  @include flex($align: center, $justify: space-between, $wrap: wrap, $gap: 12px);
+  margin-top: 12px;
+}
+
+.admin-pager-btns {
+  @include flex($align: center, $gap: 8px);
+}
+
+.table-empty {
+  text-align: center;
+  padding: 24px;
+}
+
+.alert-banner {
+  padding: 12px 16px;
+  border-radius: 12px;
+}
+
+.feature-card-title {
+  margin: 0 0 10px;
+}
+
+.feature-card-desc {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.github-callback {
+  max-width: 560px;
+  padding-top: 48px;
+}
+
+.github-callback-title {
+  font-size: 22px;
+  margin-bottom: 8px;
+}
+
+.check-msg {
+  margin-top: 8px;
+  font-size: 13px;
+
+  &.is-ok { color: $ok; }
+  &.is-bad { color: $danger; }
+}
+
+.hint-note {
+  margin: 8px 0 0;
+  opacity: 0.75;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.net-ports {
+  margin-top: 24px;
+}
+
+.danger-zone-flush {
+  margin-top: 0;
+}

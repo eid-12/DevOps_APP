@@ -44,10 +44,10 @@ import { FormsModule } from '@angular/forms';
         </div>
 
         @if (error) {
-          <div class="pill pill-red railway-alert" style="margin-top:12px">{{ error }}</div>
+          <div class="pill pill-red railway-alert u-mt-12">{{ error }}</div>
         }
 
-        <div class="modal-actions" style="margin-top:18px">
+        <div class="modal-actions u-mt-18">
           <button type="button" class="btn btn-ghost" (click)="cancel.emit()" [disabled]="busy">Cancel</button>
           <button
             type="button"

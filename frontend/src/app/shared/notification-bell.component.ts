@@ -41,11 +41,11 @@ import { PressableDirective } from './directives/pressable.directive';
                   <time [attr.title]="n.createdAt | date:'medium'">{{ n.createdAt | timeAgo }}</time>
                 </button>
               } @empty {
-                <p class="muted" style="padding:12px">Deployments and service alerts appear here.</p>
+                <p class="muted u-p-12">Deployments and service alerts appear here.</p>
               }
             </div>
           } @placeholder {
-            <p class="muted" style="padding:12px">Loading…</p>
+            <p class="muted u-p-12">Loading…</p>
           }
         </div>
       }

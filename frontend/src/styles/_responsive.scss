@@ -1,0 +1,292 @@
+@media (max-width: 768px) {
+  .container,
+  .container-narrow {
+    width: calc(100% - 24px);
+  }
+
+  .page {
+    padding: 16px 0 48px;
+  }
+
+  .section-spaced {
+    margin-top: 48px;
+  }
+
+  .section-spaced-sm {
+    margin-top: 32px;
+  }
+
+  .navbar {
+    padding: 12px 0;
+  }
+
+  .navbar-toggle {
+    display: inline-flex;
+    margin-left: auto;
+  }
+
+  .navbar-menu {
+    display: none;
+    position: absolute;
+    top: calc(100% + 10px);
+    left: 0;
+    right: 0;
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 14px;
+    border-radius: 16px;
+    border: 1px solid rgba(107, 154, 196, 0.18);
+    background: rgba(2, 6, 23, 0.96);
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(16px);
+    z-index: 60;
+  }
+
+  .navbar-menu.is-open {
+    display: flex;
+  }
+
+  .navbar-links {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+    gap: 4px;
+  }
+
+  .nav-link {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .navbar-actions {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .navbar-actions .btn {
+    width: 100%;
+  }
+
+  .navbar-user {
+    max-width: none;
+    justify-content: center;
+  }
+
+  .hero {
+    padding: 28px 0 20px;
+  }
+
+  .hero-title {
+    font-size: clamp(1.85rem, 8vw, 2.4rem);
+  }
+
+  .hero-sub {
+    font-size: 1rem;
+  }
+
+  .hero-actions {
+    width: 100%;
+  }
+
+  .hero-actions .btn-lg {
+    flex: 1 1 calc(50% - 6px);
+    min-width: 0;
+    white-space: normal;
+    text-align: center;
+  }
+
+  .live-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 12px 14px;
+  }
+
+  .live-bar > span:nth-child(even) {
+    display: none;
+  }
+
+  .terminal-body {
+    min-height: 220px;
+    padding: 14px;
+    font-size: 11px;
+  }
+
+  .terminal-title {
+    font-size: 9px;
+  }
+
+  .stat-value {
+    font-size: 1.65rem;
+  }
+
+  .feature-card,
+  .step-card {
+    padding: 22px 18px;
+  }
+
+  .step-card {
+    min-height: auto;
+  }
+
+  .auth-layout {
+    min-height: auto;
+    padding: 16px 0;
+  }
+
+  .auth-side,
+  .auth-form-panel {
+    padding: 24px 20px;
+  }
+
+  .wizard-steps {
+    gap: 6px;
+  }
+
+  .wizard-step {
+    flex: 1 1 calc(50% - 3px);
+    min-width: 0;
+    padding: 10px 12px;
+    font-size: 12px;
+  }
+
+  .project-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .project-actions .btn {
+    flex: 1 1 calc(50% - 5px);
+    min-width: 0;
+  }
+
+  .page-header {
+    margin-bottom: 24px;
+  }
+
+  .page-header-actions {
+    width: 100%;
+  }
+
+  .page-header-actions .btn {
+    flex: 1;
+  }
+
+  .tabs {
+    flex-direction: column;
+  }
+
+  .tab {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .footer-inner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .footer-copy {
+    line-height: 1.6;
+  }
+
+  .footer-contact {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .footer-contact-link {
+    width: 100%;
+    justify-content: center;
+    word-break: break-word;
+  }
+
+  .toast {
+    left: 16px;
+    right: 16px;
+    bottom: 16px;
+  }
+
+  .wizard-topbar {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .wizard-topbar-line {
+    display: none;
+  }
+
+  .wizard-grid-two,
+  .wizard-choice-grid,
+  .wizard-choice-grid-compact,
+  .wizard-review-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .wizard-panel {
+    padding: 22px;
+  }
+
+  .wizard-footer-actions,
+  .wizard-footer-actions-end {
+    justify-content: stretch;
+  }
+
+  .wizard-footer-actions .btn,
+  .wizard-footer-actions-end .btn {
+    width: 100%;
+  }
+
+  .railway-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .railway-search {
+    min-width: 100%;
+  }
+
+  .railway-topbar-actions {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .hero-actions .btn-lg {
+    flex: 1 1 100%;
+  }
+
+  .wizard-step {
+    flex: 1 1 100%;
+  }
+
+  .navbar-brand {
+    font-size: 16px;
+  }
+
+  .btn {
+    white-space: normal;
+  }
+
+  .stack-badge {
+    width: 100%;
+    text-align: center;
+  }
+
+  .data-table th,
+  .data-table td {
+    padding: 12px 14px;
+  }
+}
+
+@media (max-width: 400px) {
+  .wizard-step {
+    flex: 1 1 100%;
+  }
+
+  .stack-badge {
+    flex: 1 1 100%;
+  }
+}
