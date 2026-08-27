@@ -19,7 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * In-memory; one API replica. Restart clears the windows.
  *
  * <p>Slot is reserved <em>before</em> the HTTP send (fail closed). Parallel
- * requests share one lock so 50 signups cannot sneak past the global cap.
+ * requests share one lock so extra signups cannot sneak past the 5/hour cap.
  */
 @Service
 public class EmailRateLimiter {
@@ -34,9 +34,9 @@ public class EmailRateLimiter {
     /** Same inbox, same action (register + resend share VERIFICATION). */
     static final int MAX_PER_EMAIL = 5;
     /** One client IP across register / resend / forgot. */
-    static final int MAX_PER_IP = 8;
-    /** Whole JVM: verification + password-reset combined. Hard stop under 50. */
-    static final int MAX_GLOBAL = 20;
+    static final int MAX_PER_IP = 5;
+    /** Whole JVM: verification + password-reset combined. Never more than 5/hour. */
+    static final int MAX_GLOBAL = 5;
     static final int MAX_VERIFY_FAILURES = 5;
     static final Duration VERIFY_LOCK = Duration.ofMinutes(15);
 

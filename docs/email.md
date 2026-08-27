@@ -33,9 +33,9 @@ Numbers below are the constants in the backend, not guesses.
 | Session JWT | **2 hours** | `jwt.expiration-ms` default `7200000` in `application.properties` |
 | GitHub OAuth state | **10 minutes** | `JwtService.generateOAuthState` `10 * 60 * 1000L` |
 | Send cooldown | **60 seconds** per inbox per action. SPA button also waits 60s. | `EmailRateLimiter.COOLDOWN` |
-| Per inbox / hour | **5** verification codes (register + resend share this). **5** password-reset attempts (counts even if the address has no account). Fixed 1-hour window. | `MAX_PER_EMAIL = 5` |
-| Per IP / hour | **8** auth mails (register + resend + forgot). Stops one laptop opening 50 inboxes. | `MAX_PER_IP = 8` |
-| Whole site / hour | **20** auth mails total (verification + reset combined). Reserved **before** Resend is called, under one lock. 50 parallel signups cannot sneak through. | `MAX_GLOBAL = 20` |
+| Per inbox / hour | **5** verification codes (register + resend share this). **5** password-reset attempts (unknown addresses do not eat the global cap). | `MAX_PER_EMAIL = 5` |
+| Per IP / hour | **5** auth mails (register + resend + forgot). | `MAX_PER_IP = 5` |
+| Whole site / hour | **5** auth mails total (verification + reset combined). This is the ceiling — nothing exceeds it. Reserved **before** Resend, under one lock. | `MAX_GLOBAL = 5` |
 | Wrong verification codes | **5** misses → code columns **nulled**, lock **15 minutes**, `429`. Resend-code generates a new code and `clearVerifyFailures`. | `MAX_VERIFY_FAILURES`, `VERIFY_LOCK` |
 | Rate-limit store | In memory on the API JVM. Restart wipes windows. | `EmailRateLimiter` |
 
@@ -107,7 +107,7 @@ Live currently has email on (`emailEnabled: true` on app-config) with the mawrid
 |------|-----|
 | `backend/.../email/ResendEmailService.java` | HTTPS send, subjects, HTML, 15-minute copy in the code mail |
 | `backend/.../email/ResendProperties.java` | From / domain / admin-notify / app-base-url |
-| `backend/.../email/EmailRateLimiter.java` | 60s, 5/inbox, 8/IP, 20 global; slot before Resend |
+| `backend/.../email/EmailRateLimiter.java` | 60s; **5/hour** per inbox, per IP, and site-wide; slot before Resend |
 | `backend/.../service/impl/AuthServiceImpl.java` | Register / verify / resend / forgot; `CODE_TTL_MINUTES = 15` |
 | `backend/.../security/JwtService.java` | Session 2h (via properties), reset 30m, OAuth state 10m |
 | `backend/.../security/JwtAuthFilter.java` | Reset/OAuth JWTs cannot become a session |
