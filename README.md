@@ -4,7 +4,7 @@ Private PaaS for a Mini PC (Windows + WSL2 + Docker). Developers ship GitHub rep
 
 **Live:** [www.cloudbase.website](https://www.cloudbase.website) · API: [api.cloudbase.website](https://api.cloudbase.website)
 
-Architecture: [`docs/architecture.md`](docs/architecture.md).
+How the system is split: [`docs/README.md`](docs/README.md).
 
 ---
 
@@ -37,9 +37,10 @@ Architecture: [`docs/architecture.md`](docs/architecture.md).
 
 ```text
 DevOps_APP/
-├── docker-compose.yml          postgres + backend + frontend
-├── docs/architecture.md
-├── backend/                    Spring Boot control plane
+├── docker-compose.yml          local: postgres + backend + frontend
+├── docker-compose.prod.yml     live images on the Mini PC
+├── docs/                       control plane vs runtime vs deploy
+├── backend/                    Spring Boot API
 └── frontend/                   Angular SPA (`/api` proxied to :8080)
 ```
 

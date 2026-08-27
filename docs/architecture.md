@@ -1,70 +1,58 @@
-إليك التوصيف الهندسي الكامل والشامل لمشروعك CloudBase بأدق التفاصيل التقنية والمعمارية، مصمماً خصيصاً ليعمل كمنصة سحابية مستقلة ومحمية بالكامل على جهاز الـ Mini PC الخاص بك (Windows 11 العادي)، وبنظام أتمتة كامل لا يتطلب أي إعدادات معقدة من المستخدم (Zero-Configuration):
-🏗️ 1. المكونات الهيكلية للبنية التحتية (Infrastructure Stack)
-يتكون السيرفر من طبقات معزولة تعمل بتناغم تام لتحويل نظام تشغيل عادي إلى خادم سحابي ذكي:
-طبقة نظام التشغيل والعزل (Host OS & WSL2):
+# Architecture
 
-Windows 11 (Home/Pro): النظام الأساسي للجهاز.
-WSL2 (Windows Subsystem for Linux): يمثل النواة الحقيقية لتشغيل الحاويات، حيث يوفر بيئة لينكس افتراضية خفيفة وسريعة جداً داخل الويندوز بدون استهلاك ضخم للموارد.
-Docker Desktop: محرك تشغيل الحاويات المعتمد على WSL2. يقوم بعزل كل تطبيق وقاعدة بيانات داخل بيئة مستقلة تماماً لا يمكنها الوصول أو التأثير على ملفات نظام الويندوز الأساسي (Host)، مما يضمن أماناً مطلقاً للجهاز ضد الفايروسات.
-طبقة التحكم والربط البرمجي (Management APIs):
+CloudBase is a control plane that drives APIs I already run on the Mini PC. The UI never talks to Portainer or Nginx Proxy Manager from the browser. Spring Boot does that.
 
-Portainer API: البوابة البرمجية لإدارة الحاويات. يستقبل كود الـ Docker Compose من خادم الـ Spring Boot عبر طلبات HTTP محاطة بـ Access Token آمن، ومن ثم يتولى تشغيل الحاويات، وإيقافها، وقراءة إحصائيات استهلاك الموارد وحالة الـ Shell الخاصة بكل حاوية.
-Nginx Proxy Manager (NPM) API: المسؤول عن إدارة الـ Reverse Proxy. يمتلك واجهة برمجية (REST API) نستخدمها لإنشاء وإزالة مسارات التوجيه برمجياً دون الحاجة لتعديل ملفات إعدادات Nginx يدوياً.
-طبقة الاتصال الخارجي والأمان (Networking & SSL):
+```text
+  browser
+     |
+     |  HTTPS
+     v
+  www.cloudbase.website          Angular (container :3000)
+     |
+     |  /api  (same origin on prod via NPM, or proxy in local ng serve)
+     v
+  api.cloudbase.website          Spring Boot (:8080, Docker network only)
+     |
+     +-- Postgres                users, projects, services, deploys
+     |
+     +-- Portainer API           stacks, containers, logs, stats
+     |        |
+     |        v
+     |     Docker (WSL2)
+     |        |
+     |        +-- cloudbase-frontend / cloudbase-backend / postgres
+     |        +-- tenant app stacks (one per service)
+     |
+     +-- NPM API                 proxy hosts + TLS
+     |
+     +-- GitHub                  OAuth, repo files, Actions, webhooks
+     +-- Docker Hub              images I publish, and tenant images
+```
 
-Cloudflare Tunnel: النفق الآمن المفتوح على خادمك. يقوم بعمل اتصال عكسي بخوادم Cloudflare. يستقبل الزوار من الإنترنت ويمرر طلباتهم داخلياً إلى Nginx Proxy Manager دون الحاجة لفتح أي بورتات في المودم الخاص بك (No Port Forwarding)، مما يخفي الـ IP الحقيقي لسيرفرك عن الإنترنت.
-👥 2. نظام إدارة الهوية والصلاحيات الدقيق (RBAC Architecture)
-لتأمين المنصة وحمايتها من رفع أكواد خبيثة أو استهلاك غير عادل للموارد، يتم تقسيم المستخدمين إلى دورين صارمين:
-أ. دور المسؤول (The Admin - أنت):
-يمتلك لوحة تحكم إشرافية كاملة (Dashboard) لمراقبة السيرفر.
-نظام الموافقة المسبقة (Deployment Approval System): عندما يضيف مستخدم مشروعاً جديداً، يتوقف النظام تماماً ولا يبدأ بناء أو تشغيل أي شيء. يرسل الـ Backend إشعاراً للـ Admin. يمكنك كمشرف مراجعة الحساب ورابط المستودع (Repository) على GitHub، وعند الضغط على زر "مواقفة (Approve)"، ينطلق خط الإنتاج.
-إدارة الحصص (Resource Quotas): يمكنك تحديد سقف استهلاك الموارد لكل مستخدم برمجياً (مثال: مستخدم "أ" مسموح له بحاوية واحدة بحد أقصى $512\text{ MB}$ رام و $0.5$ CPU).
-ب. دور المستخدم العادي (The User):
-لوحة تحكم مخصصة لإضافة مستودعات GitHub الخاصة به فقط.
-متابعة حالة مشاريعه، الإحصائيات الحية للاستهلاك، وفتح الـ Terminal الخاص بحاويته بعد تفعيلها من الـ Admin.
-🔄 3. تدفق البيانات والأتمتة بأدق التفاصيل (End-to-End Data Flow)
-إليك رحلة البيانات بدقة متناهية من لحظة ضغط الزر وحتى عمل الموقع:
-المرحلة الأولى: ربط المشروع وحقن الأتمتة (Zero-Config Framework)
-يدخل المستخدم إلى واجهة Angular، ويقوم بربط حساب GitHub الخاص به، ثم يختار المستودع (Repository) الصافي للمشروع ويحدد بيئة العمل (مثلاً: React, Vue.js, Node.js).
-يرسل Angular الطلب إلى Spring Boot.
-يتصل Spring Boot بـ GitHub API مستخدماً حساب المستخدم (OAuth) ويقوم بالعمليات التالية آلياً:
+## Layers I actually run
 
-توليد وحقن الـ Dockerfile: يصيغ Spring Boot ملف الـ Dockerfile المثالي بناءً على التقنية المختارة (مثال لـ Vue.js: مرحلة أولى لبناء الكود باستخدام Node.js، ومرحلة ثانية لتشغيل الملفات المستخرجة عبر خادم Nginx خفيف معزول). يقوم برفع هذا الملف مباشرة إلى مستودع المستخدم عبر API.
-توليد وحقن ملف الأتمتة (deploy.yml): ينشئ مجلد .github/workflows/ ويحقن داخله ملف GitHub Actions. هذا الملف مبرمج ليشتغل تلقائياً عند حدوث git push، ويقوم بـ: تسجيل الدخول لـ Docker Hub الخاص بالمنصة، بناء الـ Image، ورفعها.
-إنشاء الـ Webhook الآمن: ينشئ Spring Boot رابط Webhook داخل المستودع مضافاً إليه Webhook Secret (مفتاح تشفير سري). هذا الرابط يخبر منصتك فور انتهاء جيت هوب من بناء ورفع الصورة.
-يقف النظام هنا منتظراً موافقة الـ Admin في لوحة تحكم الإدارة.
-المرحلة الثانية: البناء (The Build Pipeline)
-بعد موافقة الـ Admin، يقوم النظام بعمل Push أولي لبدء العملية، أو يقوم المستخدم بعمل Push لكوده.
-تنطلق خوادم جيت هوب (GitHub Actions) لقراءة الـ Dockerfile المحقون، وتحول المشروع إلى Docker Image مسجلة، ثم ترفعها إلى Docker Hub.
-فور اكتمال الرفع، يرسل جيت هوب طلب POST إلى الـ Webhook الخاص بـ Spring Boot.
-يتحقق Spring Boot من الـ Secret المرفق بالطلب ليتأكد أن الإشارة قادمة من جيت هوب فعلاً وليست محاولة اختراق.
-المرحلة الثالثة: صياغة الـ Stack وقاعدة البيانات (Dynamic Provisioning)
-يقوم Spring Boot برمجياً بتوليد نصوص عشوائية مشفرة ومعقدة لاستخدامها كبيانات سرية لقاعدة البيانات (Database Credentials).
-يقوم الـ Backend بكتابة وصياغة ملف docker-compose.yml ديناميكي بالكامل في الذاكرة، ويحتوي على:
+**Host.** Windows on the Mini PC. Docker uses WSL2. Tenant containers stay in Docker; they do not write into the Windows desktop.
 
-تطبيق المستخدم (App Service): يشير إلى الـ Image المرفوعة حديثاً على Docker Hub.
-قاعدة البيانات (Database Service): حاوية معزولة تماماً خاصة بهذا المشروع فقط (مثل MySQL أو PostgreSQL).
-حقن المتغيرات (Environment Variables): يتم تمرير اليوزر والباسورد المولدين تلقائياً إلى حاوية التطبيق ليرتبط برمجياً بالقاعدة فور تشغيله دون تعديل كود المستخدم.
-تحديد الموارد (Resource Limits): يكتب Spring Boot قيوداً صارمة داخل الـ Compose تمنع الحاوية من تجاوز الحصة المحددة لها (مثل تحديد المعالج بـ cpus: "0.5" والذاكرة بـ memory: 512m) لحماية السيرفر من أي كود يحاول استهلاك موارد الجهاز بالكامل.
-حفظ البيانات الدائم (Volumes): يتم ربط مجلد البيانات الخاص بحاوية قاعدة البيانات بمسار حقيقي ومؤمن داخل الـ Mini PC لضمان عدم ضياع بيانات المستخدم عند تحديث الحاويات أو إعادة تشغيلها.
-يأخذ Spring Boot هذا النص الديناميكي ويرسله عبر HTTP طلب إلى Portainer API Endpoint وتحديداً إلى (/api/stacks).
-يقوم Portainer باستلام الملف، وسحب الـ Images، وتشغيل الـ Stack كاملاً بشكل معزول وآمن فوراً على السيرفر.
-المرحلة الرابعة: التوجيه الديناميكي وإصدار شهادة الأمان (Proxy & SSL Entry)
-بعد تشغيل الحاوية بنجاح، يحدد Portainer البورت الداخلي العشوائي الذي تم تخصيصه للمشروع.
-يقوم Spring Boot بعمل طلب HTTP POST إلى Nginx Proxy Manager API لتسجيل Proxy Host جديد:
+**Control plane.** This repo. See [control-plane.md](control-plane.md).
 
-يربط النطاق الفرعي للمستخدم (مثل userapp.cloudbase.website) بالـ IP الداخلي لحاوية المستخدم وبورت التشغيل الخاص بها.
-يرسل أمراً لـ NPM لإصدار وتفعيل شهادة Let's Encrypt SSL تلقائياً لجعل الرابط يعمل عبر تشفير HTTPS الآمن.
-المرحلة الخامسة: قنوات الاتصال الحي (WebSockets & Live Shell)
-عندما يفتح المستخدم لوحة تحكم مشروعه في واجهة Angular:
-مراقبة الموارد الحية (Real-time Metrics): يفتح Angular اتصال WebSocket مع Spring Boot. يقوم Spring Boot بشكل دوري (كل ثانية) بطلب إحصائيات الاستهلاك الحية للحاوية من Portainer API، ويمرر هذه البيانات (CPU, RAM, Network) مباشرة عبر الـ WebSocket لتظهر على شكل رسوم بيانية متحركة أمام المستخدم بدون عمل خيار Refresh للمتصفح.
-الـ Terminal التفاعلي (Live Web-CLI): عند فتح شاشة الـ Terminal المدمجة بالواجهة والمبنية بـ xterm.js، يتم إنشاء اتصال WebSocket مخصص للتفاعل الحقيقي. عندما يكتب المستخدم أمراً (مثل ls أو pwd)، يمرر الأمر عبر Spring Boot مباشرة إلى الـ Exec Endpoint داخل Portainer API، والتي تقوم بتنفيذه فوراً داخل بيئة الحاوية المعزولة (التي تعمل فوق WSL2 في الويندوز)، وتعود المخرجات والردود فوراً عبر القناة لتُطبع على شاشة المتصفح أمام المستخدم في أجزاء من الثانية.
-🔁 4. دورة التحديث التلقائي المستقبلي (The Git Push CI/CD Loop)
-بمجرد تشغيل المشروع للمرة الأولى، تصبح الدورة مؤتمتة بالكامل عند رغبة المستخدم في تحديث موقعه:
-يقوم المطور بتعديل كوده محلياً على جهازه الشخصي ثم يرفع التحديث: git push origin main.
-يستشعر GitHub الملفات المحقونة مسبقاً، ويعيد بناء الـ Image ورفعها لـ Docker Hub.
-يرسل GitHub إشارة نجاح عبر الـ Webhook إلى Spring Boot.
-يتحقق Spring Boot من صحة الإشارة وصلاحيات الحساب، ثم يقوم مباشرة بإرسال طلب تحديث (Stack Update) إلى Portainer API ليأمره بعمل (Pull & Redeploy).
-يقوم سيرفر الـ Mini PC بسحب التحديث وتشغيل النسخة الجديدة خلال ثوانٍ معدودة وبدون أي تدخل يدوي من أي طرف.
-هذا هو التوصيف الهندسي والتقني الكامل بأدق التفاصيل لآلية عمل نظام منصتك (CloudBase)، وهو نظام متكامل وقابل للتطبيق الفعلي المباشر لكونه يعتمد على قيادة الـ APIs الخاصة بالبرمجيات المثبتة والمستقرة لديك.
-ما هي نقطة البداية البرمجية التي تفضل أن نفتح ملفاتها الآن للبدء في كتابة الأكواد الخاصة بها؟  اكتب لي بورت مارك ابيه سصمم لي حتى لو  بالاريكت 
+**Container manager.** Portainer. Spring Boot sends compose text to `/api/stacks` with an API key. Portainer creates, updates, stops, and removes stacks. Logs and CPU/RAM samples also come from Portainer.
+
+**Public routing.** Nginx Proxy Manager. After a tenant container is up, the API creates (or updates) a proxy host: hostname → container on the `cloudbase` Docker network. TLS is a certificate already on NPM (`NPM_CERTIFICATE_ID`).
+
+**GitHub.** Users connect an account. For a GitHub service I inject a Dockerfile (if missing), a workflow, repo secrets, and a webhook. Builds run on GitHub Actions, not on the Mini PC. When the image is on Docker Hub, GitHub hits `https://api.cloudbase.website/api/webhooks/github`. Unsigned webhooks are rejected.
+
+**Email (optional).** Resend. If it is off, signup still works: the account is marked verified and I enable Deploy later from Admin.
+
+## What I dropped from the early notes
+
+The first architecture dump talked about Cloudflare Tunnel as the only public entry, admin “approve this repo” before any build, and a full xterm shell into every container.
+
+What shipped instead:
+
+- Public names go through NPM (`www`, `api`, `manage`, `npm`, plus tenant hosts).
+- Deploy is gated per user (`deploymentEnabled`), not a per-repo approval ticket.
+- Service console is logs + a constrained command path through Portainer exec, not an open shell on the host.
+
+## Data that must stay on the Mini PC
+
+Postgres for CloudBase itself. Tenant volume data under `CLOUDBASE_VOLUME_ROOT` (prod: `/var/lib/cloudbase/users`). If Portainer cannot tear a stack down, I do not delete the database row. Delete in the UI is type-the-name.
