@@ -22,6 +22,6 @@ Pushing this git repo does **not** update www by itself. See [operations.md](ope
 | USER | Projects, services, deploy, logs, metrics, domains |
 | ADMIN | Users, deploy gate, hosting tokens, infrastructure view, audit |
 
-A new account cannot deploy until I enable `deploymentEnabled` on that user. Admins skip the gate.
+A new account cannot deploy until I enable `deploymentEnabled` on that user. Admins skip the gate. Details: [accounts.md](accounts.md).
 
-There are no seed logins. I create the first admin myself (SQL or bootstrap env vars on first boot).
+How a user moves through the UI: [product.md](product.md).

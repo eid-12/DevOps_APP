@@ -4,7 +4,7 @@ Private PaaS for a Mini PC (Windows + WSL2 + Docker). Developers ship GitHub rep
 
 **Live:** [www.cloudbase.website](https://www.cloudbase.website) · API: [api.cloudbase.website](https://api.cloudbase.website)
 
-How the system is split: [`docs/README.md`](docs/README.md).
+How the system is split: [`docs/README.md`](docs/README.md) (architecture, product walkthrough, GitHub, networking, API).
 
 ---
 
