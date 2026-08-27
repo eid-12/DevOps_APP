@@ -16,7 +16,7 @@ I keep the system split here so I can open one file and know which layer I am lo
 | [networking.md](networking.md) | NPM, reserved hosts, vanity, custom domains |
 | [deploy.md](deploy.md) | GitHub / image / database path to a URL |
 | [quotas.md](quotas.md) | Free-plan RAM / CPU / disk |
-| [email.md](email.md) | Resend, on vs off |
+| [email.md](email.md) | Resend protocol, TTLs, rate limits, templates |
 | [security.md](security.md) | JWT, secrets, isolation |
 | [api.md](api.md) | HTTP and WebSocket surface |
 | [control-plane.md](control-plane.md) | This git repo: UI, API, Postgres |

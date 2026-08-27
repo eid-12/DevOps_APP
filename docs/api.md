@@ -10,10 +10,10 @@ JSON. JWT in `Authorization: Bearer`. Validation errors come back as messages th
 |--------|------|--------|
 | POST | `/api/auth/login` | |
 | POST | `/api/auth/register` | |
-| POST | `/api/auth/forgot-password` | Honest message if email is off |
-| POST | `/api/auth/reset-password` | |
-| POST | `/api/auth/verify-email` | |
-| POST | `/api/auth/resend-verification` | Cooldown |
+| POST | `/api/auth/forgot-password` | 503 if mail off; generic 200 if on; 30 min link |
+| POST | `/api/auth/reset-password` | Password-reset JWT |
+| POST | `/api/auth/verify-email` | 6-digit code, 15 min TTL |
+| POST | `/api/auth/resend-verification` | 60 s cooldown, 5 / hour |
 | GET | `/api/auth/github/callback` | OAuth redirect handler on the API |
 | GET | `/api/public/platform-status` | Landing metrics |
 | GET | `/api/public/app-config` | GitHub client id, `emailEnabled` |
@@ -48,7 +48,8 @@ All under `/api/admin/**`, `ROLE_ADMIN`:
 - `GET /infrastructure`
 - `GET /audit-logs`
 - Hosting settings GET/PUT
-- Email domain helpers if Resend is on
+- Email: `GET /email/status`, `POST /email/domain`, `POST /email/preview`
+- `POST /users/{id}/password-reset` (30 min link; skips user cooldown)
 
 ## WebSocket
 

@@ -5,11 +5,11 @@ Everyone who uses CloudBase is a row in Postgres. There are no shared demo login
 ## Signup
 
 1. Register at `/auth` with name, email, password.
-2. If Resend is on, they get a 6-digit code and must verify.
+2. If Resend is on, they get a 6-digit code (**15 minutes**). No session JWT until they verify. Clock, cooldowns, and templates: [email.md](email.md).
 3. If Resend is off, I mark the email verified immediately so they can sign in. They still cannot deploy until I say so.
 4. Account status starts as something I can activate or suspend from Admin.
 
-Password rules: 8+ characters, upper, lower, digit, special (`@$!%*?&#._-`). JWT session is two hours. After that they sign in again.
+Password rules: 8+ characters, upper, lower, digit, special (`@$!%*?&#._-`). JWT session is **two hours**. Password-reset link is **30 minutes**. After the session expires they sign in again.
 
 ## Two roles
 

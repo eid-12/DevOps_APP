@@ -6,7 +6,7 @@ This is what the UI actually does. Paths are Angular routes.
 
 **`/` Landing.** Marketing page plus live Mini PC stats (`GET /api/public/platform-status`): containers, stacks, CPU/RAM, Docker version. Stats are cached and rate-limited. GitHub client id for the SPA comes from `GET /api/public/app-config`.
 
-**`/auth`.** Sign in, sign up, forgot/reset, email code. Query `?mode=login|register|forgot|reset|verify`.
+**`/auth`.** Sign in, sign up, forgot/reset, email code. Query `?mode=login|register|forgot|reset|verify`. Codes last 15 minutes; reset links 30 minutes. Protocol: [email.md](email.md).
 
 **`/auth/github/callback`.** GitHub sends `?code=&state=` here. The SPA posts the code to the API; I never put the client secret in the browser.
 
