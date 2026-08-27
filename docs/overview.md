@@ -9,7 +9,7 @@ Live API: [api.cloudbase.website](https://api.cloudbase.website)
 
 I treat these as three different things. Mixing them up is how the mental model breaks.
 
-1. **Control plane** — this repository. Angular UI + Spring Boot API + Postgres. It stores users, projects, services, and tells Portainer / NPM what to do.
+1. **Control plane** — this repository. Angular UI + Spring Boot API + Postgres. It stores users, projects, services, and tells Portainer / NPM what to do. Schema: [database.md](database.md).
 2. **Runtime** — Docker on the Mini PC, managed through Portainer. Nginx Proxy Manager owns public HTTPS. This is not in the Angular app.
 3. **Tenant workloads** — other people’s apps. GitHub repos, Docker images, or databases. They run as their own stacks. They are not this repo.
 

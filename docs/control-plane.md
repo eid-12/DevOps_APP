@@ -51,7 +51,7 @@ API groups:
 
 Hosting tokens (Portainer, NPM, GitHub, Docker Hub) can be changed from Admin without rebuilding the API image. Env vars on the compose stack are the baseline; Admin can override stored settings.
 
-Flyway lives in `backend/src/main/resources/db/migration/`.
+Flyway lives in `backend/src/main/resources/db/migration/`. Schema: [database.md](database.md).
 
 ## Database
 

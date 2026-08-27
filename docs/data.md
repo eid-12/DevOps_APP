@@ -2,9 +2,11 @@
 
 CloudBase stores its own state in Postgres. Tenant app data lives in Docker volumes on the Mini PC.
 
+Tables and Flyway: [database.md](database.md).
+
 ## Project
 
-A folder for one person’s work. Has a name, optional description, environment tag (`production` / `staging` / `development`), status `ACTIVE` or `ARCHIVED`.
+A folder for one person’s work. Has a name, optional description, status `ACTIVE` or `ARCHIVED`. The UI can show a production / staging / development badge; that tag is **not** stored in Postgres (live API treats projects as production).
 
 A project does not run. Services run.
 

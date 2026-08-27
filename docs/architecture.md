@@ -13,7 +13,7 @@ CloudBase is a control plane that drives APIs I already run on the Mini PC. The 
      v
   api.cloudbase.website          Spring Boot (:8080, Docker network only)
      |
-     +-- Postgres                users, projects, services, deploys
+     +-- Postgres                users, projects, services, deploys  ([database.md](database.md))
      |
      +-- Portainer API           stacks, containers, logs, stats
      |        |

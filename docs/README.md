@@ -11,6 +11,7 @@ I keep the system split here so I can open one file and know which layer I am lo
 | [product.md](product.md) | Screens and user journeys |
 | [accounts.md](accounts.md) | Signup, roles, deploy gate, first admin |
 | [data.md](data.md) | Projects, services, deployments, delete |
+| [database.md](database.md) | Postgres: tables, Flyway, what is not stored |
 | [github.md](github.md) | OAuth, repo bootstrap, webhooks |
 | [networking.md](networking.md) | NPM, reserved hosts, vanity, custom domains |
 | [deploy.md](deploy.md) | GitHub / image / database path to a URL |
