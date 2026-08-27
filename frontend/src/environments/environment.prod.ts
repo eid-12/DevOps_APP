@@ -4,8 +4,5 @@ export const environment = {
   apiBaseUrl: '/api',
   githubClientId: 'Ov23li3UFtrRZEtEinjh',
   githubRedirectUri: 'https://www.cloudbase.website/auth/github/callback',
-  githubScopes: 'read:user repo user:email workflow',
-  portainerBaseUrl: '',
-  portainerToken: '',
-  portainerEndpointId: 3
+  githubScopes: 'read:user repo user:email workflow'
 };

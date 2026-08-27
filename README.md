@@ -173,8 +173,6 @@ Start the API with `--spring.profiles.active=prod` (Compose already sets this). 
 
 API groups: `/api/auth/**`, `/api/projects/**`, `/api/admin/**`, `/api/notifications/**`, `/api/public/platform-status`, `/api/webhooks/github`, `/ws`, `/actuator/health`.
 
-Postman: `frontend/postman/CloudBase.API.postman_collection.json`.
-
 ---
 
 ## Security notes

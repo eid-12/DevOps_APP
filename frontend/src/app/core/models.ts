@@ -327,6 +327,24 @@ export interface InfrastructureOverview {
   error?: string | null;
 }
 
+/** Admin infrastructure cards — mapped from GET /api/admin/infrastructure. */
+export interface PortainerHostMetrics {
+  connected: boolean;
+  endpointId: number;
+  endpointName: string;
+  runningContainers: number;
+  totalContainers: number;
+  healthyContainers: number;
+  unhealthyContainers: number;
+  stacks: number;
+  images: number;
+  volumes: number;
+  totalCpu: number;
+  totalMemoryGb: number;
+  dockerVersion: string;
+  error?: string;
+}
+
 export type AuditAction =
   | 'PROJECT_CREATED'
   | 'SERVICE_CREATED'

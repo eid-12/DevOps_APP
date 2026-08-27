@@ -10,7 +10,6 @@ const SILENT_URL_PARTS = [
   '/notifications/unread-count',
   '/notifications',
   '/auth/me',
-  '/portainer-api',
   '/logs',
   '/metrics',
   '/domain/check',
@@ -39,7 +38,7 @@ export const apiErrorInterceptor: HttpInterceptorFn = (req, next) => {
         return throwError(() => err);
       }
 
-      const isAppApi = req.url.includes('/api/') && !req.url.includes('/portainer-api');
+      const isAppApi = req.url.includes('/api/');
       if (isAppApi && err.status === 401 && !req.url.includes('/auth/login') && !req.url.includes('/auth/register')) {
         auth.logout();
         const returnUrl = router.url && !router.url.startsWith('/auth') ? router.url : undefined;

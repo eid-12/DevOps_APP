@@ -8,7 +8,6 @@ let showTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** Background / poll URLs — never block the whole UI. */
 const SKIP_SPINNER_PARTS = [
-  '/portainer-api',
   '/metrics',
   '/logs',
   '/notifications',

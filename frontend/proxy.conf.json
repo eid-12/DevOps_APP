@@ -11,14 +11,5 @@
     "changeOrigin": true,
     "ws": true,
     "logLevel": "info"
-  },
-  "/portainer-api": {
-    "target": "https://manage.cloudbase.website",
-    "secure": false,
-    "changeOrigin": true,
-    "pathRewrite": {
-      "^/portainer-api": ""
-    },
-    "logLevel": "info"
   }
 }
