@@ -14,7 +14,7 @@ Admin Hosting shows “configured” hints, not the raw secret, unless I type a 
 - JWT session, **2 hours** (`JWT_EXPIRATION_MS`)
 - Password-reset JWT, **30 minutes**, `purpose=password_reset` (rejected as a session)
 - GitHub OAuth state JWT, **10 minutes**
-- Email send: **60 s** cooldown, **5 / hour** per address per action; **5** wrong codes → **15 min** lock. See [email.md](email.md).
+- Email send: **60 s** cooldown; **5 / hour / inbox**; **8 / hour / IP**; **20 / hour** for the whole API (verification + reset). Slot taken before Resend. **5** wrong codes → **15 min** lock. See [email.md](email.md).
 - `/api/admin/**` needs `ROLE_ADMIN`
 - `/api/webhooks/**` is permit-all at Spring Security **but** the handler rejects bad HMAC
 - `/ws` needs a session JWT; topics are limited to services that user can access

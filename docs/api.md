@@ -9,11 +9,11 @@ JSON. JWT in `Authorization: Bearer`. Validation errors come back as messages th
 | Method | Path | Notes |
 |--------|------|--------|
 | POST | `/api/auth/login` | |
-| POST | `/api/auth/register` | |
-| POST | `/api/auth/forgot-password` | 503 if mail off; generic 200 if on; 30 min link |
+| POST | `/api/auth/register` | First code takes a slot; 5 / inbox, 8 / IP, 20 global |
+| POST | `/api/auth/forgot-password` | 503 if mail off; generic 200 if on; 30 min link; same caps |
 | POST | `/api/auth/reset-password` | Password-reset JWT |
 | POST | `/api/auth/verify-email` | 6-digit code, 15 min TTL |
-| POST | `/api/auth/resend-verification` | 60 s cooldown, 5 / hour |
+| POST | `/api/auth/resend-verification` | 60 s cooldown; 5 / inbox / hour; 8 / IP; 20 global |
 | GET | `/api/auth/github/callback` | OAuth redirect handler on the API |
 | GET | `/api/public/platform-status` | Landing metrics |
 | GET | `/api/public/app-config` | GitHub client id, `emailEnabled` |

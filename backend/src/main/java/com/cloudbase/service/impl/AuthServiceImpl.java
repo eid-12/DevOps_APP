@@ -115,6 +115,10 @@ public class AuthServiceImpl implements AuthService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already registered");
         }
 
+        if (emailService.isEnabled()) {
+            emailRateLimiter.acquireSend(EmailRateLimiter.Action.VERIFICATION, request.email());
+        }
+
         String code = generateVerificationCode();
         UserEntity user = UserEntity.builder()
                 .id("u-" + UUID.randomUUID().toString().substring(0, 8))
@@ -148,7 +152,6 @@ public class AuthServiceImpl implements AuthService {
 
         userRepository.save(user);
         emailService.sendEmailVerificationCode(user.getEmail(), user.getName(), code);
-        emailRateLimiter.recordSend(EmailRateLimiter.Action.VERIFICATION, user.getEmail());
         return new AuthResponse(
                 null,
                 toModel(user),
@@ -210,8 +213,6 @@ public class AuthServiceImpl implements AuthService {
                     "Email delivery is not configured. Ask an administrator to verify your account."
             );
         }
-        emailRateLimiter.checkCanSend(EmailRateLimiter.Action.VERIFICATION, email);
-
         UserEntity user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "If the account exists, a code will be sent."));
 
@@ -219,12 +220,12 @@ public class AuthServiceImpl implements AuthService {
             return new MessageResponse("Email already verified.");
         }
 
+        emailRateLimiter.acquireSend(EmailRateLimiter.Action.VERIFICATION, user.getEmail());
         String code = generateVerificationCode();
         user.setEmailVerificationCode(code);
         user.setEmailVerificationExpiresAt(Instant.now().plus(CODE_TTL_MINUTES, ChronoUnit.MINUTES));
         userRepository.save(user);
         emailService.sendEmailVerificationCode(user.getEmail(), user.getName(), code);
-        emailRateLimiter.recordSend(EmailRateLimiter.Action.VERIFICATION, user.getEmail());
         emailRateLimiter.clearVerifyFailures(user.getEmail());
         return new MessageResponse("A new verification code was sent to your email.");
     }
@@ -238,20 +239,22 @@ public class AuthServiceImpl implements AuthService {
             );
         }
         String generic = "If an account exists for that email, a reset link has been sent.";
-        // Always rate-limit by submitted address (even if no account) to stop spam.
-        emailRateLimiter.checkCanSend(EmailRateLimiter.Action.PASSWORD_RESET, email);
-        userRepository.findByEmail(email).ifPresent(user -> {
-            String token = jwtService.generatePasswordResetToken(user.getId());
-            String resetUrl = UriComponentsBuilder
-                    .fromUriString(resendProperties.appBaseUrl())
-                    .path("/auth")
-                    .queryParam("mode", "reset")
-                    .queryParam("token", token)
-                    .build()
-                    .toUriString();
-            emailService.sendPasswordReset(user.getEmail(), user.getName(), resetUrl);
-        });
-        emailRateLimiter.recordSend(EmailRateLimiter.Action.PASSWORD_RESET, email);
+        java.util.Optional<UserEntity> found = userRepository.findByEmail(email);
+        if (found.isEmpty()) {
+            emailRateLimiter.noteUnknownInbox(EmailRateLimiter.Action.PASSWORD_RESET, email);
+            return new MessageResponse(generic);
+        }
+        UserEntity user = found.get();
+        emailRateLimiter.acquireSend(EmailRateLimiter.Action.PASSWORD_RESET, user.getEmail());
+        String token = jwtService.generatePasswordResetToken(user.getId());
+        String resetUrl = UriComponentsBuilder
+                .fromUriString(resendProperties.appBaseUrl())
+                .path("/auth")
+                .queryParam("mode", "reset")
+                .queryParam("token", token)
+                .build()
+                .toUriString();
+        emailService.sendPasswordReset(user.getEmail(), user.getName(), resetUrl);
         return new MessageResponse(generic);
     }
 

@@ -32,10 +32,12 @@ Numbers below are the constants in the backend, not guesses.
 | Password-reset link | JWT `purpose=password_reset`, **30 minutes**. URL `{APP_BASE_URL}/auth?mode=reset&token=…`. Filter rejects any token that has a `purpose` as a session. | `JwtService.generatePasswordResetToken` `30 * 60 * 1000L` |
 | Session JWT | **2 hours** | `jwt.expiration-ms` default `7200000` in `application.properties` |
 | GitHub OAuth state | **10 minutes** | `JwtService.generateOAuthState` `10 * 60 * 1000L` |
-| Send cooldown | **60 seconds** per address per action (`VERIFICATION` vs `PASSWORD_RESET` are separate keys). SPA also hard-codes 60s on the button. | `EmailRateLimiter.COOLDOWN` |
-| Send hourly cap | **5** `recordSend` calls per address per action in a **fixed** 1-hour window from the first count (not a sliding window). Forgot-password counts the attempt even if no user / no mail went out. | `WINDOW` + `MAX_PER_WINDOW = 5` |
+| Send cooldown | **60 seconds** per inbox per action. SPA button also waits 60s. | `EmailRateLimiter.COOLDOWN` |
+| Per inbox / hour | **5** verification codes (register + resend share this). **5** password-reset attempts (counts even if the address has no account). Fixed 1-hour window. | `MAX_PER_EMAIL = 5` |
+| Per IP / hour | **8** auth mails (register + resend + forgot). Stops one laptop opening 50 inboxes. | `MAX_PER_IP = 8` |
+| Whole site / hour | **20** auth mails total (verification + reset combined). Reserved **before** Resend is called, under one lock. 50 parallel signups cannot sneak through. | `MAX_GLOBAL = 20` |
 | Wrong verification codes | **5** misses → code columns **nulled**, lock **15 minutes**, `429`. Resend-code generates a new code and `clearVerifyFailures`. | `MAX_VERIFY_FAILURES`, `VERIFY_LOCK` |
-| Rate-limit store | `ConcurrentHashMap` on the API JVM. Restart wipes it. | `EmailRateLimiter` |
+| Rate-limit store | In memory on the API JVM. Restart wipes windows. | `EmailRateLimiter` |
 
 The HTML line “Expires in 15 minutes” is a **copied string** in `ResendEmailService`, not `CODE_TTL_MINUTES` interpolated. Keep them in sync if the TTL changes.
 
@@ -45,9 +47,9 @@ HTTP `429` text is exact, e.g. `Please wait N seconds before requesting another 
 
 Forgot-password always rate-limits the **typed** address, even if no user exists, then returns the same generic line either way.
 
-Admin `POST /api/admin/users/{id}/password-reset` skips the user-facing cooldown (I am the sender).
+Admin `POST /api/admin/users/{id}/password-reset` skips these caps (I am the sender).
 
-Register does not wait on cooldown for the **first** code (new email). Resend-code does.
+Register **does** take a global/IP/inbox slot before the first code is sent. A 429 never creates the user row.
 
 ## When it is on
 
@@ -105,7 +107,7 @@ Live currently has email on (`emailEnabled: true` on app-config) with the mawrid
 |------|-----|
 | `backend/.../email/ResendEmailService.java` | HTTPS send, subjects, HTML, 15-minute copy in the code mail |
 | `backend/.../email/ResendProperties.java` | From / domain / admin-notify / app-base-url |
-| `backend/.../email/EmailRateLimiter.java` | 60s, 5/hour, 5 wrong codes, 15 min lock |
+| `backend/.../email/EmailRateLimiter.java` | 60s, 5/inbox, 8/IP, 20 global; slot before Resend |
 | `backend/.../service/impl/AuthServiceImpl.java` | Register / verify / resend / forgot; `CODE_TTL_MINUTES = 15` |
 | `backend/.../security/JwtService.java` | Session 2h (via properties), reset 30m, OAuth state 10m |
 | `backend/.../security/JwtAuthFilter.java` | Reset/OAuth JWTs cannot become a session |
