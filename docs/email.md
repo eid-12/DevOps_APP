@@ -24,16 +24,22 @@ If send fails, Resend’s error bubbles as `Failed to send email: …`. Deploy o
 
 ## Clock (TTL and limits)
 
-| What | Duration / cap |
-|------|----------------|
-| Signup verification code | **15 minutes**. 6 digits (`000000`–`999999`), `SecureRandom`. Stored on `users.email_verification_code` / `email_verification_expires_at`. |
-| Password-reset link | JWT `purpose=password_reset`, **30 minutes**. Query `https://www.cloudbase.website/auth?mode=reset&token=…`. Cannot be used as a session token. |
-| Session JWT | **2 hours** (`JWT_EXPIRATION_MS=7200000`). Not email; same clock the SPA shows. |
-| GitHub OAuth state | **10 minutes**. Not email. |
-| Send cooldown | **60 seconds** per address per action (verification vs password-reset are separate buckets). |
-| Send hourly cap | **5** successful sends per address per action per rolling **1 hour**. |
-| Wrong verification codes | **5** failures → current code **cleared**, lock **15 minutes**, then they must request a new code. |
-| Rate-limit store | In memory on the API JVM. Restart wipes cooldowns. Fine for one backend replica. |
+Numbers below are the constants in the backend, not guesses.
+
+| What | Duration / cap | Code |
+|------|----------------|------|
+| Signup verification code | **15 minutes**. 6 digits `000000`–`999999` (`SecureRandom`, `%06d`). Compared with `code.trim()`. Columns `email_verification_code` / `email_verification_expires_at`. | `AuthServiceImpl.CODE_TTL_MINUTES = 15` |
+| Password-reset link | JWT `purpose=password_reset`, **30 minutes**. URL `{APP_BASE_URL}/auth?mode=reset&token=…`. Filter rejects any token that has a `purpose` as a session. | `JwtService.generatePasswordResetToken` `30 * 60 * 1000L` |
+| Session JWT | **2 hours** | `jwt.expiration-ms` default `7200000` in `application.properties` |
+| GitHub OAuth state | **10 minutes** | `JwtService.generateOAuthState` `10 * 60 * 1000L` |
+| Send cooldown | **60 seconds** per address per action (`VERIFICATION` vs `PASSWORD_RESET` are separate keys). SPA also hard-codes 60s on the button. | `EmailRateLimiter.COOLDOWN` |
+| Send hourly cap | **5** `recordSend` calls per address per action in a **fixed** 1-hour window from the first count (not a sliding window). Forgot-password counts the attempt even if no user / no mail went out. | `WINDOW` + `MAX_PER_WINDOW = 5` |
+| Wrong verification codes | **5** misses → code columns **nulled**, lock **15 minutes**, `429`. Resend-code generates a new code and `clearVerifyFailures`. | `MAX_VERIFY_FAILURES`, `VERIFY_LOCK` |
+| Rate-limit store | `ConcurrentHashMap` on the API JVM. Restart wipes it. | `EmailRateLimiter` |
+
+The HTML line “Expires in 15 minutes” is a **copied string** in `ResendEmailService`, not `CODE_TTL_MINUTES` interpolated. Keep them in sync if the TTL changes.
+
+`resetPassword` on the API only requires **6** characters. Account change-password and the Angular register/reset forms use the strong 8+ rule. The link still dies at 30 minutes either way.
 
 HTTP `429` text is exact, e.g. `Please wait N seconds before requesting another email.`
 
@@ -92,3 +98,15 @@ Details of roles and the gate: [accounts.md](accounts.md).
 | `RESEND_ENSURE_DOMAIN` | Exists on the properties object; domain create is still the admin POST. |
 
 Live currently has email on (`emailEnabled: true` on app-config) with the mawrid domain already in DNS.
+
+## Where this is in the repo
+
+| File | Job |
+|------|-----|
+| `backend/.../email/ResendEmailService.java` | HTTPS send, subjects, HTML, 15-minute copy in the code mail |
+| `backend/.../email/ResendProperties.java` | From / domain / admin-notify / app-base-url |
+| `backend/.../email/EmailRateLimiter.java` | 60s, 5/hour, 5 wrong codes, 15 min lock |
+| `backend/.../service/impl/AuthServiceImpl.java` | Register / verify / resend / forgot; `CODE_TTL_MINUTES = 15` |
+| `backend/.../security/JwtService.java` | Session 2h (via properties), reset 30m, OAuth state 10m |
+| `backend/.../security/JwtAuthFilter.java` | Reset/OAuth JWTs cannot become a session |
+| `frontend/.../auth-page.component.ts` | 6-digit `^\d{6}$`, cooldown 60s, `emailEnabled` copy |
