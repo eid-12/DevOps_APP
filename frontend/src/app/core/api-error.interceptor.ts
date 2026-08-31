@@ -39,7 +39,10 @@ export const apiErrorInterceptor: HttpInterceptorFn = (req, next) => {
       }
 
       const isAppApi = req.url.includes('/api/');
-      if (isAppApi && err.status === 401 && !req.url.includes('/auth/login') && !req.url.includes('/auth/register')) {
+      const isLogin = req.url.includes('/auth/login') || req.url.includes('/auth/register');
+      // GitHub token errors must not kill the CloudBase session.
+      const isGitHubCall = req.url.includes('/auth/github');
+      if (isAppApi && err.status === 401 && !isLogin && !isGitHubCall) {
         auth.logout();
         const returnUrl = router.url && !router.url.startsWith('/auth') ? router.url : undefined;
         router.navigate(['/auth'], {

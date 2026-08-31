@@ -395,6 +395,11 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
                     />
                     @if (reposError()) {
                       <p class="muted u-text-danger u-text-12 empty-hint">{{ reposError() }}</p>
+                    } @else if (!reposLoading() && githubRepos().length === 0) {
+                      <p class="muted u-text-12 empty-hint">
+                        No repos returned. Paste the URL below, or reconnect GitHub on Account
+                        (org repos need the org to approve CloudBase).
+                      </p>
                     }
                   </div>
                 }

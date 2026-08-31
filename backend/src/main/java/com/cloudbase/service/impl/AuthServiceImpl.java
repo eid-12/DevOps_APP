@@ -548,6 +548,11 @@ public class AuthServiceImpl implements AuthService {
         if (entity.getGithubUsername() == null || entity.getGithubUsername().isBlank()) {
             return GitHubConnection.disconnected();
         }
+        boolean hasToken = entity.getGithubAccessToken() != null && !entity.getGithubAccessToken().isBlank();
+        if (!hasToken) {
+            // Username-only stub is not a real OAuth link — repo list needs a token.
+            return GitHubConnection.disconnected();
+        }
         List<String> scopes = entity.getGithubScopes() == null || entity.getGithubScopes().isBlank()
                 ? List.of()
                 : Arrays.stream(entity.getGithubScopes().split(","))

@@ -30,8 +30,8 @@ export function friendlyApiMessage(err: unknown, fallback = 'Something went wron
   if (lower.includes('must be running')) {
     return 'Start or deploy the service before using this.';
   }
-  if (lower.includes('portainer is unreachable')) {
-    return 'Infrastructure is temporarily unreachable. Try again in a moment.';
+  if (lower.includes('reconnect github') || lower.includes('rejected the token') || lower.includes('not connected with a valid token')) {
+    return 'GitHub needs a reconnect from Account, then pick the repo again.';
   }
 
   return text.slice(0, 200);

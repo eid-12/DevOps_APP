@@ -18,6 +18,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Mono;
 import com.cloudbase.service.PlatformSettingsService;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
@@ -263,40 +264,49 @@ public class GitHubOAuthClient {
     }
 
     /**
-     * GET https://api.github.com/user/repos - repos the token can access.
+     * GET https://api.github.com/user/repos — pages of 100, up to 500.
+     * GitHub 401/403 must not become CloudBase session 401 (that logs the SPA out).
      */
     public List<GitHubRepo> listRepos(String accessToken) {
         if (!StringUtils.hasText(accessToken)) {
-            throw GitHubOAuthException.unauthorized("missing_token", "Access token is required");
+            throw GitHubOAuthException.badRequest(
+                    "missing_token",
+                    "GitHub is not connected with a valid token. Connect GitHub from Account first."
+            );
         }
 
-        List<Map<String, Object>> body;
+        List<GitHubRepo> out = new ArrayList<>();
         try {
-            body = webClient.get()
-                    .uri("https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member")
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
-                    .header(HttpHeaders.ACCEPT, "application/vnd.github+json")
-                    .header("X-GitHub-Api-Version", "2022-11-28")
-                    .header(HttpHeaders.USER_AGENT, "CloudBase-OAuth")
-                    .retrieve()
-                    .onStatus(
-                            status -> status.value() == HttpStatus.UNAUTHORIZED.value(),
-                            resp -> resp.bodyToMono(String.class).defaultIfEmpty("").flatMap(msg ->
-                                    Mono.error(GitHubOAuthException.unauthorized(
-                                            "invalid_token",
-                                            "GitHub rejected the access token - reconnect GitHub on Account."
-                                    ))
-                            )
-                    )
-                    .bodyToMono(new ParameterizedTypeReference<List<Map<String, Object>>>() {})
-                    .block();
+            for (int page = 1; page <= 5; page++) {
+                List<Map<String, Object>> body = fetchReposPage(accessToken, page);
+                if (body == null || body.isEmpty()) {
+                    break;
+                }
+                for (Map<String, Object> row : body) {
+                    GitHubRepo mapped = mapRepo(row);
+                    if (mapped != null) {
+                        out.add(mapped);
+                    }
+                }
+                if (body.size() < 100) {
+                    break;
+                }
+            }
         } catch (GitHubOAuthException e) {
             throw e;
         } catch (WebClientResponseException e) {
             log.warn("GitHub /user/repos HTTP {}: {}", e.getStatusCode().value(), e.getResponseBodyAsString());
+            int code = e.getStatusCode().value();
+            if (code == HttpStatus.UNAUTHORIZED.value() || code == HttpStatus.FORBIDDEN.value()) {
+                throw GitHubOAuthException.badRequest(
+                        "invalid_token",
+                        "GitHub rejected the token. Disconnect and Connect GitHub again on Account. "
+                                + "Org repos also need the org to approve this OAuth app."
+                );
+            }
             throw GitHubOAuthException.badGateway(
                     "github_repos_http_error",
-                    "Failed to load GitHub repositories (HTTP " + e.getStatusCode().value() + ")"
+                    "Failed to load GitHub repositories (HTTP " + code + ")"
             );
         } catch (WebClientRequestException e) {
             log.error("Cannot reach GitHub repos API", e);
@@ -315,24 +325,50 @@ public class GitHubOAuthClient {
         } catch (RuntimeException e) {
             throw unwrapOAuth(e);
         }
+        return out;
+    }
 
-        if (body == null) {
-            return List.of();
+    private List<Map<String, Object>> fetchReposPage(String accessToken, int page) {
+        return webClient.get()
+                .uri("https://api.github.com/user/repos?per_page=100&page={page}&sort=updated"
+                                + "&affiliation=owner,collaborator,organization_member&visibility=all",
+                        page)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                .header(HttpHeaders.ACCEPT, "application/vnd.github+json")
+                .header("X-GitHub-Api-Version", "2022-11-28")
+                .header(HttpHeaders.USER_AGENT, "CloudBase-OAuth")
+                .retrieve()
+                .onStatus(
+                        status -> status.value() == HttpStatus.UNAUTHORIZED.value()
+                                || status.value() == HttpStatus.FORBIDDEN.value(),
+                        resp -> resp.bodyToMono(String.class).defaultIfEmpty("").flatMap(msg ->
+                                Mono.error(GitHubOAuthException.badRequest(
+                                        "invalid_token",
+                                        "GitHub rejected the token. Disconnect and Connect GitHub again on Account. "
+                                                + "Org repos also need the org to approve this OAuth app."
+                                ))
+                        )
+                )
+                .bodyToMono(new ParameterizedTypeReference<List<Map<String, Object>>>() {})
+                .block();
+    }
+
+    private static GitHubRepo mapRepo(Map<String, Object> row) {
+        if (row == null) {
+            return null;
         }
-
-        return body.stream()
-                .map(row -> {
-                    String fullName = row.get("full_name") != null ? String.valueOf(row.get("full_name")) : "";
-                    String htmlUrl = row.get("html_url") != null ? String.valueOf(row.get("html_url")) : "";
-                    boolean isPrivate = Boolean.TRUE.equals(row.get("private"));
-                    String defaultBranch = row.get("default_branch") != null
-                            ? String.valueOf(row.get("default_branch"))
-                            : "main";
-                    String name = row.get("name") != null ? String.valueOf(row.get("name")) : fullName;
-                    return new GitHubRepo(fullName, name, htmlUrl, isPrivate, defaultBranch);
-                })
-                .filter(r -> StringUtils.hasText(r.fullName()) && StringUtils.hasText(r.htmlUrl()))
-                .toList();
+        String fullName = row.get("full_name") != null ? String.valueOf(row.get("full_name")) : "";
+        String htmlUrl = row.get("html_url") != null ? String.valueOf(row.get("html_url")) : "";
+        if (!StringUtils.hasText(fullName) || !StringUtils.hasText(htmlUrl)) {
+            return null;
+        }
+        Object priv = row.get("private");
+        boolean isPrivate = Boolean.TRUE.equals(priv) || "true".equalsIgnoreCase(String.valueOf(priv));
+        String defaultBranch = row.get("default_branch") != null
+                ? String.valueOf(row.get("default_branch"))
+                : "main";
+        String name = row.get("name") != null ? String.valueOf(row.get("name")) : fullName;
+        return new GitHubRepo(fullName, name, htmlUrl, isPrivate, defaultBranch);
     }
 
     public List<String> parseScopes(String scopeCsv) {
