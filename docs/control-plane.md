@@ -8,12 +8,12 @@ DevOps_APP/
 ├── backend/           Spring Boot 3.3, JDK 17
 ├── docker-compose.yml           local: build from source
 ├── docker-compose.prod.yml      live: pull minipcer/* images
-└── docs/
+└── docs/                       frontend/ + backend/ + system map
 ```
 
 ## Frontend
 
-Angular 18, TypeScript, PrimeNG. Styles live under `frontend/src/styles/` (SCSS). Local `ng serve` proxies `/api` to `:8080`.
+Angular 18, TypeScript, PrimeNG. Styles live under `frontend/src/styles/` (SCSS). Local `ng serve` proxies `/api` and `/ws` to `:8080`. Details: [frontend/stack.md](frontend/stack.md).
 
 Production image is nginx listening on **3000**. NPM `www.cloudbase.website` forwards to `cloudbase-frontend:3000`.
 
@@ -51,7 +51,7 @@ API groups:
 
 Hosting tokens (Portainer, NPM, GitHub, Docker Hub) can be changed from Admin without rebuilding the API image. Env vars on the compose stack are the baseline; Admin can override stored settings.
 
-Flyway lives in `backend/src/main/resources/db/migration/`. Schema: [database.md](database.md).
+Flyway lives in `backend/src/main/resources/db/migration/`. Schema: [backend/database.md](backend/database.md). Technologies: [backend/stack.md](backend/stack.md).
 
 ## Database
 

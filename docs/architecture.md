@@ -13,7 +13,7 @@ CloudBase is a control plane that drives APIs I already run on the Mini PC. The 
      v
   api.cloudbase.website          Spring Boot (:8080, Docker network only)
      |
-     +-- Postgres                users, projects, services, deploys  ([database.md](database.md))
+     +-- Postgres                users, projects, services, deploys  ([backend/database.md](backend/database.md))
      |
      +-- Portainer API           stacks, containers, logs, stats
      |        |
@@ -33,7 +33,7 @@ CloudBase is a control plane that drives APIs I already run on the Mini PC. The 
 
 **Host.** Windows on the Mini PC. Docker uses WSL2. Tenant containers stay in Docker; they do not write into the Windows desktop.
 
-**Control plane.** This repo. See [control-plane.md](control-plane.md).
+**Control plane.** This repo. See [control-plane.md](control-plane.md). API technologies (Tomcat vs Netty, WebSocket): [backend/stack.md](backend/stack.md).
 
 **Container manager.** Portainer. Spring Boot sends compose text to `/api/stacks` with an API key. Portainer creates, updates, stops, and removes stacks. Logs and CPU/RAM samples also come from Portainer.
 

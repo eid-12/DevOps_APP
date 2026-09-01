@@ -9,7 +9,7 @@ Live API: [api.cloudbase.website](https://api.cloudbase.website)
 
 I treat these as three different things. Mixing them up is how the mental model breaks.
 
-1. **Control plane** — this repository. Angular UI + Spring Boot API + Postgres. It stores users, projects, services, and tells Portainer / NPM what to do. Schema: [database.md](database.md).
+1. **Control plane** — this repository. Angular UI + Spring Boot API + Postgres. It stores users, projects, services, and tells Portainer / NPM what to do. Schema: [backend/database.md](backend/database.md). Stack: [backend/stack.md](backend/stack.md).
 2. **Runtime** — Docker on the Mini PC, managed through Portainer. Nginx Proxy Manager owns public HTTPS. This is not in the Angular app.
 3. **Tenant workloads** — other people’s apps. GitHub repos, Docker images, or databases. They run as their own stacks. They are not this repo.
 
@@ -22,6 +22,6 @@ Pushing this git repo does **not** update www by itself. See [operations.md](ope
 | USER | Projects, services, deploy, logs, metrics, domains |
 | ADMIN | Users, deploy gate, hosting tokens, infrastructure view, audit |
 
-A new account cannot deploy until I enable `deploymentEnabled` on that user. Admins skip the gate. Details: [accounts.md](accounts.md).
+A new account cannot deploy until I enable `deploymentEnabled` on that user. Admins skip the gate. Details: [backend/accounts.md](backend/accounts.md).
 
-How a user moves through the UI: [product.md](product.md).
+How a user moves through the UI: [frontend/product.md](frontend/product.md).

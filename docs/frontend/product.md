@@ -6,7 +6,7 @@ This is what the UI actually does. Paths are Angular routes.
 
 **`/` Landing.** Marketing page plus live Mini PC stats (`GET /api/public/platform-status`): containers, stacks, CPU/RAM, Docker version. Stats are cached and rate-limited. GitHub client id for the SPA comes from `GET /api/public/app-config`.
 
-**`/auth`.** Sign in, sign up, forgot/reset, email code. Query `?mode=login|register|forgot|reset|verify`. Codes last 15 minutes; reset links 30 minutes. Protocol: [email.md](email.md).
+**`/auth`.** Sign in, sign up, forgot/reset, email code. Query `?mode=login|register|forgot|reset|verify`. Codes last 15 minutes; reset links 30 minutes. Protocol: [../backend/email.md](../backend/email.md).
 
 **`/auth/github/callback`.** GitHub sends `?code=&state=` here. The SPA posts the code to the API; I never put the client secret in the browser.
 
@@ -29,7 +29,7 @@ This is what the UI actually does. Paths are Angular routes.
 
 **`/account`.** Profile, change password, GitHub connect/disconnect, usage meters, API tokens for later CLI (CLI itself is not this release).
 
-**`/billing`.** Free plan copy + the same usage numbers. Hard caps are RAM / CPU / storage, not “max 2 projects”. See [quotas.md](quotas.md).
+**`/billing`.** Free plan copy + the same usage numbers. Hard caps are RAM / CPU / storage, not “max 2 projects”. See [../backend/quotas.md](../backend/quotas.md).
 
 **`/help`.** Short how-to. Not a second README.
 
@@ -49,4 +49,4 @@ The browser does not call Portainer or NPM. If Infrastructure looks empty, hard-
 
 ## Notifications
 
-Bell in the navbar. In-app rows for deploys and service events. Email is optional (prefs on the account + Resend on). See [email.md](email.md).
+Bell in the navbar. In-app rows for deploys and service events. Email is optional (prefs on the account + Resend on). See [../backend/email.md](../backend/email.md).

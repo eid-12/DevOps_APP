@@ -1,6 +1,6 @@
 # API map
 
-Spring Boot on `:8080`. Production hostname `https://api.cloudbase.website`. The SPA calls `/api` (proxied locally, same-site via NPM on live).
+Spring Boot on `:8080` (embedded **Tomcat**). Technologies behind this surface: [stack.md](stack.md). Production hostname `https://api.cloudbase.website`. The SPA calls `/api` (proxied locally, same-site via NPM on live).
 
 JSON. JWT in `Authorization: Bearer`. Validation errors come back as messages the UI already understands.
 
@@ -53,7 +53,9 @@ All under `/api/admin/**`, `ROLE_ADMIN`:
 
 ## WebSocket
 
-`/ws` — deploy events and live bits for a service the JWT can access. Polling still works if the socket drops.
+`/ws` — STOMP over SockJS. Deploy events and live logs for a service the JWT can access. Polling still works if the socket drops.
+
+How it is wired (Tomcat + simple broker + interceptor): [stack.md](stack.md).
 
 ## Postman
 
