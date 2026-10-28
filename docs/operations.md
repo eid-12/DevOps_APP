@@ -11,6 +11,8 @@ Pushing to `master` builds, tests and deploys CloudBase automatically through Gi
 | Pull request to `master` | backend `mvn clean verify` (JDK 17), frontend `npm ci && npm run build`, both Docker images built (not pushed) | none: no secrets, read-only token |
 | Push to `master` | the same checks, then **publish** and **deploy** | only the `production` environment, which only `master` can use |
 
+Because the namespace equals the `DOCKERHUB_USERNAME` secret, Actions masks it in logs (`***/cloudbase-backend`) and refuses to pass it between jobs, so only the digests travel from publish to deploy and the image references are rebuilt there.
+
 **Publish** builds both images from the pushed commit and pushes them as `minipcer/cloudbase-{backend,frontend}:<full commit sha>`, labelled `org.opencontainers.image.revision=<sha>`. The digests are in the run summary and the `release-<sha>` artifact.
 
 **Deploy** runs [`deploy/portainer-deploy.sh`](../deploy/portainer-deploy.sh):
@@ -26,16 +28,17 @@ Only one deploy runs at a time (`concurrency: production-deploy`); a newer queue
 
 Note: Portainer recreates every container in the stack on update, including Postgres. Data lives in the named volume `cloudbase-platform_cloudbase_postgres_data` and survives; expect a few seconds of API downtime per deploy.
 
-### Required GitHub settings (Settings → Environments → `production`)
+### Required GitHub settings
 
-Deployment branches: **`master` only**. Values are never committed.
+Secrets can be **repository** secrets (Settings → Secrets and variables → Actions) or **`production` environment** secrets (Settings → Environments → `production`); an environment secret overrides a repository secret of the same name. The `production` environment's deployment branches are **`master` only**, and only the publish/deploy jobs use it. Pull-request jobs reference no secrets. Values are never committed.
 
 | Kind | Name | Value |
 |------|------|-------|
-| Secret | `DOCKERHUB_TOKEN` | Docker Hub access token for `minipcer` with **Read & Write** on the two `cloudbase-*` repos only |
+| Secret | `DOCKERHUB_USERNAME` | Docker Hub account that owns the images (`minipcer`); falls back to the variable or `minipcer` |
+| Secret | `DOCKERHUB_TOKEN` | Docker Hub access token for that account with **Read & Write** scope (not the account password) |
 | Secret | `PORTAINER_API_KEY` | Portainer API key that can update stack 44 on endpoint 3 |
 | Secret (optional) | `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | only if `manage.cloudbase.website` is put behind Cloudflare Access |
-| Variable (optional) | `DOCKERHUB_USERNAME`, `DOCKERHUB_NAMESPACE`, `PORTAINER_URL`, `PORTAINER_ENDPOINT_ID`, `PORTAINER_STACK_ID` | defaults: `minipcer`, `minipcer`, `https://manage.cloudbase.website`, `3`, `44` |
+| Variable (optional) | `DOCKERHUB_NAMESPACE`, `PORTAINER_URL`, `PORTAINER_ENDPOINT_ID`, `PORTAINER_STACK_ID` | defaults: `minipcer`, `https://manage.cloudbase.website`, `3`, `44` |
 
 ### Verifying a release
 
