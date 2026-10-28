@@ -13,8 +13,6 @@ frontend/node_modules/
 frontend/dist/
 frontend/.angular/
 frontend/out-tsc/
-# obsolete: UI packages used to be vendored here; now installed from npm
-frontend/vendor-pkgs/
 
 # Backend
 backend/target/

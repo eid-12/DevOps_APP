@@ -1,6 +1,8 @@
-# Production stack for Portainer (Mini PC). Pulls prebuilt images.
-# Requires the external Docker network `cloudbase` (NPM is already on it).
-# Do not publish Postgres to the host.
+# Production stack `cloudbase-platform` (Portainer stack 44 on the Mini PC). Pulls prebuilt images.
+# Reference copy: the live stack file lives in Portainer. CI/CD (deploy/portainer-deploy.sh) rewrites only the
+# two `image:` lines, pinning them to <sha>@<digest>; `:latest` below is what a manual deploy would pull.
+# Requires the external Docker network `cloudbase` (NPM is already on it). Postgres is never published on the host.
+# Variables: copy deploy/.env.example to deploy/.env for a manual `docker compose -f deploy/docker-compose.prod.yml up`.
 
 services:
   postgres:
