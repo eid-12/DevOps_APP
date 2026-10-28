@@ -3,7 +3,7 @@ package com.cloudbase.github;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * Binds github.oauth.* from application.yml / env vars.
+ * Binds github.oauth.* from application.properties (env vars).
  */
 @ConfigurationProperties(prefix = "github.oauth")
 public record GitHubOAuthProperties(
