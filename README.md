@@ -140,7 +140,7 @@ Always verify from clean outputs so stale `target/` classes cannot hide a compil
 
 ```bash
 cd backend && mvn clean verify          # compile + unit tests + package
-cd frontend && npm ci && npx ng build   # strict template/type check + production bundle
+cd frontend && npm ci && npm run build # seeds environment.ts if missing; strict type check + prod bundle
 ```
 
 Same thing on the exact image JDK, without a local toolchain:
