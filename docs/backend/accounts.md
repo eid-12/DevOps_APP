@@ -49,3 +49,17 @@ WHERE email = 'you@your-domain';
 ## GitHub on the account
 
 Account → connect GitHub (OAuth). CloudBase stores the connection on the user, not a platform-wide GitHub user. Scopes include repo + workflow so I can inject the Dockerfile and Actions file. Details: [github.md](github.md).
+
+## Quotas
+
+Everyone is on the Free plan in this release. The Billing page's 2 projects / 3 services are **soft** limits; a fourth project is not rejected.
+
+The hard pool (enforced):
+
+| Resource | Cap |
+|----------|-----|
+| RAM | 4096 MB |
+| CPU | 2000 millicores |
+| Disk | 5 GB |
+
+Each new service takes a slice (by default about 256 MB / 250m CPU / 1 GB), and the running slices cannot exceed the pool. The usage meters on Account and Billing read the same numbers. Beyond that, an admin can stop a user with **Suspend** or by turning Deploy off.

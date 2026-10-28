@@ -118,7 +118,7 @@ Webhook path is `permitAll` at Spring Security; `WebhookController` still requir
 
 JSON columns (`source_details`, `env_vars`, `shared_variables`) are `jsonb` via `@JdbcTypeCode(SqlTypes.JSON)`.
 
-Schema: [database.md](database.md). Product language: [data.md](data.md).
+Schema and domain model: [database.md](database.md).
 
 ## Email
 
@@ -190,7 +190,6 @@ From `backend/pom.xml`:
 
 | File | Job |
 |------|-----|
-| `application.properties` | Datasource, JWT, Portainer, NPM, GitHub, Resend, topology |
-| `application.yml` | GitHub OAuth + Resend + actuator (YAML overlay) |
+| `application.properties` | All settings (datasource, JWT, Portainer, NPM, GitHub, Resend, CORS, actuator), each bound to an env var with a dev default |
 | `application-prod.properties` | Force real `JWT_SECRET` / `DB_PASS` / `GITHUB_WEBHOOK_SECRET` |
-| `application-local.properties` | Local overrides (not committed with secrets) |
+| `application-local.properties` | Native local run; copy from `application-local.properties.example` (gitignored) |

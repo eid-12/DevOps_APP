@@ -38,4 +38,4 @@ Never commit `.env`, `application-local.properties`, or `frontend/src/environmen
 
 ## Delete
 
-Type the exact name. Tear down Portainer first. If that fails, keep the DB row. See [data.md](data.md).
+Type the exact name. Tear down Portainer first. If that fails, keep the DB row. See [database.md](database.md#delete-order).

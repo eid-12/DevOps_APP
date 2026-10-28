@@ -58,7 +58,7 @@ Automatic rollback covers a failed rollout. To return to an earlier good release
 
 ## Manual deploy (fallback when Actions is unavailable)
 
-1. Verify from clean outputs: `mvn clean verify` in `backend/`, `npm ci && npm run build` in `frontend/` (see README “Clean build and tests”). The Dockerfiles build from source, so the images never reuse a local `target/` or `node_modules`. Do not bake `application-local.properties` into the JAR.
+1. Verify from clean outputs: `mvn clean verify` in `backend/`, `npm ci && npm run build` in `frontend/` (see the README “Test” section). The Dockerfiles build from source, so the images never reuse a local `target/` or `node_modules`. Do not bake `application-local.properties` into the JAR.
 2. Build and push both images tagged with the full commit SHA (`docker build --label org.opencontainers.image.revision=<sha> -t minipcer/cloudbase-backend:<sha> backend`, same for `frontend`; nginx must listen on 3000).
 3. On Portainer, update stack **cloudbase-platform** with the two image lines pinned to `<sha>@<digest>` and pull enabled.
 4. Take a database backup first: `pg_dump -U cloudbase -d cloudbase -Fc` inside `cloudbase-postgres`.
@@ -69,7 +69,7 @@ Frontend cache: `index.html` is `Cache-Control: no-store` so a stale SPA chunk i
 
 | | Local | Live |
 |--|-------|------|
-| Compose | `docker-compose.yml` (build context) | `docker-compose.prod.yml` (prebuilt images) |
+| Compose | `docker-compose.yml` (builds from source) | `deploy/docker-compose.prod.yml` (prebuilt images, pinned by CI/CD) |
 | UI | `http://localhost:4200` | `https://www.cloudbase.website` |
 | API | `http://localhost:8080` | `https://api.cloudbase.website` |
 | GitHub callback | `http://localhost:4200/auth/github/callback` | `https://www.cloudbase.website/auth/github/callback` |

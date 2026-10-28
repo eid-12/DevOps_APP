@@ -6,8 +6,6 @@ PostgreSQL 16. Database name `cloudbase`. Flyway owns the schema (`spring.jpa.hi
 
 Local compose publishes `5432`. Production compose does **not** publish Postgres. The API talks to `cloudbase-postgres` on the Docker network.
 
-Product language (project / service / delete): [data.md](data.md).
-
 ## Two kinds of “database”
 
 | What | Where |
@@ -16,6 +14,24 @@ Product language (project / service / delete): [data.md](data.md).
 | Tenant `DATABASE` service | A separate container (Postgres / MySQL / Redis / Mongo). Credentials live in that service’s `source_details` / env. Data lives on a Docker volume. |
 
 Deleting a CloudBase **service** row does not wipe Docker Hub images. Deleting the platform Postgres would wipe every account and every pointer to Portainer stacks — it would not stop those stacks by itself.
+
+## Domain model
+
+**Project** — a folder for one person's work: name, optional description, status `ACTIVE` or `ARCHIVED`. A project does not run; its services do. Shared variables live on the project and can be attached to any of its services, so the same `DATABASE_URL` is not pasted five times.
+
+**Service** — one container (or a small compose: app + optional Watchtower).
+
+| `sourceType` | Meaning |
+|--------------|---------|
+| `GITHUB` | Repo URL + branch + runtime. CI is bootstrapped on the repo; the image comes from GitHub Actions. |
+| `DOCKER` | An existing image on Docker Hub (preset or typed). |
+| `DATABASE` | Managed Postgres / MySQL / Redis / Mongo with generated credentials. Type and port lock after create. |
+
+Status moves through `PENDING`, `BUILDING`, `DEPLOYING`, `RUNNING`, `STOPPED`, `FAILED`, `CRASHED`. Each service takes a quota slice (CPU millicores, memory MB, storage GB) from its owner's pool ([accounts.md](accounts.md#quotas)). An optional volume is a mount path inside the container; the data lives under `CLOUDBASE_VOLUME_ROOT`.
+
+**Deployment** — one row per rollout: image tag, stage, timestamps, error text, log snippet. Rollback means running an earlier deployment's image again.
+
+**User** — email, BCrypt hash, role, account status, `deploymentEnabled`, email verified, optional GitHub connection, notification preferences.
 
 ## Shape
 
