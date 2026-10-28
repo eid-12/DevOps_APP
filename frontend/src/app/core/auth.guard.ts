@@ -92,26 +92,6 @@ export const adminGuard: CanActivateFn = (_route, state) =>
 export const adminMatch: CanMatchFn = (_route, segments) =>
   guardPipeline(true, '/' + segments.map(s => s.path).join('/'), true);
 
-/** Developers only — admins manage via Admin panel, not Deploy/Dashboard */
-export const developerGuard: CanActivateFn = (_route, state) => {
-  const auth = inject(AuthService);
-  const router = inject(Router);
-  return auth.ensureSession({ forceRefresh: false }).pipe(
-    map(user => {
-      const gate = afterSession(user, auth, router, state.url, false);
-      if (gate !== true) return gate;
-      if (auth.isAdmin()) {
-        return router.createUrlTree(['/admin']);
-      }
-      if (!user || !auth.hasDeployAccess()) {
-        return router.createUrlTree(['/dashboard']);
-      }
-      return true;
-    }),
-    catchError(() => of(loginTree(router, state.url)))
-  );
-};
-
 /** Send already-authenticated users away from public auth/landing when appropriate. */
 export const guestGuard: CanActivateFn = () => {
   const auth = inject(AuthService);

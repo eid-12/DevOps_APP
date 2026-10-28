@@ -16,8 +16,6 @@ import { withNormalizedDockerDetails } from '../shared/service-source.util';
 /**
  * HTTP wrappers for infrastructure orchestration endpoints
  * (Portainer deploy/rollback, env apply, NPM subdomain, GitHub webhook is server-only).
- *
- * Use when environment.useApi === true, or call directly from pages during cutover.
  */
 @Injectable({ providedIn: 'root' })
 export class InfrastructureApiService {

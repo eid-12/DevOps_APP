@@ -230,7 +230,6 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
                     @if (menuOpenId() === project.id) {
                       <div class="project-menu-dropdown panel">
                         <button type="button" (click)="openEditProject(project)">Edit</button>
-                        <button type="button" (click)="cloneProject(project)">Clone</button>
                         @if (project.status === 'ACTIVE') {
                           <button type="button" (click)="archiveProject(project)">Archive</button>
                         } @else {
@@ -787,17 +786,6 @@ export class DashboardPageComponent implements OnInit {
           err?.error?.message ?? 'Delete failed. Nothing was removed from CloudBase until Portainer confirms.'
         );
       }
-    });
-  }
-
-  cloneProject(project: Project) {
-    this.menuOpenId.set(null);
-    this.projectService.clone(project.id).subscribe({
-      next: cloned => {
-        this.projects.update(list => [cloned, ...list]);
-        this.router.navigate(['/projects', cloned.id]);
-      },
-      error: err => this.message.set(err?.error?.message ?? 'Clone failed')
     });
   }
 

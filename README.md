@@ -221,7 +221,6 @@ API groups: `/api/auth/**`, `/api/projects/**`, `/api/admin/**`, `/api/notificat
 |---------|-----|
 | Maven / `Unsupported class file major version` | JDK 17 on `JAVA_HOME` |
 | Port 8080 busy | Stop the old Java process |
-| UI talks to mock data | `useApi: true` in local `environment.ts` |
 | Portainer offline | Admin → Hosting, or env vars |
 | Arabic/non-ASCII project path breaks `mvn spring-boot:run` | Package the JAR, copy it to an ASCII path, run `java -jar` |
 

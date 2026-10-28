@@ -67,7 +67,7 @@ A folder. Does not run anything.
 | `shared_variables` | jsonb array. Key / value / secret flag / which service ids inherit it. |
 | `created_at` | |
 
-The UI has a production / staging / development badge. That is **not** a column. Live API mapping hard-codes `production`. Mock store still stores the tag locally.
+The UI has a production / staging / development badge. That is **not** a column. Live API mapping hard-codes `production`.
 
 ### `services`
 

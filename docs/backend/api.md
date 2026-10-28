@@ -53,7 +53,7 @@ All under `/api/admin/**`, `ROLE_ADMIN`:
 
 ## WebSocket
 
-`/ws` — STOMP over SockJS. Deploy events and live logs for a service the JWT can access. Polling still works if the socket drops.
+`/ws` — STOMP over SockJS. Deploy events and live logs for a service the JWT can access. The bundled SPA does not use it (it polls the REST endpoints); it is there for other clients.
 
 How it is wired (Tomcat + simple broker + interceptor): [stack.md](stack.md).
 

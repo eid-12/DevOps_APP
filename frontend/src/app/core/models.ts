@@ -48,24 +48,6 @@ export interface NotificationPrefs {
   emailWeeklyUsage: boolean;
 }
 
-export interface ApiToken {
-  id: string;
-  name: string;
-  prefix: string;
-  createdAt: string;
-  lastUsedAt?: string;
-}
-
-export interface ActivityEvent {
-  id: string;
-  userId: string;
-  type: 'DEPLOY' | 'STOP' | 'CREATE_PROJECT' | 'CREATE_SERVICE' | 'DELETE' | 'GITHUB' | 'SETTINGS' | 'LOGIN';
-  title: string;
-  detail: string;
-  timestamp: string;
-  href?: string;
-}
-
 export interface UsageSummary {
   projects: number;
   services: number;
@@ -136,14 +118,6 @@ export interface PlanInfo {
   deploymentsUnlimited?: boolean;
   customDomains: boolean;
   prioritySupport: boolean;
-}
-
-export interface OnboardingState {
-  dismissed: boolean;
-  connectedGithub: boolean;
-  createdProject: boolean;
-  deployedService: boolean;
-  addedDomain: boolean;
 }
 
 export interface GitHubSourceDetails {

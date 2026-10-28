@@ -19,7 +19,7 @@ docs/
 | File | What it covers |
 |------|----------------|
 | [frontend/README.md](frontend/README.md) | Index |
-| [frontend/stack.md](frontend/stack.md) | Angular 18, PrimeNG, interceptors, SockJS |
+| [frontend/stack.md](frontend/stack.md) | Angular 18, PrimeNG, interceptors, HTTP polling |
 | [frontend/product.md](frontend/product.md) | Screens and user journeys |
 
 ## Backend

@@ -30,15 +30,8 @@ There is no NgRx. App state is services + interceptors (`frontend/src/app/core/`
 | Admin | `admin.service.ts` | Users, hosting, audit |
 | GitHub | `github-oauth.service.ts` | Browser OAuth; secret stays on the API |
 
-`useApi: true` in local `environment.ts` is required or the UI talks to `mock-store.ts` instead of Spring Boot.
+The SPA always talks to the Spring Boot API (`apiBaseUrl`); there is no offline/mock mode.
 
 ## Live updates
 
-`deployment-events.service.ts` opens **STOMP over SockJS** to `/ws` (same origin; proxied locally). JWT goes on STOMP `CONNECT`. Topics match the backend broker:
-
-- `/topic/deployments/{serviceId}`
-- `/topic/logs/{serviceId}`
-
-SockJS / STOMP are loaded from `window` (CDN/global), not an npm package. If the socket dies, HTTP polling still works.
-
-Server side of this: [../backend/stack.md](../backend/stack.md) (WebSocket section).
+The SPA refreshes deploy state, logs and metrics by **HTTP polling** of the service endpoints. It does not open the backend's STOMP `/ws` socket (no SockJS/STOMP client ships in the bundle); that endpoint and its topics (`/topic/deployments/{serviceId}`, `/topic/logs/{serviceId}`) are available for a future client. Server side: [../backend/stack.md](../backend/stack.md) (WebSocket section).

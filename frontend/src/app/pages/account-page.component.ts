@@ -8,8 +8,7 @@ import { TagModule } from 'primeng/tag';
 import { MessageModule } from 'primeng/message';
 import { AuthService } from '../core/auth.service';
 import { GitHubOAuthService } from '../core/github-oauth.service';
-import { ApiToken, NotificationPrefs, UsageSummary } from '../core/models';
-import { environment } from '../../environments/environment';
+import { NotificationPrefs, UsageSummary } from '../core/models';
 import { AutofocusDirective } from '../shared/directives/autofocus.directive';
 import { CopyTextDirective } from '../shared/directives/copy-text.directive';
 import { PressableDirective } from '../shared/directives/pressable.directive';
@@ -381,44 +380,10 @@ const STRONG_PASSWORD_PATTERN = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#.
         </dl>
       </section>
 
-      <!-- API tokens (mock mode only — real tokens not shipped yet) -->
-      @if (!useApi) {
-      <section class="panel svc-panel account-span-2">
-        <div class="svc-panel-head">
-          <h3>API Tokens</h3>
-          <button type="button" class="btn btn-ghost btn-sm" (click)="createToken()" [disabled]="tokenBusy()">+ New Token</button>
-        </div>
-        <p class="muted u-mb-12 u-text-13">Use tokens for CI/CD and the CloudBase CLI.</p>
-        @if (newTokenSecret()) {
-          <div class="pill pill-amber railway-alert u-block u-mb-12">
-            Copy this token now — it won’t be shown again:<br>
-            <code class="mono" [appCopyText]="newTokenSecret()!">{{ newTokenSecret() }}</code>
-          </div>
-        }
-        <div class="token-list">
-          @for (t of tokens(); track t.id) {
-            <div class="token-row">
-              <div>
-                <strong>{{ t.name }}</strong>
-                <div class="muted mono u-text-12">{{ t.prefix }}…</div>
-              </div>
-              <div class="muted u-text-12">
-                Created {{ t.createdAt | timeAgo }}
-                @if (t.lastUsedAt) { · Last used {{ t.lastUsedAt | timeAgo }} }
-              </div>
-              <button type="button" class="btn btn-ghost btn-sm danger" (click)="revokeToken(t)">Revoke</button>
-            </div>
-          } @empty {
-            <p class="muted">No tokens yet.</p>
-          }
-        </div>
-      </section>
-      } @else {
       <section class="panel svc-panel account-span-2">
         <div class="svc-panel-head"><h3>API Tokens</h3></div>
         <p class="muted u-text-13">Deploy from the dashboard or GitHub Actions. Personal CLI tokens are not part of this release.</p>
       </section>
-      }
     </div>
   </div>
 </div>
@@ -429,14 +394,12 @@ export class AccountPageComponent implements OnInit {
   readonly githubOAuth = inject(GitHubOAuthService);
   readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
-  readonly useApi = !!(environment as { useApi?: boolean }).useApi;
 
   name = '';
   email = '';
   currentPassword = '';
   newPassword = '';
   confirmPassword = '';
-  githubUsername = '';
   tokenName = '';
   readonly passwordPattern = STRONG_PASSWORD_PATTERN;
   notif: NotificationPrefs = {
@@ -450,13 +413,10 @@ export class AccountPageComponent implements OnInit {
   readonly savingNotif = signal(false);
   readonly githubBusy = signal(false);
   readonly githubSwitchOpen = signal(false);
-  readonly tokenBusy = signal(false);
   readonly message = signal('');
   readonly tone = signal<'ok' | 'error'>('ok');
   readonly usage = signal<UsageSummary | null>(null);
   readonly usageError = signal('');
-  readonly tokens = signal<ApiToken[]>([]);
-  readonly newTokenSecret = signal('');
 
   ngOnInit() {
     const user = this.auth.user();
@@ -466,7 +426,6 @@ export class AccountPageComponent implements OnInit {
     }
     this.name = user.name;
     this.email = user.email;
-    this.githubUsername = user.email.split('@')[0] || '';
     this.notif = { ...(user.notifications ?? this.notif) };
     this.auth.usage().subscribe({
       next: u => {
@@ -475,7 +434,6 @@ export class AccountPageComponent implements OnInit {
       },
       error: () => this.usageError.set('Could not load usage')
     });
-    this.refreshTokens();
 
     // Deep-link from create flow: land on Account GitHub section — do NOT auto-redirect to github.com
     if (this.route.snapshot.queryParamMap.get('connect') === 'github' && !this.githubConnected()) {
@@ -544,20 +502,6 @@ export class AccountPageComponent implements OnInit {
 
   cancelGitHubSwitch() {
     this.githubSwitchOpen.set(false);
-  }
-
-  connectGitHub() {
-    this.githubBusy.set(true);
-    this.auth.connectGitHub(this.githubUsername).subscribe({
-      next: () => {
-        this.githubBusy.set(false);
-        this.flash('GitHub connected', 'ok');
-      },
-      error: e => {
-        this.githubBusy.set(false);
-        this.flash(e?.error?.message ?? 'Connect failed', 'error');
-      }
-    });
   }
 
   disconnectGitHub() {
@@ -651,39 +595,6 @@ export class AccountPageComponent implements OnInit {
         this.savingNotif.set(false);
         this.flash(e?.error?.message ?? 'Failed to save', 'error');
       }
-    });
-  }
-
-  refreshTokens() {
-    this.auth.listApiTokens().subscribe({ next: t => this.tokens.set(t) });
-  }
-
-  createToken() {
-    const name = prompt('Token name', 'CI token');
-    if (!name?.trim()) return;
-    this.tokenBusy.set(true);
-    this.auth.createApiToken(name.trim()).subscribe({
-      next: result => {
-        this.tokenBusy.set(false);
-        this.newTokenSecret.set(result.secret);
-        this.refreshTokens();
-        this.flash('API token created', 'ok');
-      },
-      error: e => {
-        this.tokenBusy.set(false);
-        this.flash(e?.error?.message ?? 'Failed to create token', 'error');
-      }
-    });
-  }
-
-  revokeToken(token: ApiToken) {
-    if (!confirm(`Revoke token “${token.name}”?`)) return;
-    this.auth.revokeApiToken(token.id).subscribe({
-      next: () => {
-        this.refreshTokens();
-        this.flash('Token revoked', 'ok');
-      },
-      error: e => this.flash(e?.error?.message ?? 'Revoke failed', 'error')
     });
   }
 

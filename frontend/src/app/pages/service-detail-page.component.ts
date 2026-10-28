@@ -1687,7 +1687,6 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
         if (m['available']) {
           const cpu = Number(m['cpuPercent'] ?? 0);
           const mem = Number(m['memoryUsageMb'] ?? 0);
-          const memPct = Number(m['memoryPercent'] ?? 0);
           this.service.update(s => s ? { ...s, cpuUsage: cpu, ramUsageMb: Math.round(mem) } : s);
         }
         const history = Array.isArray(m['history']) ? (m['history'] as Array<Record<string, unknown>>) : [];

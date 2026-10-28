@@ -67,17 +67,6 @@ export function defaultStartCommand(runtime: string | undefined | null): string 
   }
 }
 
-/** Client-side hint checks (server enforces the real rules). */
-export function startCommandLooksUnsafe(cmd: string): string | null {
-  const t = (cmd || '').trim();
-  if (!t) return null;
-  if (t.length > 400) return 'Max 400 characters';
-  if (/[|&=`$<>\\]/.test(t) || /\$\(|\$\{/.test(t)) return 'Shell operators are not allowed';
-  if (/[\r\n\t]/.test(t)) return 'Single line only';
-  if (/(^|\s)(curl|wget|bash|sh|sudo|docker|nc|ncat)\b/i.test(t)) return 'Blocked binary';
-  return null;
-}
-
 export function parseDockerImageRef(value: string): { imageName: string; imageTag: string } {
   const raw = (value || '').trim();
   if (!raw) return { imageName: '', imageTag: 'latest' };
