@@ -17,8 +17,11 @@ public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
 
-    public SecurityConfig(JwtAuthFilter jwtAuthFilter) {
+    private final JsonSecurityErrorHandler securityErrorHandler;
+
+    public SecurityConfig(JwtAuthFilter jwtAuthFilter, JsonSecurityErrorHandler securityErrorHandler) {
         this.jwtAuthFilter = jwtAuthFilter;
+        this.securityErrorHandler = securityErrorHandler;
     }
 
     @Bean
@@ -38,6 +41,11 @@ public class SecurityConfig {
                 .requestMatchers("/actuator/**").hasRole("ADMIN")
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .anyRequest().authenticated()
+            )
+            // Default would be an empty 403 for a missing/expired token; the SPA logs out only on 401.
+            .exceptionHandling(e -> e
+                .authenticationEntryPoint(securityErrorHandler)
+                .accessDeniedHandler(securityErrorHandler)
             )
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
