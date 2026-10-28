@@ -5,6 +5,9 @@
 # use the public hostnames below — NOT http://portainer:9000 / http://npm:81
 # (those only work if the backend container shares the Mini PC Docker network).
 
+# ─── CORS (ng serve on :4200) ───────────────────────────────────────────────
+CLOUDBASE_CORS_ALLOWED_ORIGINS=http://localhost:4200
+
 # ─── Portainer ───────────────────────────────────────────────────────────────
 PORTAINER_URL=https://manage.cloudbase.website
 PORTAINER_API_KEY=ptr_xxxxxxxx
