@@ -60,7 +60,7 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
           <h1 class="railway-page-title">{{ project()?.name ?? '…' }}</h1>
           @if (project()?.description) {
             <p class="railway-page-sub">{{ project()?.description }}</p>
-          } @else {
+          } @else if (project()) {
             <p class="railway-page-sub flex align-items-center gap-2">
               <p-tag
                 [value]="(project()?.environment || 'production') | uppercase"
@@ -83,13 +83,13 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
           type="button"
           class="btn btn-primary railway-new-btn"
           (click)="openPicker()"
-          [disabled]="adding() || !canAddService() || project()?.status === 'ARCHIVED'"
+          [disabled]="!project() || adding() || !canAddService() || project()?.status === 'ARCHIVED'"
           [title]="!canAddService() && canManage() ? 'Free plan limit reached — see Billing' : ''"
         >+ Add Service</button>
       </div>
     </header>
 
-    @if (error()) {
+    @if (error() && project()) {
       <div class="pill pill-red railway-alert">{{ error() }}</div>
     }
 
@@ -103,12 +103,21 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
       </div>
     }
 
-    @if (!canManage() && !loading()) {
+    @if (project() && !canManage() && !loading()) {
       <div class="pill pill-red railway-alert">
         Deploy access is locked. Adding, editing, deploying, stopping, and deleting services is blocked until an admin enables Deploy.
       </div>
     }
 
+    @if (!project() && !loading()) {
+      <!-- Load failed (unknown id, no access, API down): don't render a workspace that invites dead actions. -->
+      <div class="railway-empty panel" role="alert">
+        <div class="empty-icon">⬡</div>
+        <p>Project unavailable</p>
+        <p class="empty-sub">{{ error() || 'This project does not exist or you no longer have access to it.' }}</p>
+        <button type="button" class="btn btn-primary u-mt-16" (click)="router.navigate(['/dashboard'])">Back to projects</button>
+      </div>
+    } @else {
     <nav class="svc-tabs project-tabs" role="tablist">
       <button type="button" class="svc-tab" [class.active]="projectTab() === 'services'" (click)="projectTab.set('services')">Services</button>
       <button type="button" class="svc-tab" [class.active]="projectTab() === 'variables'" (click)="openVariablesTab()">Project Variables</button>
@@ -360,6 +369,7 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
         </div>
       }
     </div>
+    }
     }
   </div>
 </div>
