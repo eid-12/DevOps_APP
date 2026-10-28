@@ -5,10 +5,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.validation.FieldError;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -66,12 +68,21 @@ public class ApiExceptionHandler {
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Map<String, Object>> handleValidation(MethodArgumentNotValidException ex) {
         String details = ex.getBindingResult().getFieldErrors().stream()
-                .map(FieldError::getDefaultMessage)
+                .map(e -> e.getField() + ": " + e.getDefaultMessage())
                 .collect(Collectors.joining("; "));
         return ResponseEntity.badRequest().body(errorBody(
                 HttpStatus.BAD_REQUEST.value(),
                 "validation_error",
                 details.isBlank() ? "Validation failed" : details
+        ));
+    }
+
+    @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class})
+    public ResponseEntity<Map<String, Object>> handleUnreadableRequest(Exception ex) {
+        return ResponseEntity.badRequest().body(errorBody(
+                HttpStatus.BAD_REQUEST.value(),
+                "bad_request",
+                "Malformed request"
         ));
     }
 
@@ -86,6 +97,18 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGeneric(Exception ex) {
+        // Spring MVC's own client errors (unknown route, wrong method, unsupported media type,
+        // missing parameter, …) keep their 4xx status instead of becoming an opaque 500.
+        if (ex instanceof ErrorResponse er) {
+            HttpStatus status = HttpStatus.resolve(er.getStatusCode().value());
+            if (status != null && status.is4xxClientError()) {
+                return ResponseEntity.status(status).body(errorBody(
+                        status.value(),
+                        status.name().toLowerCase(),
+                        status.getReasonPhrase()
+                ));
+            }
+        }
         log.error("Unhandled error", ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorBody(
                 HttpStatus.INTERNAL_SERVER_ERROR.value(),
