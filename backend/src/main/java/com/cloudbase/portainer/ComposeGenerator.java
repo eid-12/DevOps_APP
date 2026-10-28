@@ -3,6 +3,7 @@ package com.cloudbase.portainer;
 import com.cloudbase.entity.ServiceEntity;
 import com.cloudbase.model.DatabaseType;
 import com.cloudbase.model.ServiceSourceType;
+import com.cloudbase.service.ComposeInputValidator;
 import com.cloudbase.service.PlatformSettingsService;
 import com.cloudbase.service.StartCommandValidator;
 import com.cloudbase.service.VolumeMountValidator;
@@ -142,8 +143,7 @@ public class ComposeGenerator {
                 "imageName",
                 dockerHubNamespace() + "/" + sanitizeName(service.getName())
         ));
-        String image = imageName.contains(":") ? imageName : imageName + ":" + tag;
-        return appServiceCompose(service, userId, image);
+        return appServiceCompose(service, userId, imageReference(imageName, tag));
     }
 
     private String generateDockerCompose(ServiceEntity service, String userId, String imageTagOverride) {
@@ -152,8 +152,7 @@ public class ComposeGenerator {
         String tag = imageTagOverride != null && !imageTagOverride.isBlank()
                 ? imageTagOverride
                 : String.valueOf(src.getOrDefault("imageTag", "latest"));
-        String image = imageName.contains(":") ? imageName : imageName + ":" + tag;
-        return appServiceCompose(service, userId, image);
+        return appServiceCompose(service, userId, imageReference(imageName, tag));
     }
 
     private String appServiceCompose(ServiceEntity service, String userId, String image) {
@@ -168,7 +167,7 @@ public class ComposeGenerator {
         StringBuilder compose = new StringBuilder();
         compose.append("services:\n");
         compose.append("  ").append(svcKey).append(":\n");
-        compose.append("    image: ").append(image).append("\n");
+        compose.append("    image: ").append(yamlDoubleQuoted(image)).append("\n");
         compose.append("    container_name: ").append(containerName).append("\n");
         compose.append("    restart: unless-stopped\n");
         compose.append("    pull_policy: always\n");
@@ -330,6 +329,13 @@ public class ComposeGenerator {
         }
     }
 
+    /** Validated {@code name:tag}, or the name as given when it already carries a tag or digest. */
+    static String imageReference(String imageName, String tag) {
+        String name = ComposeInputValidator.requireImage(imageName.trim());
+        boolean hasTagOrDigest = name.contains("@") || name.lastIndexOf(':') > name.lastIndexOf('/');
+        return hasTagOrDigest ? name : name + ":" + ComposeInputValidator.requireImageTag(tag.trim());
+    }
+
     private static String yamlDoubleQuoted(String value) {
         return "\"" + value
                 .replace("\\", "\\\\")
@@ -346,9 +352,10 @@ public class ComposeGenerator {
             return;
         }
         compose.append("    environment:\n");
-        service.getEnvVars().keySet().stream().sorted().forEach(key ->
-                compose.append("      ").append(key).append(": ${").append(key).append("}\n")
-        );
+        service.getEnvVars().keySet().stream().sorted().forEach(key -> {
+            ComposeInputValidator.requireEnvKey(key);
+            compose.append("      ").append(key).append(": ${").append(key).append("}\n");
+        });
     }
 
     private void appendNetworks(StringBuilder compose, String projectId) {

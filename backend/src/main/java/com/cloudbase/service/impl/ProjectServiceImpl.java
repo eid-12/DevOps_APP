@@ -31,6 +31,7 @@ import com.cloudbase.repository.ProjectRepository;
 import com.cloudbase.repository.ServiceRepository;
 import com.cloudbase.repository.UserRepository;
 import com.cloudbase.service.CiBootstrapService;
+import com.cloudbase.service.ComposeInputValidator;
 import com.cloudbase.service.ContainerRuntimeService;
 import com.cloudbase.service.DeploymentOrchestrator;
 import com.cloudbase.service.PlanQuotaService;
@@ -186,6 +187,7 @@ public class ProjectServiceImpl implements ProjectService {
         Map<String, Object> details = request.sourceDetails() != null
                 ? new HashMap<>(request.sourceDetails())
                 : new HashMap<>();
+        validateImageDetails(details);
 
         ServiceEntity service = ServiceEntity.builder()
                 .id("svc-" + UUID.randomUUID().toString().substring(0, 8))
@@ -372,6 +374,9 @@ public class ProjectServiceImpl implements ProjectService {
         requireDeploymentEnabled(user);
         planQuotaService.assertCanDeploy(user);
         ServiceEntity service = getService(serviceId, user);
+        if (request != null && request.imageTag() != null && !request.imageTag().isBlank()) {
+            ComposeInputValidator.requireImageTag(request.imageTag().trim());
+        }
         return orchestrator.startDeploy(service, user.getEmail(), request, null);
     }
 
@@ -903,6 +908,7 @@ public class ProjectServiceImpl implements ProjectService {
                     : new HashMap<>();
             Map<String, Object> details = new HashMap<>(previousDetails);
             details.putAll(request.sourceDetails());
+            validateImageDetails(details);
 
             // Database engine + internal port are immutable after create.
             if (service.getSourceType() == ServiceSourceType.DATABASE) {
@@ -1043,12 +1049,24 @@ public class ProjectServiceImpl implements ProjectService {
         return raw == null ? "" : String.valueOf(raw);
     }
 
+    /** Reject image values that could not be written safely into the generated compose YAML. */
+    private static void validateImageDetails(Map<String, Object> details) {
+        Object image = details.get("imageName");
+        if (image != null && !String.valueOf(image).isBlank()) {
+            ComposeInputValidator.requireImage(String.valueOf(image).trim());
+        }
+        Object tag = details.get("imageTag");
+        if (tag != null && !String.valueOf(tag).isBlank()) {
+            ComposeInputValidator.requireImageTag(String.valueOf(tag).trim());
+        }
+    }
+
     private Map<String, Object> toEnvMap(List<EnvironmentVariable> envVars) {
         Map<String, Object> map = new LinkedHashMap<>();
         if (envVars == null) return map;
         for (EnvironmentVariable ev : envVars) {
             if (ev == null || ev.key() == null || ev.key().isBlank()) continue;
-            map.put(ev.key().trim(), Map.of(
+            map.put(ComposeInputValidator.requireEnvKey(ev.key().trim()), Map.of(
                     "value", ev.value() == null ? "" : ev.value(),
                     "isSecret", ev.isSecret()
             ));
