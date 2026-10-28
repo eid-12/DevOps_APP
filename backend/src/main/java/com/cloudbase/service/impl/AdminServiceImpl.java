@@ -229,7 +229,7 @@ public class AdminServiceImpl implements AdminService {
             );
         }
         UserEntity user = requireUser(userId);
-        String token = jwtService.generatePasswordResetToken(user.getId());
+        String token = jwtService.generatePasswordResetToken(user.getId(), user.getPasswordHash());
         String resetUrl = UriComponentsBuilder
                 .fromUriString(resendProperties.appBaseUrl())
                 .path("/auth")
