@@ -69,6 +69,13 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- libsodium sealed box (X25519 + XSalsa20-Poly1305 + BLAKE2b) for GitHub Actions secrets -->
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcprov-jdk18on</artifactId>
+            <version>1.78.1</version>
+        </dependency>
+
         <!-- Persistence -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

@@ -19,7 +19,7 @@ When they add a GitHub service and deploy is allowed, `CiBootstrapService` talks
 
 1. Dockerfile — write one if the repo has none (runtime from the picker: node, java, …).
 2. `.github/workflows/cloudbase-deploy.yml` — build on push, login to Docker Hub, push `minipcer/<name>:tag`.
-3. Actions secrets — Docker Hub user/token, webhook-related values, encrypted with GitHub’s public key (`github_secret_encrypt.py` + Java).
+3. Actions secrets — Docker Hub user/token, webhook-related values, encrypted with the repo’s Actions public key (libsodium sealed box, in-process Java).
 4. Webhook — `https://api.cloudbase.website/api/webhooks/github`, secret `GITHUB_WEBHOOK_SECRET`.
 
 I do not run `docker build` on the Mini PC for their app. GitHub Actions does.

@@ -128,7 +128,7 @@ Rate limits live in-memory in `EmailRateLimiter` (one JVM replica; restart clear
 
 ## GitHub extras
 
-Writing Actions secrets uses GitHub’s libsodium sealed box. Java does not do that natively here: `GitHubSecretEncryptor` shells out to `python backend/scripts/github_secret_encrypt.py` (PyNaCl). OAuth, repo files, webhooks: [github.md](github.md).
+Writing Actions secrets uses GitHub’s libsodium sealed box, implemented in-process by `GitHubSecretEncryptor` with Bouncy Castle (`bcprov-jdk18on`); a unit test pins it byte-for-byte to libsodium output. No Python is needed at runtime. OAuth, repo files, webhooks: [github.md](github.md).
 
 ## Scheduling (same JVM)
 
