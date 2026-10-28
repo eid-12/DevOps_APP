@@ -18,6 +18,7 @@ import com.cloudbase.model.UserAccount;
 import com.cloudbase.model.UserRole;
 import com.cloudbase.repository.UserRepository;
 import com.cloudbase.security.JwtService;
+import com.cloudbase.security.PasswordPolicy;
 import com.cloudbase.service.AuthService;
 import com.cloudbase.service.PlanQuotaService;
 import org.springframework.http.HttpStatus;
@@ -32,6 +33,8 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -81,7 +84,7 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public AuthResponse login(LoginRequest request) {
-        UserEntity user = userRepository.findByEmail(request.email())
+        UserEntity user = findUserByEmail(request.email())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid email or password"));
 
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
@@ -111,19 +114,21 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public AuthResponse register(RegisterRequest request) {
-        if (userRepository.existsByEmail(request.email())) {
+        String email = normalizeEmail(request.email());
+        if (userRepository.existsByEmailIgnoreCase(email)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already registered");
         }
+        PasswordPolicy.require(request.password());
 
         if (emailService.isEnabled()) {
-            emailRateLimiter.acquireSend(EmailRateLimiter.Action.VERIFICATION, request.email());
+            emailRateLimiter.acquireSend(EmailRateLimiter.Action.VERIFICATION, email);
         }
 
         String code = generateVerificationCode();
         UserEntity user = UserEntity.builder()
                 .id("u-" + UUID.randomUUID().toString().substring(0, 8))
                 .name(request.name())
-                .email(request.email())
+                .email(email)
                 .passwordHash(passwordEncoder.encode(request.password()))
                 .role(UserRole.USER)
                 .accountStatus(AccountStatus.PENDING_ACTIVATION)
@@ -163,7 +168,7 @@ public class AuthServiceImpl implements AuthService {
     public MessageResponse verifyEmail(String email, String code) {
         emailRateLimiter.checkVerifyAllowed(email);
 
-        UserEntity user = userRepository.findByEmail(email)
+        UserEntity user = findUserByEmail(email)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid email or code"));
 
         if (user.isEmailVerified()) {
@@ -213,7 +218,7 @@ public class AuthServiceImpl implements AuthService {
                     "Email delivery is not configured. Ask an administrator to verify your account."
             );
         }
-        UserEntity user = userRepository.findByEmail(email)
+        UserEntity user = findUserByEmail(email)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "If the account exists, a code will be sent."));
 
         if (user.isEmailVerified()) {
@@ -239,7 +244,7 @@ public class AuthServiceImpl implements AuthService {
             );
         }
         String generic = "If an account exists for that email, a reset link has been sent.";
-        java.util.Optional<UserEntity> found = userRepository.findByEmail(email);
+        Optional<UserEntity> found = findUserByEmail(email);
         if (found.isEmpty()) {
             emailRateLimiter.noteUnknownInbox(EmailRateLimiter.Action.PASSWORD_RESET, email);
             return new MessageResponse(generic);
@@ -260,9 +265,7 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public MessageResponse resetPassword(String token, String newPassword) {
-        if (newPassword == null || newPassword.length() < 6) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Password must be at least 6 characters");
-        }
+        PasswordPolicy.require(newPassword);
         final String userId;
         try {
             userId = jwtService.parsePasswordResetUserId(token);
@@ -489,12 +492,7 @@ public class AuthServiceImpl implements AuthService {
                 || newPassword == null || newPassword.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Current and new password are required");
         }
-        if (!isStrongPassword(newPassword)) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Password must be at least 8 characters and include upper, lower, digit, and special character"
-            );
-        }
+        PasswordPolicy.require(newPassword);
         if (!passwordEncoder.matches(currentPassword, managed.getPasswordHash())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Current password is incorrect");
         }
@@ -526,17 +524,24 @@ public class AuthServiceImpl implements AuthService {
         return toModel(userRepository.save(managed));
     }
 
-    private static boolean isStrongPassword(String password) {
-        if (password == null || password.length() < 8) return false;
-        boolean upper = false, lower = false, digit = false, special = false;
-        for (int i = 0; i < password.length(); i++) {
-            char c = password.charAt(i);
-            if (Character.isUpperCase(c)) upper = true;
-            else if (Character.isLowerCase(c)) lower = true;
-            else if (Character.isDigit(c)) digit = true;
-            else special = true;
+    /** New accounts are stored trimmed + lowercased so one inbox maps to one account. */
+    static String normalizeEmail(String email) {
+        return email == null ? "" : email.trim().toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * Exact match first (legacy rows may be mixed-case), then a case-insensitive match only
+     * when it is unambiguous, so "Alice@X.com" finds "alice@x.com" without guessing between
+     * pre-existing case-variant duplicates.
+     */
+    private Optional<UserEntity> findUserByEmail(String rawEmail) {
+        String trimmed = rawEmail == null ? "" : rawEmail.trim();
+        Optional<UserEntity> exact = userRepository.findByEmail(trimmed);
+        if (exact.isPresent()) {
+            return exact;
         }
-        return upper && lower && digit && special;
+        List<UserEntity> matches = userRepository.findAllByEmailIgnoreCase(trimmed);
+        return matches.size() == 1 ? Optional.of(matches.get(0)) : Optional.empty();
     }
 
     private static String generateVerificationCode() {
