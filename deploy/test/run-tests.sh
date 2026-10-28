@@ -16,7 +16,10 @@ failures=0
 trap '[[ -n "$MOCK_PID" ]] && kill "$MOCK_PID" 2>/dev/null; rm -f "$OUT"' EXIT
 
 start_mock() {  # mode compare
-  [[ -n "$MOCK_PID" ]] && kill "$MOCK_PID" 2>/dev/null && wait "$MOCK_PID" 2>/dev/null || true
+  if [[ -n "$MOCK_PID" ]]; then
+    kill "$MOCK_PID" 2>/dev/null || true
+    wait "$MOCK_PID" 2>/dev/null || true
+  fi
   MODE="$1" COMPARE="$2" PORT="$PORT" node deploy/test/mock-portainer.js >/dev/null &
   MOCK_PID=$!
   for _ in $(seq 1 50); do curl -s "http://127.0.0.1:${PORT}/_puts" >/dev/null && return; sleep 0.1; done
