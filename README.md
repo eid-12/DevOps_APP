@@ -24,7 +24,7 @@ How the system is split: [`docs/README.md`](docs/README.md) — [frontend](docs/
 | Layer | Tech |
 |-------|------|
 | Frontend | Angular 18, TypeScript, PrimeNG |
-| API | Spring Boot 3.3, JDK 17, JWT, JPA, Flyway, WebSocket |
+| API | Spring Boot 3.3, Java 17 bytecode (build on JDK 17–25), JWT, JPA, Flyway, WebSocket |
 | Database | PostgreSQL 16 |
 | Runtime | Docker + Portainer |
 | Routing / TLS | Nginx Proxy Manager |
@@ -105,7 +105,7 @@ Tenant apps stay on random hosts (`cloudbase8472.cloudbase.website`) or one clai
 
 ## Local run
 
-Needs **JDK 17**, Node.js, Docker, and Maven.
+Needs **JDK 17–25** (bytecode targets 17; the image runs Temurin 17), **Maven 3.6.3+**, **Node.js 20 LTS** (what the frontend image uses), and Docker. The Maven Enforcer plugin fails the build on an older JDK or Maven.
 
 ### Docker Compose
 
@@ -125,13 +125,41 @@ docker compose up --build
 docker compose up -d postgres
 
 cd backend
-# JAVA_HOME must be JDK 17
 mvn spring-boot:run -Dspring-boot.run.profiles=local
 
 cd frontend
-npm install
+npm ci
 npm start
 ```
+
+The API only accepts browser calls from origins in `CLOUDBASE_CORS_ALLOWED_ORIGINS` (exact `scheme://host[:port]`, comma-separated, no wildcards). The default is the live site only; `docker-compose.yml` and `application-local.properties.example` set `http://localhost:4200`. If you run the backend another way, set it yourself or the login request fails with “Invalid CORS request”.
+
+### Clean build and tests
+
+Always verify from clean outputs so stale `target/` classes cannot hide a compile failure:
+
+```bash
+cd backend && mvn clean verify          # compile + unit tests + package
+cd frontend && npm ci && npx ng build   # strict template/type check + production bundle
+```
+
+Same thing on the exact image JDK, without a local toolchain:
+
+```bash
+docker run --rm -v "$PWD/backend:/src" -w /src maven:3.9-eclipse-temurin-17 mvn -B clean verify
+```
+
+### Behind a TLS-inspecting proxy or antivirus
+
+If Maven, npm or git fail with `PKIX path building failed` / `unable to get local issuer certificate`, your network re-signs HTTPS with a root CA that the OS trusts but the tool does not. Point the tool at that trust store; **never** turn verification off (`strict-ssl=false`, `-Dmaven.wagon.http.ssl.insecure=true`, `http.sslVerify=false`).
+
+| Tool | Windows (use the OS certificate store) | macOS / Linux (point at the CA's PEM file) |
+|------|---------------------------------------|--------------------------------------------|
+| Maven / JDK | `MAVEN_OPTS=-Djavax.net.ssl.trustStoreType=Windows-ROOT` | `keytool -importcert -cacerts -alias corp-ca -file corp-ca.pem` |
+| npm / Node 22.15+ | `NODE_OPTIONS=--use-system-ca` | `NODE_EXTRA_CA_CERTS=/path/corp-ca.pem` |
+| git | `git config --global http.sslBackend schannel` | `git config --global http.sslCAInfo /path/corp-ca.pem` |
+
+Docker builds use the image's own CA bundle; if they fail the same way, add the CA in the Dockerfile build stage rather than disabling checks.
 
 ---
 

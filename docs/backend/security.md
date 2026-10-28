@@ -20,6 +20,9 @@ Admin Hosting shows “configured” hints, not the raw secret, unless I type a 
 - `/api/webhooks/**` is permit-all at Spring Security **but** the handler rejects bad HMAC
 - `/ws` needs a session JWT; topics are limited to services that user can access
 - `/api/public/**` cached + rate-limited
+- CORS and the `/ws` handshake accept only `CLOUDBASE_CORS_ALLOWED_ORIGINS` (exact origins; wildcards refused at startup). Live: `https://www.cloudbase.website,https://cloudbase.website`
+- One password rule (8+ with upper, lower, digit, special) on register, reset and change. Emails are matched case-insensitively; new ones are stored lowercase
+- Password-reset links are single use: the token is bound to the password hash it was issued for
 
 ## Runtime isolation
 

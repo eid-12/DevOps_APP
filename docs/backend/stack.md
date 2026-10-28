@@ -17,7 +17,7 @@ Netty is **not** the public HTTP server. It is the client used to talk *out*.
 |-------|------------------|--------|
 | Language | Java **17** | `backend/pom.xml` `<java.version>` |
 | Framework | Spring Boot **3.3.2** | parent POM |
-| Build | Maven | `backend/pom.xml` |
+| Build | Maven 3.6.3+ on JDK 17–25 (Enforcer); Lombok 1.18.42 as an explicit annotation processor | `backend/pom.xml` |
 | Process | `java -jar app.jar` | `backend/Dockerfile` (Temurin 17 JRE Alpine) |
 | Profile | `prod` in the image | `SPRING_PROFILES_ACTIVE=prod` |
 | Listen | `:8080` | `server.port` |
