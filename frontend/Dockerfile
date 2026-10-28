@@ -1,7 +1,6 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 COPY package*.json ./
-COPY vendor-pkgs ./vendor-pkgs
 RUN npm ci --silent
 COPY . .
 COPY src/environments/environment.prod.ts src/environments/environment.ts

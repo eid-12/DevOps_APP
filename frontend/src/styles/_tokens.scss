@@ -1,6 +1,8 @@
 // Design tokens — SCSS source of truth. CSS custom properties stay for runtime/theming.
 
-$font-sans: 'Geist', 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+// 'Inter Variable' is self-hosted via @fontsource-variable/inter (angular.json styles).
+// PrimeNG 17's bundled "Inter var" woff2 is corrupt upstream, so it must never be referenced.
+$font-sans: 'Inter Variable', 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
 $font-mono: 'Cascadia Code', 'Consolas', 'Courier New', ui-monospace, SFMono-Regular, Menlo, monospace;
 
 $bg: #0b0d10;
@@ -37,6 +39,9 @@ $bp-2xl: 1200px;
 $space-scale: 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 28, 32, 48;
 
 :root {
+  // Overrides the PrimeNG theme's :root font so its broken "Inter var" face is never downloaded.
+  font-family: $font-sans;
+  --font-family: #{$font-sans};
   --bg: #{$bg};
   --surface: #{$surface};
   --surface-soft: #{$surface-soft};
