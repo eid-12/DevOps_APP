@@ -13,11 +13,11 @@ frontend/node_modules/
 frontend/dist/
 frontend/.angular/
 frontend/out-tsc/
+# obsolete: UI packages used to be vendored here; now installed from npm
 frontend/vendor-pkgs/
 
 # Backend
 backend/target/
-backend/.mvn/wrapper/maven-wrapper.jar
 backend/*.log
 
 # Env / secrets
@@ -27,6 +27,9 @@ backend/*.log
 *.pem
 backend/src/main/resources/application-local.properties
 frontend/src/environments/environment.ts
+
+# Claude Code personal settings
+.claude/settings.local.json
 
 # Scratch files
 test.txt
