@@ -8,8 +8,9 @@ Angular SPA (`frontend/`). Screens and journeys: [product.md](product.md). Backe
 |-------|--------|
 | Framework | Angular **18** |
 | Language | TypeScript **5.5** |
-| UI | PrimeNG + PrimeFlex + PrimeIcons (vendored tarballs under `frontend/vendor-pkgs/`) |
-| Spinner | `ngx-spinner` (vendored) |
+| UI | PrimeNG 17.18.12 + PrimeFlex 3.3.1 + PrimeIcons 7.0.0 (npm registry, exact pins) |
+| Spinner | `ngx-spinner` 17.0.0 (npm registry) |
+| Font | Inter via `@fontsource-variable/inter` (OFL-1.1, self-hosted). PrimeNG 17's bundled `Inter var` woff2 is corrupt upstream; `_tokens.scss` overrides `--font-family` so it is never fetched. |
 | Streams | RxJS **7.8** |
 | Local serve | `ng serve` on `:4200`, proxy `/api` and `/ws` → `:8080` (`proxy.conf.json`) |
 | Production | nginx image, listen **3000** |
