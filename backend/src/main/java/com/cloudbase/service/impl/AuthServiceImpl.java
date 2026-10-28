@@ -251,7 +251,7 @@ public class AuthServiceImpl implements AuthService {
         }
         UserEntity user = found.get();
         emailRateLimiter.acquireSend(EmailRateLimiter.Action.PASSWORD_RESET, user.getEmail());
-        String token = jwtService.generatePasswordResetToken(user.getId());
+        String token = jwtService.generatePasswordResetToken(user.getId(), user.getPasswordHash());
         String resetUrl = UriComponentsBuilder
                 .fromUriString(resendProperties.appBaseUrl())
                 .path("/auth")
@@ -274,6 +274,10 @@ public class AuthServiceImpl implements AuthService {
         }
         UserEntity user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid or expired reset token"));
+        // Single use: the token is bound to the hash it was issued against, so it dies once a password is set.
+        if (!jwtService.isPasswordResetTokenCurrent(token, user.getPasswordHash())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid or expired reset token");
+        }
         user.setPasswordHash(passwordEncoder.encode(newPassword));
         userRepository.save(user);
         return new MessageResponse("Password updated. You can sign in now.");
