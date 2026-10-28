@@ -20,10 +20,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: '17'
@@ -37,10 +37,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '20'
           cache: npm
@@ -52,21 +52,34 @@ jobs:
         working-directory: frontend
         run: npm run build
 
+  deploy-script:
+    name: Deploy script tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: shellcheck
+        run: shellcheck deploy/portainer-deploy.sh deploy/test/run-tests.sh
+      - name: Rollout, rollback, crash-loop and stale-run scenarios against a mock Portainer
+        run: bash deploy/test/run-tests.sh
+
   images-check:
     name: Docker images build (no push)
     if: github.event_name == 'pull_request'
-    needs: [backend, frontend]
+    needs: [backend, frontend, deploy-script]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       matrix:
         service: [backend, frontend]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ${{ matrix.service }}
           push: false
@@ -75,7 +88,7 @@ jobs:
   publish:
     name: Publish images
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-    needs: [backend, frontend]
+    needs: [backend, frontend, deploy-script]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: production
@@ -93,16 +106,16 @@ jobs:
             echo "::error::Missing secret DOCKERHUB_TOKEN (repository or 'production' environment). See docs/operations.md#required-github-settings"
             exit 1
           fi
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME || vars.DOCKERHUB_USERNAME || 'minipcer' }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - id: backend
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: backend
           push: true
@@ -113,7 +126,7 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
       - id: frontend
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: frontend
           push: true
@@ -135,7 +148,7 @@ jobs:
             echo "- frontend: \`$fe\`"
           } >> "$GITHUB_STEP_SUMMARY"
           jq -n --arg sha "$GITHUB_SHA" --arg be "$be" --arg fe "$fe" '{commit:$sha, backend:$be, frontend:$fe}' > release.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-${{ github.sha }}
           path: release.json
@@ -154,7 +167,7 @@ jobs:
       group: production-deploy
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Require Portainer credentials
@@ -181,7 +194,7 @@ jobs:
           HEALTH_WEB_URL: https://www.cloudbase.website
           GITHUB_TOKEN: ${{ github.token }}
         run: bash deploy/portainer-deploy.sh
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         if: steps.rollout.outputs.skipped == 'false'
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME || vars.DOCKERHUB_USERNAME || 'minipcer' }}

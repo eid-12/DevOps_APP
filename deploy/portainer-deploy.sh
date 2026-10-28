@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Roll the cloudbase-platform Portainer stack to images pinned to one commit, verify, roll back on failure.
 #
-# Reuses the documented manual process (update the existing stack with pull enabled) but changes only the
-# two CloudBase image lines. Stack env vars, volumes, networks and every other line are sent back unchanged.
+# Reuses the documented manual process (update the existing stack) but changes only the two CloudBase
+# image lines. Stack env vars, volumes, networks and every other line are sent back unchanged.
+# PullImage is off: images are pinned by digest, so a new one is pulled because it is missing locally,
+# and Portainer does not force-recreate (restart) the unchanged Postgres container.
 #
 # Required env:
 #   PORTAINER_URL, PORTAINER_API_KEY, PORTAINER_ENDPOINT_ID, PORTAINER_STACK_ID
@@ -23,6 +25,8 @@ set -euo pipefail
 : "${PORTAINER_URL:?}" "${PORTAINER_API_KEY:?}" "${PORTAINER_ENDPOINT_ID:?}" "${PORTAINER_STACK_ID:?}"
 : "${DEPLOY_SHA:?}" "${BACKEND_IMAGE:?}" "${FRONTEND_IMAGE:?}" "${HEALTH_API_URL:?}" "${HEALTH_WEB_URL:?}"
 TIMEOUT="${DEPLOY_TIMEOUT_SECONDS:-300}"
+# A rollout (and a rollback) must stay healthy for 30s, so a shorter timeout could never succeed.
+(( TIMEOUT > 30 )) || { echo "::error::DEPLOY_TIMEOUT_SECONDS must be greater than 30"; exit 1; }
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 chmod 700 "$WORK"
@@ -76,7 +80,7 @@ CHANGED="$(diff "$WORK/previous.yml" "$WORK/next.yml" | grep -c '^>' || true)"
 
 update_stack() {  # $1 = compose file to apply
   jq -n --rawfile f "$1" --slurpfile s "$WORK/stack.json" \
-    '{StackFileContent: $f, Env: $s[0].Env, Prune: false, PullImage: true}' > "$WORK/body.json"
+    '{StackFileContent: $f, Env: $s[0].Env, Prune: false, PullImage: false}' > "$WORK/body.json"
   local code
   code="$(portainer -o /dev/null -w '%{http_code}' -X PUT -H 'Content-Type: application/json' \
     --data-binary @"$WORK/body.json" "${PORTAINER_URL}/api/stacks/${PORTAINER_STACK_ID}?endpointId=${PORTAINER_ENDPOINT_ID}")" || code="curl-failed"
@@ -84,16 +88,21 @@ update_stack() {  # $1 = compose file to apply
   [[ "$code" == "200" ]] || { echo "::warning::stack update returned ${code}"; return 1; }
 }
 
-container() {  # $1 = service name -> "<image>|<state>|<restartCount>"
+container() {  # $1 = service name -> "<image>|<state>|<restartCount>|<health>"
   portainer "${PORTAINER_URL}/api/endpoints/${PORTAINER_ENDPOINT_ID}/docker/containers/cloudbase-$1/json" 2>/dev/null \
-    | jq -r '[.Config.Image, .State.Status, (.RestartCount|tostring)] | join("|")' || echo "missing||"
+    | jq -r '[.Config.Image, .State.Status, (.RestartCount|tostring), (.State.Health.Status // "none")] | join("|")' \
+    || echo "missing|||"
 }
 
+field() { cut -d'|' -f"$2" <<<"$1"; }  # field <container-line> <n>: 1=image 2=state 3=restarts 4=health
+
 wait_healthy() {  # $1 = expected backend image, $2 = expected frontend image, $3 = expect revision (or "")
-  local deadline=$((SECONDS + TIMEOUT)) be fe ok_since=""
+  local deadline=$((SECONDS + TIMEOUT)) be fe pg ok_since="" restarts="" now_restarts
   while (( SECONDS < deadline )); do
-    be="$(container backend)"; fe="$(container frontend)"
-    if [[ "${be%%|*}" == "$1" && "${fe%%|*}" == "$2" && "$be" == *"|running|"* && "$fe" == *"|running|"* ]] \
+    be="$(container backend)"; fe="$(container frontend)"; pg="$(container postgres)"
+    if [[ "$(field "$be" 1)" == "$1" && "$(field "$fe" 1)" == "$2" \
+          && "$(field "$be" 2)" == running && "$(field "$fe" 2)" == running \
+          && "$(field "$pg" 2)" == running && "$(field "$pg" 4)" == healthy ]] \
        && [[ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "${HEALTH_API_URL}/api/public/app-config")" == 200 ]] \
        && [[ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "${HEALTH_API_URL}/api/auth/me")" == 401 ]] \
        && [[ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "${HEALTH_WEB_URL}/")" == 200 ]]; then
@@ -103,15 +112,17 @@ wait_healthy() {  # $1 = expected backend image, $2 = expected frontend image, $
           | jq -r '.Config.Labels["org.opencontainers.image.revision"] // ""')"
         [[ "$rev" == "$3" ]] || { log "backend revision label '${rev}' != ${3}"; sleep 10; continue; }
       fi
-      # Require 30s of stable running (no crash loop) before declaring success.
-      ok_since="${ok_since:-$SECONDS}"
-      if (( SECONDS - ok_since >= 30 )); then
-        log "healthy: backend ${be#*|}, frontend ${fe#*|}"
+      # Require 30s of stable running with no restarts: a crash loop can look "running" between samples.
+      now_restarts="$(field "$be" 3)/$(field "$fe" 3)"
+      if [[ -z "$ok_since" || "$now_restarts" != "$restarts" ]]; then
+        ok_since=$SECONDS; restarts="$now_restarts"
+      elif (( SECONDS - ok_since >= 30 )); then
+        log "healthy: backend and frontend running, postgres $(field "$pg" 4), restarts ${restarts}"
         return 0
       fi
     else
       ok_since=""
-      log "waiting: backend ${be#*|} frontend ${fe#*|}"
+      log "waiting: backend $(field "$be" 2) frontend $(field "$fe" 2) postgres $(field "$pg" 2)/$(field "$pg" 4)"
     fi
     sleep 10
   done

@@ -8,7 +8,7 @@ Pushing to `master` builds, tests and deploys CloudBase automatically through Gi
 
 | Trigger | Jobs | Production access |
 |---------|------|-------------------|
-| Pull request to `master` | backend `mvn clean verify` (JDK 17), frontend `npm ci && npm run build`, both Docker images built (not pushed) | none: no secrets, read-only token |
+| Pull request to `master` | backend `mvn clean verify` (JDK 17), frontend `npm ci && npm run build`, deploy-script tests (shellcheck + mock-Portainer scenarios), both Docker images built (not pushed) | none: no secrets, read-only token |
 | Push to `master` | the same checks, then **publish** and **deploy** | only the `production` environment, which only `master` can use |
 
 Because the namespace equals the `DOCKERHUB_USERNAME` secret, Actions masks it in logs (`***/cloudbase-backend`) and refuses to pass it between jobs, so only the digests travel from publish to deploy and the image references are rebuilt there.
@@ -19,14 +19,16 @@ Because the namespace equals the `DOCKERHUB_USERNAME` secret, Actions masks it i
 
 1. Reads the live stack file and env from Portainer. Env values are never printed.
 2. Refuses to go backwards: if the deployed commit is newer than this one, the run is skipped; if their histories diverged, it stops for a human.
-3. Replaces only the two CloudBase `image:` lines with `<repo>:<sha>@sha256:<digest>`. Env vars, volumes, networks and Postgres are sent back unchanged (prune off, pull on).
-4. Waits up to 5 minutes for both containers to run the pinned images, the backend's revision label to match, `GET /api/public/app-config` = 200, `GET /api/auth/me` = 401, www = 200, then 30 s of stability.
+3. Replaces only the two CloudBase `image:` lines with `<repo>:<sha>@sha256:<digest>`. Env vars, volumes, networks and Postgres are sent back unchanged (prune off, pull off: the digest-pinned images are pulled because they are new, and unchanged containers such as Postgres are not recreated).
+4. Waits up to 5 minutes for both containers to run the pinned images, the backend's revision label to match, `cloudbase-postgres` to be running and healthy, `GET /api/public/app-config` = 200, `GET /api/auth/me` = 401, www = 200, then 30 s with no container restarts (catches crash loops).
 5. On failure, re-applies the previous stack file, waits for it to be healthy, and fails the run.
 6. On success, moves `:latest` to the deployed digests (so manual tooling that still uses `:latest` stays correct).
 
 Only one deploy runs at a time (`concurrency: production-deploy`); a newer queued run supersedes an older pending one.
 
-Note: Portainer recreates every container in the stack on update, including Postgres. Data lives in the named volume `cloudbase-platform_cloudbase_postgres_data` and survives; expect a few seconds of API downtime per deploy.
+Postgres data lives in the named volume `cloudbase-platform_cloudbase_postgres_data`; deploys never remove volumes. Expect a few seconds of API downtime while the backend container is replaced.
+
+The deploy logic is covered by `deploy/test/run-tests.sh` (healthy rollout, failed health checks → rollback, crash loop → rollback, older commit skipped, diverged history refused, wrong key fails safely, no secret values in output). CI runs it before anything is published.
 
 ### Required GitHub settings
 
