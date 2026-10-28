@@ -27,7 +27,7 @@ This is what the UI actually does. Paths are Angular routes.
 - Source (image, GitHub repo, DB type — some fields lock after create)
 - Danger zone (delete service)
 
-**`/account`.** Profile, change password, GitHub connect/disconnect, usage meters, API tokens for later CLI (CLI itself is not this release).
+**`/account`.** Profile, change password, GitHub connect/disconnect, usage meters. No API tokens: the only consumer would be a CLI, and neither is in this release. The API accepts the browser session JWT only.
 
 **`/billing`.** Free plan copy + the same usage numbers. Hard caps are RAM / CPU / storage, not “max 2 projects”. See [../backend/quotas.md](../backend/quotas.md).
 
