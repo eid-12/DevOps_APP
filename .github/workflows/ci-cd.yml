@@ -1,0 +1,192 @@
+name: CI/CD
+
+# Pull requests: tests + image builds only. No secrets, no registry push, no production access.
+# Pushes to master: the same checks, then publish immutable images and roll the Portainer stack.
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE || 'minipcer' }}
+
+jobs:
+  backend:
+    name: Backend tests (JDK 17)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: mvn clean verify
+        working-directory: backend
+        run: mvn -B -ntp clean verify
+
+  frontend:
+    name: Frontend build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: npm ci
+        working-directory: frontend
+        run: npm ci
+      - name: Production build (strict type/template check)
+        working-directory: frontend
+        run: npm run build
+
+  images-check:
+    name: Docker images build (no push)
+    if: github.event_name == 'pull_request'
+    needs: [backend, frontend]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        service: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.service }}
+          push: false
+          provenance: false
+
+  publish:
+    name: Publish images
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: [backend, frontend]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: production
+    outputs:
+      backend_image: ${{ steps.refs.outputs.backend_image }}
+      frontend_image: ${{ steps.refs.outputs.frontend_image }}
+    steps:
+      - name: Require production credentials
+        env:
+          HAS_DOCKERHUB: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+          HAS_PORTAINER: ${{ secrets.PORTAINER_API_KEY != '' }}
+        run: |
+          missing=""
+          [ "$HAS_DOCKERHUB" = "true" ] || missing="$missing DOCKERHUB_TOKEN"
+          [ "$HAS_PORTAINER" = "true" ] || missing="$missing PORTAINER_API_KEY"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing secrets in the 'production' environment:${missing}. See docs/operations.md#required-github-settings-settings--environments--production"
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME || 'minipcer' }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - id: backend
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: true
+          provenance: false
+          tags: |
+            ${{ env.IMAGE_NAMESPACE }}/cloudbase-backend:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+      - id: frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          push: true
+          provenance: false
+          tags: |
+            ${{ env.IMAGE_NAMESPACE }}/cloudbase-frontend:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+      - id: refs
+        name: Record pinned image references
+        run: |
+          be="${IMAGE_NAMESPACE}/cloudbase-backend:${GITHUB_SHA}@${{ steps.backend.outputs.digest }}"
+          fe="${IMAGE_NAMESPACE}/cloudbase-frontend:${GITHUB_SHA}@${{ steps.frontend.outputs.digest }}"
+          echo "backend_image=$be" >> "$GITHUB_OUTPUT"
+          echo "frontend_image=$fe" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Images for \`${GITHUB_SHA}\`"
+            echo "- backend: \`$be\`"
+            echo "- frontend: \`$fe\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          jq -n --arg sha "$GITHUB_SHA" --arg be "$be" --arg fe "$fe" '{commit:$sha, backend:$be, frontend:$fe}' > release.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ github.sha }}
+          path: release.json
+
+  deploy:
+    name: Deploy to production
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: https://www.cloudbase.website
+    # One production rollout at a time; a newer queued run supersedes an older pending one,
+    # and the script also refuses to replace a newer deployed commit with an older one.
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Roll Portainer stack
+        id: rollout
+        env:
+          PORTAINER_URL: ${{ vars.PORTAINER_URL || 'https://manage.cloudbase.website' }}
+          PORTAINER_API_KEY: ${{ secrets.PORTAINER_API_KEY }}
+          PORTAINER_ENDPOINT_ID: ${{ vars.PORTAINER_ENDPOINT_ID || '3' }}
+          PORTAINER_STACK_ID: ${{ vars.PORTAINER_STACK_ID || '44' }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          DEPLOY_SHA: ${{ github.sha }}
+          BACKEND_IMAGE: ${{ needs.publish.outputs.backend_image }}
+          FRONTEND_IMAGE: ${{ needs.publish.outputs.frontend_image }}
+          HEALTH_API_URL: https://api.cloudbase.website
+          HEALTH_WEB_URL: https://www.cloudbase.website
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash deploy/portainer-deploy.sh
+      - uses: docker/login-action@v3
+        if: steps.rollout.outputs.skipped == 'false'
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME || 'minipcer' }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Move :latest to the deployed images
+        if: steps.rollout.outputs.skipped == 'false'
+        env:
+          BACKEND_IMAGE: ${{ needs.publish.outputs.backend_image }}
+          FRONTEND_IMAGE: ${{ needs.publish.outputs.frontend_image }}
+        run: |
+          docker buildx imagetools create -t "${IMAGE_NAMESPACE}/cloudbase-backend:latest" "${IMAGE_NAMESPACE}/cloudbase-backend@${BACKEND_IMAGE##*@}"
+          docker buildx imagetools create -t "${IMAGE_NAMESPACE}/cloudbase-frontend:latest" "${IMAGE_NAMESPACE}/cloudbase-frontend@${FRONTEND_IMAGE##*@}"
+          echo "Deployed \`${GITHUB_SHA}\` to production; :latest now points to it." >> "$GITHUB_STEP_SUMMARY"

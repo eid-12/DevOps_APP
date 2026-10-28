@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+# Roll the cloudbase-platform Portainer stack to images pinned to one commit, verify, roll back on failure.
+#
+# Reuses the documented manual process (update the existing stack with pull enabled) but changes only the
+# two CloudBase image lines. Stack env vars, volumes, networks and every other line are sent back unchanged.
+#
+# Required env:
+#   PORTAINER_URL, PORTAINER_API_KEY, PORTAINER_ENDPOINT_ID, PORTAINER_STACK_ID
+#   DEPLOY_SHA            full commit SHA being deployed
+#   BACKEND_IMAGE         e.g. minipcer/cloudbase-backend:<sha>@sha256:<digest>
+#   FRONTEND_IMAGE        e.g. minipcer/cloudbase-frontend:<sha>@sha256:<digest>
+#   HEALTH_API_URL        e.g. https://api.cloudbase.website
+#   HEALTH_WEB_URL        e.g. https://www.cloudbase.website
+#   GITHUB_TOKEN, GITHUB_REPOSITORY   (used to refuse rolling back to an older commit)
+# Optional env:
+#   DEPLOY_TIMEOUT_SECONDS (default 300)
+#   CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET (if Portainer is put behind Cloudflare Access)
+#
+# Never prints stack env values or credentials: Portainer stack responses contain the env, so they are
+# only ever parsed with jq, never echoed.
+set -euo pipefail
+
+: "${PORTAINER_URL:?}" "${PORTAINER_API_KEY:?}" "${PORTAINER_ENDPOINT_ID:?}" "${PORTAINER_STACK_ID:?}"
+: "${DEPLOY_SHA:?}" "${BACKEND_IMAGE:?}" "${FRONTEND_IMAGE:?}" "${HEALTH_API_URL:?}" "${HEALTH_WEB_URL:?}"
+TIMEOUT="${DEPLOY_TIMEOUT_SECONDS:-300}"
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+chmod 700 "$WORK"
+
+log() { echo "[deploy] $*"; }
+fail() { echo "::error::$*"; exit 1; }
+
+portainer() {
+  local extra=()
+  if [[ -n "${CF_ACCESS_CLIENT_ID:-}" ]]; then
+    extra+=(-H "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}" -H "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET:?}")
+  fi
+  curl -sS --fail --max-time 180 -H "X-API-Key: ${PORTAINER_API_KEY}" "${extra[@]}" "$@"
+}
+
+# --- read the live stack (kept in a private temp dir, never printed) ---------------------------------
+portainer "${PORTAINER_URL}/api/stacks/${PORTAINER_STACK_ID}" > "$WORK/stack.json"
+portainer "${PORTAINER_URL}/api/stacks/${PORTAINER_STACK_ID}/file" | jq -r '.StackFileContent' > "$WORK/previous.yml"
+STACK_NAME="$(jq -r '.Name' "$WORK/stack.json")"
+[[ "$(jq -r '.EndpointId' "$WORK/stack.json")" == "$PORTAINER_ENDPOINT_ID" ]] || fail "stack endpoint mismatch"
+log "stack ${PORTAINER_STACK_ID} (${STACK_NAME}), $(jq '.Env | length' "$WORK/stack.json") env vars preserved"
+
+current_image() { grep -oE "image:[[:space:]]*[^[:space:]]*cloudbase-$1[^[:space:]]*" "$WORK/previous.yml" | head -1 | sed -E 's/image:[[:space:]]*//'; }
+PREV_BACKEND="$(current_image backend)"
+PREV_FRONTEND="$(current_image frontend)"
+[[ -n "$PREV_BACKEND" && -n "$PREV_FRONTEND" ]] || fail "could not find the cloudbase-backend/frontend image lines in the live stack"
+log "previous backend:  ${PREV_BACKEND}"
+log "previous frontend: ${PREV_FRONTEND}"
+
+# --- never let an older run replace a newer release ---------------------------------------------------
+DEPLOYED_SHA="$(sed -nE 's/.*:([0-9a-f]{40})(@.*)?$/\1/p' <<<"$PREV_BACKEND")"
+if [[ -n "$DEPLOYED_SHA" && -n "${GITHUB_TOKEN:-}" ]]; then
+  if [[ "$DEPLOYED_SHA" == "$DEPLOY_SHA" ]]; then
+    log "commit ${DEPLOY_SHA} is already deployed; verifying only"
+  else
+    STATUS="$(curl -sS --fail --max-time 60 -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" \
+      "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY}/compare/${DEPLOYED_SHA}...${DEPLOY_SHA}" | jq -r '.status')"
+    case "$STATUS" in
+      ahead) log "commit is newer than deployed ${DEPLOYED_SHA:0:7}" ;;
+      behind|identical) log "::notice::deployed ${DEPLOYED_SHA:0:7} is newer than or equal to ${DEPLOY_SHA:0:7}; skipping"; echo "skipped=true" >> "${GITHUB_OUTPUT:-/dev/null}"; exit 0 ;;
+      *) fail "deployed ${DEPLOYED_SHA:0:7} and ${DEPLOY_SHA:0:7} are '${STATUS}'; refusing to deploy automatically" ;;
+    esac
+  fi
+fi
+
+# --- build the new stack file: only the two image lines change ----------------------------------------
+pin() { sed -E "s#^([[:space:]]*image:[[:space:]]*)[^[:space:]]*cloudbase-$1[^[:space:]]*#\1$2#"; }
+pin backend "$BACKEND_IMAGE" < "$WORK/previous.yml" | pin frontend "$FRONTEND_IMAGE" > "$WORK/next.yml"
+CHANGED="$(diff "$WORK/previous.yml" "$WORK/next.yml" | grep -c '^>' || true)"
+[[ "$CHANGED" -le 2 ]] || fail "unexpected stack file changes (${CHANGED} lines)"
+
+update_stack() {  # $1 = compose file to apply
+  jq -n --rawfile f "$1" --slurpfile s "$WORK/stack.json" \
+    '{StackFileContent: $f, Env: $s[0].Env, Prune: false, PullImage: true}' > "$WORK/body.json"
+  local code
+  code="$(portainer -o /dev/null -w '%{http_code}' -X PUT -H 'Content-Type: application/json' \
+    --data-binary @"$WORK/body.json" "${PORTAINER_URL}/api/stacks/${PORTAINER_STACK_ID}?endpointId=${PORTAINER_ENDPOINT_ID}")" || code="curl-failed"
+  rm -f "$WORK/body.json"
+  [[ "$code" == "200" ]] || { echo "::warning::stack update returned ${code}"; return 1; }
+}
+
+container() {  # $1 = service name -> "<image>|<state>|<restartCount>"
+  portainer "${PORTAINER_URL}/api/endpoints/${PORTAINER_ENDPOINT_ID}/docker/containers/cloudbase-$1/json" 2>/dev/null \
+    | jq -r '[.Config.Image, .State.Status, (.RestartCount|tostring)] | join("|")' || echo "missing||"
+}
+
+wait_healthy() {  # $1 = expected backend image, $2 = expected frontend image, $3 = expect revision (or "")
+  local deadline=$((SECONDS + TIMEOUT)) be fe ok_since=""
+  while (( SECONDS < deadline )); do
+    be="$(container backend)"; fe="$(container frontend)"
+    if [[ "${be%%|*}" == "$1" && "${fe%%|*}" == "$2" && "$be" == *"|running|"* && "$fe" == *"|running|"* ]] \
+       && [[ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "${HEALTH_API_URL}/api/public/app-config")" == 200 ]] \
+       && [[ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "${HEALTH_API_URL}/api/auth/me")" == 401 ]] \
+       && [[ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "${HEALTH_WEB_URL}/")" == 200 ]]; then
+      if [[ -n "$3" ]]; then
+        local rev
+        rev="$(portainer "${PORTAINER_URL}/api/endpoints/${PORTAINER_ENDPOINT_ID}/docker/containers/cloudbase-backend/json" \
+          | jq -r '.Config.Labels["org.opencontainers.image.revision"] // ""')"
+        [[ "$rev" == "$3" ]] || { log "backend revision label '${rev}' != ${3}"; sleep 10; continue; }
+      fi
+      # Require 30s of stable running (no crash loop) before declaring success.
+      ok_since="${ok_since:-$SECONDS}"
+      if (( SECONDS - ok_since >= 30 )); then
+        log "healthy: backend ${be#*|}, frontend ${fe#*|}"
+        return 0
+      fi
+    else
+      ok_since=""
+      log "waiting: backend ${be#*|} frontend ${fe#*|}"
+    fi
+    sleep 10
+  done
+  return 1
+}
+
+log "rolling out ${DEPLOY_SHA:0:7}"
+if update_stack "$WORK/next.yml" && wait_healthy "$BACKEND_IMAGE" "$FRONTEND_IMAGE" "$DEPLOY_SHA"; then
+  log "deployed ${DEPLOY_SHA}"
+  echo "skipped=false" >> "${GITHUB_OUTPUT:-/dev/null}"
+  exit 0
+fi
+
+echo "::error::rollout of ${DEPLOY_SHA:0:7} failed health checks within ${TIMEOUT}s; rolling back"
+if update_stack "$WORK/previous.yml" && wait_healthy "$PREV_BACKEND" "$PREV_FRONTEND" ""; then
+  fail "rolled back to previous images (${PREV_BACKEND##*/})"
+fi
+fail "ROLLBACK ALSO FAILED: restore manually with the previous images ${PREV_BACKEND} / ${PREV_FRONTEND}"
