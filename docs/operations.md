@@ -9,7 +9,7 @@ There is no GitHub Actions workflow in this repo that deploys www for me.
 ## What I do when the UI or API should change
 
 1. Change code in this repo. Push to `master` if I want it saved.
-2. Build the JAR / Angular dist on a machine that can compile (host JDK 17 + Node). Do not bake `application-local.properties` into the JAR.
+2. Verify from clean outputs: `mvn clean verify` in `backend/`, `npm ci && npx ng build` in `frontend/` (see README “Clean build and tests”). The Dockerfiles build from source, so the images never reuse a local `target/` or `node_modules`. Do not bake `application-local.properties` into the JAR.
 3. Build and push Docker images:
    - `minipcer/cloudbase-backend:latest`
    - `minipcer/cloudbase-frontend:latest` (nginx must listen on 3000)
