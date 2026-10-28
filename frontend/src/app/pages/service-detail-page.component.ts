@@ -1786,7 +1786,15 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
     const w = 360;
     const h = 140;
     const pad = 6;
-    const n = Math.max(values.length, 1);
+    // No samples yet (service never ran / metrics unavailable): draw nothing rather than a NaN path.
+    if (values.length === 0) {
+      return { label: '', points: '', area: '', maxLabel: '—', currentLabel: '—', ticks: ['', '', ''] };
+    }
+    values = values.map(v => (Number.isFinite(v) ? v : 0));
+    if (!Number.isFinite(scaleMax) || scaleMax <= 0) {
+      scaleMax = Math.max(...values, 1);
+    }
+    const n = values.length;
     const pts: string[] = [];
     const areaPts: string[] = [`${pad},${h - pad}`];
     for (let i = 0; i < n; i++) {

@@ -38,9 +38,9 @@
     padding: 14px;
     border-radius: 16px;
     border: 1px solid rgba(107, 154, 196, 0.18);
-    background: rgba(2, 6, 23, 0.96);
+    // Opaque: page content showed through the translucent panel and made the links hard to read.
+    background: var(--surface-elevated);
     box-shadow: var(--shadow);
-    backdrop-filter: blur(16px);
     z-index: 60;
   }
 
