@@ -22,7 +22,7 @@ public record GitHubOAuthProperties(
         }
         if (scopes == null || scopes.isBlank()) {
             // `workflow` is required to create/update .github/workflows/* (GitHub returns 404 without it).
-            scopes = "read:user repo user:email workflow";
+            scopes = "read:user repo user:email workflow read:packages";
         }
         if (successRedirect == null || successRedirect.isBlank()) {
             successRedirect = "http://localhost:4200/account?github=connected";

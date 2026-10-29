@@ -26,7 +26,7 @@ When they add a GitHub service and deploy is allowed, `CiBootstrapService` talks
 2. `.github/workflows/cloudbase-deploy.yml` — on push, build and publish `ghcr.io/<owner>/<repo>:<short sha>` (and `:latest`) with the job's own `GITHUB_TOKEN` (`packages: write`, scoped to that repository). Actions are pinned to commit SHAs. The image name is derived from the repository URL, never from user input.
 3. Webhook — `https://api.cloudbase.website/api/webhooks/github` for `workflow_run`, signed with `GITHUB_WEBHOOK_SECRET` (GitHub never shows the secret back to repository admins).
 
-No repository secrets are written. The package stays private when the repository is private; CloudBase never makes repositories or packages public.
+No repository secrets are written. Newly published GHCR packages default to private, but existing packages can have independent visibility and permissions; verify their access settings during migration. CloudBase never makes repositories or packages public.
 
 I do not run `docker build` on the Mini PC for their app. GitHub Actions does.
 
@@ -42,4 +42,6 @@ If the webhook URL is wrong (still pointing at localhost, or at `www` instead of
 
 ## What a later `git push` does
 
-Their laptop → GitHub → Actions build → Hub → webhook → Portainer pull → same HTTPS name. I do not click Deploy unless they want a manual rerun from the service page.
+Their laptop → GitHub → Actions build → GHCR → webhook → Portainer pull → same HTTPS name. I do not click Deploy unless they want a manual rerun from the service page.
+
+An empty or truncated HTTP 200 pull response is not success: the backend requires Docker's completed-pull status before allowing deployment. Private GHCR pulls with the stored OAuth token still require a live integration check; consent alone does not prove registry compatibility. See [the migration procedure](../credential-migration.md).

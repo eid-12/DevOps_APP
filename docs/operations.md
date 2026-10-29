@@ -20,20 +20,25 @@ Because the namespace equals the `DOCKERHUB_USERNAME` secret, Actions masks it i
 1. Reads the live stack file and env from Portainer. Env values are never printed.
 2. Refuses to go backwards: if the deployed commit is newer than this one, the run is skipped; if their histories diverged, it stops for a human.
 3. Replaces only the two CloudBase `image:` lines with `<repo>:<sha>@sha256:<digest>`. Env vars, volumes, networks and Postgres are sent back unchanged (prune off, pull off: the digest-pinned images are pulled because they are new, and unchanged containers such as Postgres are not recreated).
-4. Waits up to 5 minutes for both containers to run the pinned images, the backend's revision label to match, `cloudbase-postgres` to be running and healthy, `GET /api/public/app-config` = 200, `GET /api/auth/me` = 401, www = 200, then 30 s with no container restarts (catches crash loops).
+4. Waits up to 5 minutes for both containers to run the pinned images and have matching revision labels, rejects backend/frontend Docker health states other than healthy or absent, requires `cloudbase-postgres` running and healthy, `GET /api/public/app-config` = 200, `GET /api/auth/me` = 401, www = 200, then 30 s with no container restarts (catches crash loops).
 5. On failure, first reconciles what is actually running. If Portainer is unreachable (Cloudflare 530/1033), it waits up to `DEPLOY_RECONCILE_SECONDS` (15 min) for it to come back instead of rolling back blind. Then:
    - new images running and healthy → the deploy succeeds;
    - previous images still running → the rollout never applied; the previous stack file is put back so it matches, and the run fails saying production is unchanged;
    - anything else → re-applies the previous stack file, waits for it to be healthy, and fails the run.
 
    If Portainer never comes back, the run fails with **STATE UNKNOWN** and sends no rollback. Check the running `cloudbase-backend`/`cloudbase-frontend` images before doing anything, then re-run the failed job once the tunnel is stable.
+   A stack response alone is insufficient: failed container inspections also produce **STATE UNKNOWN**.
+   Before recovery mutations the script refreshes container and stack observations, checks the endpoint and environment,
+   and refuses to overwrite a stack file that differs from both its original and proposed versions. Repeated
+   observations share one recovery waiting budget. A revision-label mismatch restarts the 30-second stability window.
+   The deploy job allows 45 minutes for rollout, outage reconciliation, verification and rollback.
 6. On success, moves `:latest` to the deployed digests (so manual tooling that still uses `:latest` stays correct).
 
 Only one deploy runs at a time (`concurrency: production-deploy`); a newer queued run supersedes an older pending one.
 
 Postgres data lives in the named volume `cloudbase-platform_cloudbase_postgres_data`; deploys never remove volumes. Expect a few seconds of API downtime while the backend container is replaced.
 
-The deploy logic is covered by `deploy/test/run-tests.sh` (healthy rollout, failed health checks → rollback, crash loop → rollback, tunnel outage with the rollout not applied / applied / never recovering, older commit skipped, diverged history refused, wrong key fails safely, no secret values in output). CI runs it before anything is published.
+The deploy logic is covered by `deploy/test/run-tests.sh` (healthy rollout, failed HTTP or Docker health checks → rollback, crash loop → rollback, mixed revisions, frontend label mismatch, outage before rollout or with the rollout not applied / applied / never recovering, failed inspections, concurrent stack edits, older commit skipped, diverged history refused, wrong key fails safely, no secret values in output). CI runs it before anything is published.
 
 ### Required GitHub settings
 

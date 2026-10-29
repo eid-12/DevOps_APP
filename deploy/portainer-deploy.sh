@@ -44,8 +44,10 @@ portainer() {
 }
 
 # --- read the live stack (kept in a private temp dir, never printed) ---------------------------------
-portainer "${PORTAINER_URL}/api/stacks/${PORTAINER_STACK_ID}" > "$WORK/stack.json"
-portainer "${PORTAINER_URL}/api/stacks/${PORTAINER_STACK_ID}/file" | jq -r '.StackFileContent' > "$WORK/previous.yml"
+portainer "${PORTAINER_URL}/api/stacks/${PORTAINER_STACK_ID}" > "$WORK/stack.json" \
+  || fail "STATE UNKNOWN: initial stack read failed; no production change was attempted"
+portainer "${PORTAINER_URL}/api/stacks/${PORTAINER_STACK_ID}/file" | jq -ej '.StackFileContent' > "$WORK/previous.yml" \
+  || fail "STATE UNKNOWN: initial stack file read failed; no production change was attempted"
 STACK_NAME="$(jq -r '.Name' "$WORK/stack.json")"
 [[ "$(jq -r '.EndpointId' "$WORK/stack.json")" == "$PORTAINER_ENDPOINT_ID" ]] || fail "stack endpoint mismatch"
 log "stack ${PORTAINER_STACK_ID} (${STACK_NAME}), $(jq '.Env | length' "$WORK/stack.json") env vars preserved"
@@ -91,11 +93,11 @@ update_stack() {  # $1 = compose file to apply
 
 container() {  # $1 = service name -> "<image>|<state>|<restartCount>|<health>"
   portainer "${PORTAINER_URL}/api/endpoints/${PORTAINER_ENDPOINT_ID}/docker/containers/cloudbase-$1/json" 2>/dev/null \
-    | jq -r '[.Config.Image, .State.Status, (.RestartCount|tostring), (.State.Health.Status // "none")] | join("|")' \
+    | jq -r '[.Config.Image, .State.Status, (.RestartCount|tostring), (.State.Health.Status // "none"), (.Config.Labels["org.opencontainers.image.revision"] // "")] | join("|")' \
     || echo "missing|||"
 }
 
-field() { cut -d'|' -f"$2" <<<"$1"; }  # field <container-line> <n>: 1=image 2=state 3=restarts 4=health
+field() { cut -d'|' -f"$2" <<<"$1"; }  # 1=image 2=state 3=restarts 4=health 5=revision
 
 wait_healthy() {  # $1 = expected backend image, $2 = expected frontend image, $3 = expect revision (or "")
   local deadline=$((SECONDS + TIMEOUT)) be fe pg ok_since="" restarts="" now_restarts
@@ -103,15 +105,15 @@ wait_healthy() {  # $1 = expected backend image, $2 = expected frontend image, $
     be="$(container backend)"; fe="$(container frontend)"; pg="$(container postgres)"
     if [[ "$(field "$be" 1)" == "$1" && "$(field "$fe" 1)" == "$2" \
           && "$(field "$be" 2)" == running && "$(field "$fe" 2)" == running \
+          && "$(field "$be" 4)" =~ ^(none|healthy)$ && "$(field "$fe" 4)" =~ ^(none|healthy)$ \
           && "$(field "$pg" 2)" == running && "$(field "$pg" 4)" == healthy ]] \
        && [[ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "${HEALTH_API_URL}/api/public/app-config")" == 200 ]] \
        && [[ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "${HEALTH_API_URL}/api/auth/me")" == 401 ]] \
        && [[ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "${HEALTH_WEB_URL}/")" == 200 ]]; then
       if [[ -n "$3" ]]; then
-        local rev
-        rev="$(portainer "${PORTAINER_URL}/api/endpoints/${PORTAINER_ENDPOINT_ID}/docker/containers/cloudbase-backend/json" \
-          | jq -r '.Config.Labels["org.opencontainers.image.revision"] // ""')"
-        [[ "$rev" == "$3" ]] || { log "backend revision label '${rev}' != ${3}"; sleep 10; continue; }
+        if [[ "$(field "$be" 5)" != "$3" || "$(field "$fe" 5)" != "$3" ]]; then
+          ok_since=""; log "backend/frontend revision labels do not both match ${3}"; sleep 10; continue
+        fi
       fi
       # Require 30s of stable running with no restarts: a crash loop can look "running" between samples.
       now_restarts="$(field "$be" 3)/$(field "$fe" 3)"
@@ -134,9 +136,10 @@ wait_healthy() {  # $1 = expected backend image, $2 = expected frontend image, $
 reachable() { portainer -o /dev/null --max-time 20 "${PORTAINER_URL}/api/stacks/${PORTAINER_STACK_ID}" 2>/dev/null; }
 
 wait_reachable() {  # until Portainer answers again, at most RECONCILE_SECONDS
-  local deadline=$((SECONDS + RECONCILE))
+  # Share one recovery budget across repeated observations; flapping must not extend it forever.
+  RECONCILE_DEADLINE="${RECONCILE_DEADLINE:-$((SECONDS + RECONCILE))}"
   until reachable; do
-    (( SECONDS < deadline )) || return 1
+    (( SECONDS < RECONCILE_DEADLINE )) || return 1
     log "portainer unreachable; waiting to reconcile before any rollback"
     sleep 10
   done
@@ -158,9 +161,27 @@ fi
 
 # An unreachable control plane is not an unhealthy release: find out what is actually running first.
 echo "::error::rollout of ${DEPLOY_SHA:0:7} not confirmed healthy within ${TIMEOUT}s; reconciling live state"
+reconcile_state() {
 wait_reachable || unknown_state
 BE="$(container backend)"; FE="$(container frontend)"
+# A successful stack request does not prove that subsequent Docker inspections succeeded.
+# Never turn missing/malformed observations into a decision to mutate production.
+if [[ "$(field "$BE" 1)" == missing || "$(field "$FE" 1)" == missing \
+      || -z "$(field "$BE" 2)" || -z "$(field "$FE" 2)" ]]; then
+  fail "STATE UNKNOWN: container inspection failed after reconnection; no rollback was attempted"
+fi
+portainer "${PORTAINER_URL}/api/stacks/${PORTAINER_STACK_ID}" > "$WORK/reconciled-stack.json" \
+  || fail "STATE UNKNOWN: stack inspection failed; no rollback was attempted"
+portainer "${PORTAINER_URL}/api/stacks/${PORTAINER_STACK_ID}/file" | jq -ej '.StackFileContent' > "$WORK/reconciled.yml" \
+  || fail "STATE UNKNOWN: stack file inspection failed; no rollback was attempted"
+jq -e --slurpfile s "$WORK/stack.json" '.EndpointId == $s[0].EndpointId and .Env == $s[0].Env' "$WORK/reconciled-stack.json" >/dev/null \
+  || fail "STATE UNKNOWN: stack settings changed during rollout; no rollback was attempted"
+if ! cmp -s "$WORK/reconciled.yml" "$WORK/next.yml" && ! cmp -s "$WORK/reconciled.yml" "$WORK/previous.yml"; then
+  fail "STATE UNKNOWN: stack configuration changed during rollout; no rollback was attempted"
+fi
 log "live: backend $(field "$BE" 1 | sed 's#.*/##') ($(field "$BE" 2)), frontend $(field "$FE" 1 | sed 's#.*/##') ($(field "$FE" 2))"
+}
+reconcile_state
 
 if [[ "$(field "$BE" 1)" == "$BACKEND_IMAGE" && "$(field "$FE" 1)" == "$FRONTEND_IMAGE" ]] \
    && wait_healthy "$BACKEND_IMAGE" "$FRONTEND_IMAGE" "$DEPLOY_SHA"; then
@@ -170,6 +191,8 @@ if [[ "$(field "$BE" 1)" == "$BACKEND_IMAGE" && "$(field "$FE" 1)" == "$FRONTEND
   exit 0
 fi
 
+# Health verification can itself lose connectivity; refresh observations before a mutation.
+reconcile_state
 if [[ "$(field "$BE" 1)" == "$PREV_BACKEND" && "$(field "$FE" 1)" == "$PREV_FRONTEND" ]]; then
   # The rollout never reached the containers. Put the stack file back so it matches what runs.
   if update_stack "$WORK/previous.yml" && wait_healthy "$PREV_BACKEND" "$PREV_FRONTEND" ""; then
@@ -177,6 +200,7 @@ if [[ "$(field "$BE" 1)" == "$PREV_BACKEND" && "$(field "$FE" 1)" == "$PREV_FRON
   fi
 fi
 
+reconcile_state
 echo "::error::rolling back to the previous images"
 if update_stack "$WORK/previous.yml" && wait_healthy "$PREV_BACKEND" "$PREV_FRONTEND" ""; then
   fail "rolled back to previous images (${PREV_BACKEND##*/})"

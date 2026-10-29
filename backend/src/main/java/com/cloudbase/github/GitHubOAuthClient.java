@@ -109,7 +109,8 @@ public class GitHubOAuthClient {
                 .queryParam("scope", scopes())
                 .queryParam("state", state)
                 .queryParam("allow_signup", "true")
-                .build(true)
+                .build()
+                .encode()
                 .toUriString();
     }
 

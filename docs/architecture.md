@@ -25,21 +25,21 @@ The browser never talks to Portainer or NPM; the API does.
                            ├── Portainer API     stacks, containers, logs, stats ──> Docker
                            ├── NPM API           proxy hosts + TLS for tenant hostnames
                            ├── GitHub            OAuth, repo files, Actions secrets, webhooks
-                           └── Docker Hub        platform images and tenant images
+                           └── Registries        Docker Hub platform images; tenant GHCR images
 ```
 
 | Layer | What it does |
 |-------|--------------|
 | Portainer | The API sends compose text to `/api/stacks` with an API key; Portainer creates, updates, stops and removes stacks. Logs and CPU/RAM samples come from it too. |
 | NPM | After a tenant container is up, the API creates or updates a proxy host (hostname → container on the `cloudbase` network) using the certificate `NPM_CERTIFICATE_ID`. |
-| GitHub | For a GitHub service the API adds a Dockerfile if missing, a workflow, encrypted Actions secrets and a webhook. Builds run on GitHub Actions; when the image is on Docker Hub, GitHub calls `POST /api/webhooks/github` (unsigned calls are rejected). |
+| GitHub | For a GitHub service the API adds a Dockerfile if missing, a workflow and a webhook. Builds publish to the tenant's GHCR with the repository's own job token; no platform registry or Portainer credentials are distributed. GitHub calls `POST /api/webhooks/github` (unsigned calls are rejected). |
 | Resend (optional) | Verification and reset email. If it is off, signup still works and accounts are marked verified. |
 
 ## Control plane
 
 | Part | Technology | Details |
 |------|------------|---------|
-| UI | Angular 18, PrimeNG, SCSS; nginx on port 3000 in production | [frontend/stack.md](frontend/stack.md), [frontend/product.md](frontend/product.md) |
+| UI | Angular 21, PrimeNG 21, SCSS; nginx on port 3000 in production | [frontend/stack.md](frontend/stack.md), [frontend/product.md](frontend/product.md) |
 | API | Spring Boot 3.3 (Java 17), JWT, JPA, Flyway | [backend/stack.md](backend/stack.md), [backend/api.md](backend/api.md) |
 | Database | PostgreSQL 16; migrations in `backend/src/main/resources/db/migration/` | [backend/database.md](backend/database.md) |
 

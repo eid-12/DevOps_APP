@@ -69,7 +69,7 @@ public class PlatformSettingsService {
             @Value("${github.oauth.client-id:}") String githubClientId,
             @Value("${github.oauth.client-secret:}") String githubClientSecret,
             @Value("${github.oauth.redirect-uri:http://localhost:4200/auth/github/callback}") String githubRedirectUri,
-            @Value("${github.oauth.scopes:read:user repo user:email workflow}") String githubScopes,
+            @Value("${github.oauth.scopes:read:user repo user:email workflow read:packages}") String githubScopes,
             @Value("${github.webhook-secret:}") String githubWebhookSecret,
             @Value("${dockerhub.username:}") String dockerHubUsername,
             @Value("${dockerhub.token:}") String dockerHubToken,

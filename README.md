@@ -20,7 +20,7 @@ A private PaaS running on a Mini PC: users create projects and services (a GitHu
 │       │   ├── application-local.properties.example
 │       │   └── db/migration/             Flyway migrations V1–V18
 │       └── test/java/                    unit tests
-├── frontend/                Angular 18 SPA, served by nginx on :3000
+├── frontend/                Angular 21 SPA, served by nginx on :3000
 │   ├── Dockerfile
 │   ├── nginx.conf
 │   ├── proxy.conf.json      ng serve proxy for /api and /ws
@@ -42,7 +42,7 @@ A private PaaS running on a Mini PC: users create projects and services (a GitHu
 
 ## Run it locally
 
-Requirements: Docker; for coding without Docker also JDK 17–25, Maven 3.6.3+ and Node.js 20.
+Requirements: Docker; for coding without Docker also JDK 17–25, Maven 3.6.3+ and Node.js 22.
 
 **Everything in Docker:**
 

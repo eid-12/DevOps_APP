@@ -350,6 +350,7 @@ public class PortainerClient {
 
     /** First error message in a Docker image-pull JSON stream, or null when the pull succeeded. */
     static String pullStreamError(String body) {
+        boolean completed = false;
         for (String line : body.split("\n")) {
             if (line.isBlank()) {
                 continue;
@@ -359,11 +360,17 @@ public class PortainerClient {
                 if (node.hasNonNull("error")) {
                     return node.get("error").asText();
                 }
+                if (node.path("errorDetail").hasNonNull("message")) {
+                    return node.path("errorDetail").path("message").asText();
+                }
+                String status = node.path("status").asText("");
+                completed |= status.startsWith("Status: Downloaded newer image for ")
+                        || status.startsWith("Status: Image is up to date for ");
             } catch (Exception notJson) {
                 return "image pull failed (unreadable response)";
             }
         }
-        return null;
+        return completed ? null : "image pull failed (completion not confirmed)";
     }
 
     private static final com.fasterxml.jackson.databind.ObjectMapper PULL_STREAM_JSON =

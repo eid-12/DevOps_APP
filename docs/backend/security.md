@@ -36,6 +36,8 @@ Admin Hosting shows “configured” hints, not the raw secret, unless I type a 
 
 Never commit `.env`, `application-local.properties`, or `frontend/src/environments/environment.ts`. Compose refuses to start without `DB_PASS`, `JWT_SECRET`, `GITHUB_WEBHOOK_SECRET`. Prod profile also refuses a weak JWT.
 
+Native Maven packaging excludes `application-local.*` from JARs, while local development can still load it from the classes directory. Docker also excludes the real local properties file from its build context. CI checks the packaged JAR for local configuration entries.
+
 ## Delete
 
 Type the exact name. Tear down Portainer first. If that fails, keep the DB row. See [database.md](database.md#delete-order).

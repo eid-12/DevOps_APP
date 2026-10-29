@@ -41,7 +41,7 @@ Numbers below are the constants in the backend, not guesses.
 
 The HTML line “Expires in 15 minutes” is a **copied string** in `ResendEmailService`, not `CODE_TTL_MINUTES` interpolated. Keep them in sync if the TTL changes.
 
-`resetPassword` on the API only requires **6** characters. Account change-password and the Angular register/reset forms use the strong 8+ rule. The link still dies at 30 minutes either way.
+Registration, password reset and account password changes all enforce the shared strong 8+ character rule (uppercase, lowercase, digit and special character). Reset links expire after 30 minutes.
 
 HTTP `429` text is exact, e.g. `Please wait N seconds before requesting another email.`
 

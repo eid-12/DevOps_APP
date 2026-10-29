@@ -103,5 +103,36 @@ check "exits non-zero" '[[ $RC -ne 0 ]]'
 check "reports unknown state" 'grep -q "STATE UNKNOWN" "$OUT"'
 check "no rollback update was sent" '[[ "$(curl -s "http://127.0.0.1:${PORT}/_puts" | jq length)" == 1 ]]'
 
+echo "10. mixed backend/frontend revisions roll back together"
+start_mock mixed ahead; run_deploy 35
+check "exits non-zero and rolls back" '[[ $RC -ne 0 && "$(puts | jq length)" == 2 ]]'
+check "reports rollback" 'grep -q "rolled back to previous images" "$OUT"'
+common_checks
+
+echo "11. stack responds but Docker inspection fails -> unknown, no rollback"
+start_mock inspection-fails ahead; run_deploy 35
+check "exits non-zero with unknown state" '[[ $RC -ne 0 ]] && grep -q "STATE UNKNOWN" "$OUT"'
+check "no rollback sent" '[[ "$(puts | jq length)" == 1 ]]'
+
+echo "12. unrelated stack changes during rollout -> unknown, preserve operator changes"
+start_mock changed-config ahead; run_deploy 35
+check "reports unknown state" '[[ $RC -ne 0 ]] && grep -q "STATE UNKNOWN" "$OUT"'
+check "no rollback sent" '[[ "$(puts | jq length)" == 1 ]]'
+
+echo "13. outage before rollout -> unknown, no mutation"
+start_mock outage-before ahead; run_deploy 35
+check "reports unknown state" '[[ $RC -ne 0 ]] && grep -q "STATE UNKNOWN" "$OUT"'
+check "no update sent" '[[ "$(puts | jq length)" == 0 ]]'
+
+echo "14. Docker health failure rejects a release even when HTTP responds"
+start_mock unhealthy ahead; run_deploy 35
+check "exits non-zero and rolls back" '[[ $RC -ne 0 && "$(puts | jq length)" == 2 ]]'
+common_checks
+
+echo "15. frontend revision mismatch rejects the release"
+start_mock wrong-frontend-label ahead; run_deploy 35
+check "exits non-zero and rolls back" '[[ $RC -ne 0 && "$(puts | jq length)" == 2 ]]'
+common_checks
+
 if (( failures )); then echo "${failures} check(s) failed"; exit 1; fi
 echo "all deploy script scenarios passed"

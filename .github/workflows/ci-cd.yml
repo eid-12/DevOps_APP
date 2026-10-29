@@ -30,7 +30,15 @@ jobs:
           cache: maven
       - name: mvn clean verify
         working-directory: backend
-        run: mvn -B -ntp clean verify
+        run: |
+          # Non-secret fixture proves the packaging exclusion works even when local config exists.
+          printf '%s\n' 'packaging.regression.sentinel=non-secret-test-only' > src/main/resources/application-local.properties
+          mvn -B -ntp clean verify
+          jar tf target/cloudbase-backend-0.0.1-SNAPSHOT.jar > "$RUNNER_TEMP/cloudbase-jar-entries"
+          if grep -Eq '^BOOT-INF/classes/application-local\.' "$RUNNER_TEMP/cloudbase-jar-entries"; then
+            echo "::error::Local operator configuration must not be packaged"
+            exit 1
+          fi
 
   frontend:
     name: Frontend build
@@ -55,7 +63,7 @@ jobs:
   deploy-script:
     name: Deploy script tests
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -157,7 +165,8 @@ jobs:
     name: Deploy to production
     needs: publish
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # Rollout + 15-minute outage reconciliation + verification/rollback must fit.
+    timeout-minutes: 45
     environment:
       name: production
       url: https://www.cloudbase.website

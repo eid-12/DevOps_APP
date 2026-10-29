@@ -32,6 +32,7 @@ const puts = [];
 let restarts = 0;
 let outageUntil = 0;
 let running = null; // images the containers actually run; null = whatever the stack file says
+let oldImages;
 const OUTAGE_MS = Number(process.env.OUTAGE_SECONDS || 15) * 1000;
 const fileImg = name => (file.match(new RegExp(`image:\\s*(\\S*cloudbase-${name}\\S*)`)) || [])[1];
 const img = name => (running ? running[name] : fileImg(name));
@@ -45,7 +46,7 @@ http.createServer((req, res) => {
     const u = req.url;
     if (u.startsWith('/github/')) return send(200, { status: process.env.COMPARE || 'ahead' });
     if (u === '/_puts') return send(200, puts);
-    if (u.startsWith('/api/') && Date.now() < outageUntil) { res.writeHead(530); return res.end('error code: 1033'); }
+    if (u.startsWith('/api/') && (MODE === 'outage-before' || Date.now() < outageUntil)) { res.writeHead(530); return res.end('error code: 1033'); }
     if (u.startsWith('/api/') && req.headers['x-api-key'] !== 'test-key') return send(401, { message: 'bad key' });
     if (u === '/api/stacks/44' && req.method === 'GET') return send(200, { Id: 44, Name: 'cloudbase-platform', EndpointId: 3, Env: env });
     if (u === '/api/stacks/44/file') return send(200, { StackFileContent: file });
@@ -59,23 +60,29 @@ http.createServer((req, res) => {
         postgresUntouched: b.StackFileContent.includes('image: postgres:16-alpine')
       });
       const first = puts.length === 1;
+      if (first) oldImages = { backend: fileImg('backend'), frontend: fileImg('frontend') };
       if (first && MODE.startsWith('outage')) {
         outageUntil = MODE === 'outage-forever' ? Infinity : Date.now() + OUTAGE_MS;
         if (MODE === 'outage') running = { backend: fileImg('backend'), frontend: fileImg('frontend') };
       }
       file = b.StackFileContent;
+      if (first && MODE === 'mixed') running = { backend: fileImg('backend'), frontend: oldImages.frontend };
+      if (first && MODE === 'changed-config') file += '# unrelated operator change\n';
       if (!first) running = null;
       restarts = 0;
       return send(200, { Id: 44 });
     }
     const m = u.match(/^\/api\/endpoints\/3\/docker\/containers\/cloudbase-(backend|frontend|postgres)\/json$/);
     if (m) {
+      if (puts.length && MODE === 'inspection-fails') return send(503, {});
       if (m[1] === 'postgres') return send(200, { Config: { Image: 'postgres:16-alpine', Labels: {} }, State: { Status: 'running', Health: { Status: 'healthy' } }, RestartCount: 0 });
       const crashing = MODE === 'crashloop' && m[1] === 'backend' && newDeployed();
       if (crashing) restarts++;
-      return send(200, { Config: { Image: img(m[1]), Labels: { 'org.opencontainers.image.revision': rev() } }, State: { Status: 'running' }, RestartCount: crashing ? restarts : 0 });
+      const unhealthy = MODE === 'unhealthy' && newDeployed();
+      const revision = MODE === 'wrong-frontend-label' && m[1] === 'frontend' ? OLD_SHA : rev();
+      return send(200, { Config: { Image: img(m[1]), Labels: { 'org.opencontainers.image.revision': revision } }, State: { Status: 'running', Health: { Status: unhealthy ? 'unhealthy' : 'healthy' } }, RestartCount: crashing ? restarts : 0 });
     }
-    const healthy = !(MODE === 'broken' && newDeployed());
+    const healthy = !(['broken', 'changed-config'].includes(MODE) && newDeployed());
     if (u === '/health/api/public/app-config') return send(healthy ? 200 : 503, {});
     if (u === '/health/api/auth/me') return send(healthy ? 401 : 503, {});
     if (u === '/health/web/') return send(200, {});

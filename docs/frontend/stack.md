@@ -6,11 +6,11 @@ Angular SPA (`frontend/`). Screens and journeys: [product.md](product.md). Backe
 
 | Piece | Choice |
 |-------|--------|
-| Framework | Angular **18** |
-| Language | TypeScript **5.5** |
-| UI | PrimeNG 17.18.12 + PrimeFlex 3.3.1 + PrimeIcons 7.0.0 (npm registry, exact pins) |
-| Spinner | `ngx-spinner` 17.0.0 (npm registry) |
-| Font | Inter via `@fontsource-variable/inter` (OFL-1.1, self-hosted). PrimeNG 17's bundled `Inter var` woff2 is corrupt upstream; `_tokens.scss` overrides `--font-family` so it is never fetched. |
+| Framework | Angular **21.2.25** (Node 22 builds) |
+| Language | TypeScript **5.9.3** |
+| UI | PrimeNG 21.1.10 + PrimeUIX themes 3.1.0; Lara indigo, dark scheme selected by `.cb-dark` on `html` |
+| Spinner | `ngx-spinner` 22.0.1 (npm registry) |
+| Font | Inter via `@fontsource-variable/inter` (OFL-1.1, self-hosted) |
 | Streams | RxJS **7.8** |
 | Local serve | `ng serve` on `:4200`, proxy `/api` and `/ws` → `:8080` (`proxy.conf.json`) |
 | Production | nginx image, listen **3000** |
