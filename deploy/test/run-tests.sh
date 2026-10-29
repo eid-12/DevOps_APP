@@ -20,7 +20,7 @@ start_mock() {  # mode compare
     kill "$MOCK_PID" 2>/dev/null || true
     wait "$MOCK_PID" 2>/dev/null || true
   fi
-  MODE="$1" COMPARE="$2" OUTAGE_SECONDS="${OUTAGE_SECONDS:-15}" PORT="$PORT" node deploy/test/mock-portainer.js >/dev/null &
+  MODE="$1" COMPARE="$2" PREV_REVOCATION="${PREV_REVOCATION:-ahead}" OUTAGE_SECONDS="${OUTAGE_SECONDS:-15}" PORT="$PORT" node deploy/test/mock-portainer.js >/dev/null &
   MOCK_PID=$!
   for _ in $(seq 1 50); do curl -s "http://127.0.0.1:${PORT}/_puts" >/dev/null && return; sleep 0.1; done
   echo "mock did not start"; exit 1
@@ -29,7 +29,7 @@ start_mock() {  # mode compare
 run_deploy() {  # timeout -> sets RC
   set +e
   PORTAINER_URL="http://127.0.0.1:${PORT}" PORTAINER_API_KEY="${API_KEY:-test-key}" PORTAINER_ENDPOINT_ID=3 PORTAINER_STACK_ID=44 \
-  DEPLOY_SHA="$NEW_SHA" \
+  DEPLOY_SHA="$NEW_SHA" ROLLBACK_BACKEND_IMAGE="${ROLLBACK_IMAGE:-}" \
   BACKEND_IMAGE="minipcer/cloudbase-backend:${NEW_SHA}@${BE_DIGEST}" \
   FRONTEND_IMAGE="minipcer/cloudbase-frontend:${NEW_SHA}@${FE_DIGEST}" \
   HEALTH_API_URL="http://127.0.0.1:${PORT}/health" HEALTH_WEB_URL="http://127.0.0.1:${PORT}/health/web" \
@@ -133,6 +133,43 @@ echo "15. frontend revision mismatch rejects the release"
 start_mock wrong-frontend-label ahead; run_deploy 35
 check "exits non-zero and rolls back" '[[ $RC -ne 0 && "$(puts | jq length)" == 2 ]]'
 common_checks
+
+COMPAT_SHA="$(sed -nE 's/^ROLLBACK_COMPAT_SHA=([0-9a-f]{40})$/\1/p' deploy/session-revocation.env)"
+COMPAT_IMAGE="minipcer/cloudbase-backend:${COMPAT_SHA}@sha256:$(printf '5%.0s' {1..64})"
+
+echo "16. previous backend ignores session revocation -> roll back to the revocation rollback build"
+PREV_REVOCATION=diverged start_mock broken ahead; ROLLBACK_IMAGE="$COMPAT_IMAGE" run_deploy 45
+check "exits non-zero" '[[ $RC -ne 0 ]]'
+check "rollback update uses the rollback build" '[[ "$(puts | jq -r ".[1].backend")" == "cloudbase-backend:${COMPAT_SHA}@sha256:$(printf "5%.0s" {1..64})" ]]'
+check "reports the rollback target" 'grep -q "rolled back to cloudbase-backend:${COMPAT_SHA}" "$OUT"'
+common_checks
+
+echo "17. previous backend ignores session revocation, no rollback build -> no automatic rollback"
+PREV_REVOCATION=diverged start_mock broken ahead; run_deploy 45
+check "exits non-zero" '[[ $RC -ne 0 ]]'
+check "no rollback update was sent" '[[ "$(puts | jq length)" == 1 ]]'
+check "says why" 'grep -q "NOT ROLLED BACK" "$OUT" && grep -q "reactivate revoked sessions" "$OUT"'
+
+echo "18. a rollback image that is not the pinned revocation build is refused"
+PREV_REVOCATION=diverged start_mock broken ahead; ROLLBACK_IMAGE="minipcer/cloudbase-backend:${COMPAT_SHA}" run_deploy 45
+check "unpinned image: no rollback update" '[[ $RC -ne 0 && "$(puts | jq length)" == 1 ]] && grep -q "NOT ROLLED BACK" "$OUT"'
+PREV_REVOCATION=diverged start_mock broken ahead
+ROLLBACK_IMAGE="minipcer/cloudbase-backend:$(printf 'd%.0s' {1..40})@sha256:$(printf '5%.0s' {1..64})" run_deploy 45
+check "other commit: no rollback update" '[[ $RC -ne 0 && "$(puts | jq length)" == 1 ]] && grep -q "NOT ROLLED BACK" "$OUT"'
+
+echo "19. previous backend enforces session revocation -> plain rollback to it, rollback build unused"
+start_mock broken ahead; ROLLBACK_IMAGE="$COMPAT_IMAGE" run_deploy 45
+check "second update restores the previous backend" '[[ "$(puts | jq -r ".[1].backend")" == cloudbase-backend:$(printf "a%.0s" {1..40})@sha256:* ]]'
+common_checks
+
+echo "20. the pipeline wires the rollback build into the deploy step"
+WF=.github/workflows/ci-cd.yml
+check "publish reads ROLLBACK_COMPAT_SHA from deploy/session-revocation.env" 'grep -q "ROLLBACK_COMPAT_SHA=.*deploy/session-revocation.env" "$WF"'
+check "publish builds the backend from that commit and exports its digest" \
+  'grep -q "context: rollback-build/backend" "$WF" && grep -q "rollback_digest: \${{ steps.rollback_backend.outputs.digest }}" "$WF"'
+check "deploy passes it pinned by digest as ROLLBACK_BACKEND_IMAGE" \
+  'grep -q "ROLLBACK_BACKEND_IMAGE: .*cloudbase-backend:{1}@{2}.*rollback_sha.*rollback_digest" "$WF"'
+check "the committed rollback commit enforces revocation according to the gate" '[[ -n "$COMPAT_SHA" ]]'
 
 if (( failures )); then echo "${failures} check(s) failed"; exit 1; fi
 echo "all deploy script scenarios passed"

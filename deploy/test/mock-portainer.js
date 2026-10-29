@@ -6,11 +6,15 @@
 // MODE=outage-applied  same outage, but the new containers did start
 // MODE=outage-forever  /api answers 530 for good after the rollout PUT
 // COMPARE=ahead|behind|identical|diverged  GitHub compare status of deployed...new
+// PREV_REVOCATION=ahead|diverged  compare status of SESSION_REVOCATION_SINCE...deployed (ahead = it enforces revocation)
 // GET /_puts returns what each stack update sent (without the env values).
 const http = require('http');
 const MODE = process.env.MODE || 'ok';
 const PORT = Number(process.env.PORT || 8080);
 const OLD_SHA = 'a'.repeat(40);
+const NEW_SHA = 'b'.repeat(40);
+const SINCE = (require('fs').readFileSync(require('path').join(__dirname, '..', 'session-revocation.env'), 'utf8')
+  .match(/^SESSION_REVOCATION_SINCE=([0-9a-f]{40})$/m) || [])[1];
 let file = [
   'services:',
   '  postgres:',
@@ -37,13 +41,17 @@ const OUTAGE_MS = Number(process.env.OUTAGE_SECONDS || 15) * 1000;
 const fileImg = name => (file.match(new RegExp(`image:\\s*(\\S*cloudbase-${name}\\S*)`)) || [])[1];
 const img = name => (running ? running[name] : fileImg(name));
 const rev = () => (img('backend').match(/:([0-9a-f]{40})@/) || [])[1];
-const newDeployed = () => !img('backend').includes(OLD_SHA);
+const newDeployed = () => img('backend').includes(NEW_SHA);
 
 http.createServer((req, res) => {
   let body = '';
   req.on('data', c => (body += c)).on('end', () => {
     const send = (code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(obj === undefined ? '' : JSON.stringify(obj)); };
     const u = req.url;
+    if (SINCE && u.includes('/compare/' + SINCE + '...')) {
+      const head = u.split('...').pop();
+      return send(200, { status: head === OLD_SHA ? (process.env.PREV_REVOCATION || 'ahead') : 'ahead' });
+    }
     if (u.startsWith('/github/')) return send(200, { status: process.env.COMPARE || 'ahead' });
     if (u === '/_puts') return send(200, puts);
     if (u.startsWith('/api/') && (MODE === 'outage-before' || Date.now() < outageUntil)) { res.writeHead(530); return res.end('error code: 1033'); }

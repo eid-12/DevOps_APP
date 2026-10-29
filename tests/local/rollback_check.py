@@ -1,6 +1,10 @@
 """Rollback compatibility of session revocation, on the isolated lab (synthetic data only).
 
-    python tests/local/rollback_check.py --old-jar <jar built from the release to roll back to>
+    python tests/local/rollback_check.py --old-jar <jar> --new-jar <jar> [--expect-safe]
+
+Without --expect-safe the old jar is a release that ignores "sv" (e.g. 1b885e9): the check proves the risk and the
+JWT_SECRET-rotation recovery. With --expect-safe it is the rollback build (branch rollback/1b885e9-sv): revoked
+sessions must stay revoked with no secret rotation.
 
 Needs a running lab started with the NEW jar. Swaps only the lab's API container: new -> old -> old with a
 rotated JWT secret (the recovery step) -> new again, all on the same lab database.
@@ -56,6 +60,7 @@ def restart_api(jar, jwt_secret=None):
 parser = argparse.ArgumentParser()
 parser.add_argument('--old-jar', required=True)
 parser.add_argument('--new-jar', required=True)
+parser.add_argument('--expect-safe', action='store_true')
 args = parser.parse_args()
 
 email = 'rollback-' + uuid.uuid4().hex[:6] + '@cloudbase.test'
@@ -69,6 +74,19 @@ check('new release: token from before the password change is revoked', request('
 check('old release starts on the migrated database (V19 present)', restart_api(args.old_jar))
 check('old release accepts tokens issued by the new release', request('GET', '/api/auth/me', token=t2)[0] == 200)
 revived = request('GET', '/api/auth/me', token=t1)[0] == 200
+if args.expect_safe:
+    check('rollback build keeps the revoked token revoked (no secret rotation)', not revived)
+    t4 = request('POST', '/api/auth/login', {'email': email, 'password': 'Rolled-Qa!2026'})[1]['token']
+    check('rollback build: password change succeeds', request('POST', '/api/auth/change-password',
+          {'currentPassword': 'Rolled-Qa!2026', 'newPassword': 'Compat-Qa!2026'}, t4)[0] == 200)
+    check('rollback build: password change revokes earlier sessions', request('GET', '/api/auth/me', token=t4)[0] == 401
+          and request('GET', '/api/auth/me', token=t2)[0] == 401)
+    t5 = request('POST', '/api/auth/login', {'email': email, 'password': 'Compat-Qa!2026'})[1]['token']
+    check('roll forward: new release starts again', restart_api(args.new_jar))
+    check('roll forward: token issued by the rollback build is accepted', request('GET', '/api/auth/me', token=t5)[0] == 200)
+    check('roll forward: tokens revoked on the rollback build stay revoked', request('GET', '/api/auth/me', token=t4)[0] == 401)
+    print(f'{sum(results)}/{len(results)} rollback checks passed')
+    sys.exit(0 if all(results) else 1)
 check('RISK CONFIRMED: old release accepts the token the new release had revoked', revived)
 
 check('recovery: old release restarts with a rotated JWT secret', restart_api(args.old_jar, 'rotated-' + uuid.uuid4().hex))

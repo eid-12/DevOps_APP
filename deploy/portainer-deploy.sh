@@ -18,6 +18,8 @@
 #   DEPLOY_TIMEOUT_SECONDS (default 300)
 #   DEPLOY_RECONCILE_SECONDS (default 900): how long to wait for an unreachable Portainer before reporting unknown state
 #   CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET (if Portainer is put behind Cloudflare Access)
+#   ROLLBACK_BACKEND_IMAGE  digest-pinned build of ROLLBACK_COMPAT_SHA (deploy/session-revocation.env); used as the
+#                           rollback backend when the deployed one ignores session revocation
 #
 # Never prints stack env values or credentials: Portainer stack responses contain the env, so they are
 # only ever parsed with jq, never echoed.
@@ -80,6 +82,39 @@ pin() { sed -E "s#^([[:space:]]*image:[[:space:]]*)[^[:space:]]*cloudbase-$1[^[:
 pin backend "$BACKEND_IMAGE" < "$WORK/previous.yml" | pin frontend "$FRONTEND_IMAGE" > "$WORK/next.yml"
 CHANGED="$(diff "$WORK/previous.yml" "$WORK/next.yml" | grep -c '^>' || true)"
 [[ "$CHANGED" -le 2 ]] || fail "unexpected stack file changes (${CHANGED} lines)"
+
+# --- rollback target: never a backend that would revive revoked sessions ------------------------------------
+# A release that enforces session revocation may revoke tokens (password change/reset). Rolling back to a
+# backend that ignores "sv" would accept them again, so the rollback backend must enforce it too: built from
+# SESSION_REVOCATION_SINCE or later, or the dedicated ROLLBACK_COMPAT_SHA build. Fails closed.
+REVOCATION_FILE="$(dirname "$0")/session-revocation.env"
+SINCE=""; COMPAT_SHA=""
+if [[ -f "$REVOCATION_FILE" ]]; then
+  SINCE="$(sed -nE 's/^SESSION_REVOCATION_SINCE=([0-9a-f]{40})$/\1/p' "$REVOCATION_FILE")"
+  COMPAT_SHA="$(sed -nE 's/^ROLLBACK_COMPAT_SHA=([0-9a-f]{40})$/\1/p' "$REVOCATION_FILE")"
+fi
+image_sha() { sed -nE 's/.*:([0-9a-f]{40})(@.*)?$/\1/p' <<<"$1"; }
+enforces_revocation() {  # $1 = commit of a backend build
+  [[ -n "$1" && -n "$SINCE" ]] || return 1
+  [[ "$1" == "$SINCE" || ( -n "$COMPAT_SHA" && "$1" == "$COMPAT_SHA" ) ]] && return 0
+  [[ -n "${GITHUB_TOKEN:-}" ]] || return 1
+  local status
+  status="$(curl -sS --fail --max-time 60 -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" \
+    "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY}/compare/${SINCE}...$1" | jq -r '.status')" || return 1
+  [[ "$status" == ahead || "$status" == identical ]]
+}
+ROLLBACK_BACKEND="$PREV_BACKEND"
+if [[ -n "$SINCE" ]] && enforces_revocation "$DEPLOY_SHA" && ! enforces_revocation "$(image_sha "$PREV_BACKEND")"; then
+  if [[ -n "${ROLLBACK_BACKEND_IMAGE:-}" && "$ROLLBACK_BACKEND_IMAGE" == *@sha256:* \
+        && -n "$COMPAT_SHA" && "$(image_sha "$ROLLBACK_BACKEND_IMAGE")" == "$COMPAT_SHA" ]]; then
+    ROLLBACK_BACKEND="$ROLLBACK_BACKEND_IMAGE"
+    log "rollback target: ${ROLLBACK_BACKEND##*/} (previous ${PREV_BACKEND##*/} ignores session revocation)"
+  else
+    ROLLBACK_BACKEND=""
+    log "::warning::no rollback backend that enforces session revocation; a failed rollout will NOT be rolled back automatically"
+  fi
+fi
+pin backend "${ROLLBACK_BACKEND:-$PREV_BACKEND}" < "$WORK/previous.yml" > "$WORK/rollback.yml"
 
 update_stack() {  # $1 = compose file to apply
   jq -n --rawfile f "$1" --slurpfile s "$WORK/stack.json" \
@@ -201,9 +236,14 @@ if [[ "$(field "$BE" 1)" == "$PREV_BACKEND" && "$(field "$FE" 1)" == "$PREV_FRON
 fi
 
 reconcile_state
-echo "::error::rolling back to the previous images"
-if update_stack "$WORK/previous.yml" && wait_healthy "$PREV_BACKEND" "$PREV_FRONTEND" ""; then
-  fail "rolled back to previous images (${PREV_BACKEND##*/})"
+if [[ -z "$ROLLBACK_BACKEND" ]]; then
+  fail "NOT ROLLED BACK: ${DEPLOY_SHA:0:7} is unhealthy, but the previous backend ${PREV_BACKEND##*/} ignores session revocation \
+and no rollback build was supplied. Restoring it would reactivate revoked sessions. See docs/operations.md (Session revocation and rollback)."
+fi
+echo "::error::rolling back to ${ROLLBACK_BACKEND##*/} / ${PREV_FRONTEND##*/}"
+if update_stack "$WORK/rollback.yml" && wait_healthy "$ROLLBACK_BACKEND" "$PREV_FRONTEND" ""; then
+  [[ "$ROLLBACK_BACKEND" == "$PREV_BACKEND" ]] && fail "rolled back to previous images (${PREV_BACKEND##*/})"
+  fail "rolled back to ${ROLLBACK_BACKEND##*/} / ${PREV_FRONTEND##*/} (session-revocation rollback build)"
 fi
 reachable || unknown_state
-fail "ROLLBACK FAILED with Portainer reachable: restore manually with the previous images ${PREV_BACKEND} / ${PREV_FRONTEND}"
+fail "ROLLBACK FAILED with Portainer reachable: restore manually with ${ROLLBACK_BACKEND} / ${PREV_FRONTEND}"

@@ -68,25 +68,41 @@ Automatic rollback covers a failed rollout. To return to an earlier good release
 
 #### Session revocation and rollback
 
-Since migration `V19`, session tokens carry the user's `session_version` (`sv`), which a password change or
-reset increments; older tokens are then refused. Releases before that change ignore `sv`. Rolling back to one
-of them is safe for the database (it starts on the migrated schema; the extra column is ignored), **but it
-accepts again any token that a password change or reset had revoked, until that token expires (2 h by default).**
-Verified in `tests/local/rollback_check.py`.
+Since migration `V19`, session tokens and reset links carry the user's `session_version` (`sv`); a password change
+or reset increments it and earlier tokens are refused. A backend from before `SESSION_REVOCATION_SINCE`
+(`deploy/session-revocation.env`) ignores `sv`: it starts fine on the migrated schema but **accepts again any token a
+password change or reset had revoked, until it expires (2 h by default)**. So no rollback may target such a backend.
 
-Recovery when rolling back past `V19` (also covers the automatic rollback of a failed deploy):
+**Automatic rollback (pipeline).** The deploy script picks the rollback backend:
 
-1. Self-service password changes and resets are not audited (only admin-sent reset emails are), so assume some
-   tokens were revoked once the new release has served users. Only an automatic rollback of a rollout that never
-   became healthy can skip step 2.
-2. Rotate the token signing key together with the rollback: set a new random `JWT_SECRET` (at least
-   32 bytes, e.g. `openssl rand -base64 48`) in the stack environment in the same Portainer update that changes the
-   images. Every existing session ends, including the revoked ones; users sign in again. Rotating a production
-   secret needs the owner's approval: ask before doing it.
-3. Verify: a token issued before the rollback gets `401` on `GET /api/auth/me`; signing in works.
-4. Rolling forward again needs nothing extra: the new release honours `sv` immediately.
+| Deployed (previous) backend | Rollback backend |
+|---|---|
+| built from `SESSION_REVOCATION_SINCE` or later | the previous backend (normal rollback) |
+| older, and CI published the rollback build | `cloudbase-backend:<ROLLBACK_COMPAT_SHA>@<digest>` with the previous frontend |
+| older, no rollback build | **none**: the run fails with `NOT ROLLED BACK` and production keeps the new release |
 
-The first deploy of the `sv` release itself signs every user out once (earlier tokens have no `sv`).
+The rollback build is branch `rollback/1b885e9-sv`: `1b885e9` plus only the session-version checks (same `V19`
+file, same `sv` claim, row-locked password change/reset). CI builds and pushes it in the publish job from
+`ROLLBACK_COMPAT_SHA` and passes it pinned by digest as `ROLLBACK_BACKEND_IMAGE`; the script accepts no other image
+for that role. Covered by `deploy/test/run-tests.sh` scenarios 16-19 and `tests/local/rollback_check.py --expect-safe`.
+No secret is rotated in any of these paths.
+
+**Manual rollback** to a release older than `SESSION_REVOCATION_SINCE`:
+
+1. Use the rollback build instead of the old backend: Portainer → Stacks → cloudbase-platform → Editor, set the
+   backend `image:` to `<namespace>/cloudbase-backend:<ROLLBACK_COMPAT_SHA>@<digest>` (digest from the publish job
+   summary of any release that built it) and the frontend to the release you are returning to. Keep everything else.
+2. Verify: `GET /api/auth/me` with a token issued before a password change returns `401`; signing in works.
+3. Rolling forward again needs nothing extra; tokens are interchangeable between the two lines.
+
+Only if the rollback build is unavailable and the old backend must run anyway: rotate `JWT_SECRET` in the same stack
+update (every session ends, revoked ones included). That is a production secret rotation and needs the owner's
+approval first. The plain old image without either step must not be used.
+
+When production runs `SESSION_REVOCATION_SINCE` or later, remove `ROLLBACK_COMPAT_SHA` from
+`deploy/session-revocation.env`; every later rollback target then enforces `sv` itself.
+
+The first deploy of the `sv` release signs every user out once (earlier tokens have no `sv`); approved by the owner.
 
 ## Manual deploy (fallback when Actions is unavailable)
 
