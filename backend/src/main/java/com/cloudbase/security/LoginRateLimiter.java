@@ -1,10 +1,7 @@
 package com.cloudbase.security;
 
-import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
-import org.springframework.web.context.request.RequestContextHolder;
-import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
@@ -15,19 +12,30 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Throttles failed logins so passwords cannot be brute-forced. BCrypt is slow but not a substitute
- * for a lockout. Counts consecutive failures per email and per client IP; once a threshold is hit,
- * further attempts are rejected with 429 until the lock expires. A successful login clears the email.
+ * Throttles failed logins so passwords cannot be brute-forced (BCrypt alone is not a lockout).
+ *
+ * <ul>
+ *   <li>Per email + client IP: 8 failures lock that pair. This is the main guard and does not affect the
+ *       same account from other networks, so an attacker cannot easily lock a user out of their own account.</li>
+ *   <li>Per email across all IPs: 30 failures, against guessing spread over many addresses.</li>
+ *   <li>Per IP across all emails: 100 failures, against password spraying, high enough for users behind a
+ *       shared NAT.</li>
+ * </ul>
+ * A successful login clears only its own email + IP pair; it never resets the email-wide or IP-wide
+ * counters, so it cannot wipe protection against attacks on other accounts or from other networks.
+ * Emails are compared case-insensitively. Client IPs come from {@link ClientIpResolver}.
  */
 @Component
 public class LoginRateLimiter {
 
-    static final int MAX_PER_EMAIL = 8;
-    static final int MAX_PER_IP = 40;
-    static final Duration LOCK = Duration.ofMinutes(15);
+    static final int MAX_PER_PAIR = 8;
+    static final int MAX_PER_EMAIL = 30;
+    static final int MAX_PER_IP = 100;
+    static final Duration WINDOW = Duration.ofMinutes(15);
 
     private final Clock clock;
     private final Object lock = new Object();
+    private final Map<String, Bucket> byPair = new ConcurrentHashMap<>();
     private final Map<String, Bucket> byEmail = new ConcurrentHashMap<>();
     private final Map<String, Bucket> byIp = new ConcurrentHashMap<>();
 
@@ -39,25 +47,24 @@ public class LoginRateLimiter {
         this.clock = clock;
     }
 
-    /** Reject the attempt early if this email or IP is currently locked out. */
     public void checkAllowed(String email) {
-        checkAllowed(email, currentIp());
+        checkAllowed(email, ClientIpResolver.current());
     }
 
-    /** Record one failed attempt; locks the email/IP once the threshold is reached. */
     public void recordFailure(String email) {
-        recordFailure(email, currentIp());
+        recordFailure(email, ClientIpResolver.current());
     }
 
-    /** Clear the email's failures after a successful login. */
     public void clearFailures(String email) {
-        byEmail.remove(normalize(email));
+        clearFailures(email, ClientIpResolver.current());
     }
 
     void checkAllowed(String email, String ip) {
         Instant now = clock.instant();
         synchronized (lock) {
-            if (isLocked(byEmail.get(normalize(email)), now) || isLocked(byIp.get(normalize(ip)), now)) {
+            if (isLocked(byPair.get(pair(email, ip)), now)
+                    || isLocked(byEmail.get(normalize(email)), now)
+                    || isLocked(byIp.get(normalize(ip)), now)) {
                 throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
                         "Too many failed attempts. Try again in a few minutes.");
             }
@@ -67,8 +74,15 @@ public class LoginRateLimiter {
     void recordFailure(String email, String ip) {
         Instant now = clock.instant();
         synchronized (lock) {
+            bump(byPair.computeIfAbsent(pair(email, ip), k -> new Bucket()), now, MAX_PER_PAIR);
             bump(byEmail.computeIfAbsent(normalize(email), k -> new Bucket()), now, MAX_PER_EMAIL);
             bump(byIp.computeIfAbsent(normalize(ip), k -> new Bucket()), now, MAX_PER_IP);
+        }
+    }
+
+    void clearFailures(String email, String ip) {
+        synchronized (lock) {
+            byPair.remove(pair(email, ip));
         }
     }
 
@@ -76,38 +90,26 @@ public class LoginRateLimiter {
         return b != null && b.lockedUntil != null && now.isBefore(b.lockedUntil);
     }
 
-    private void bump(Bucket b, Instant now, int max) {
-        if (b.lockedUntil != null && now.isBefore(b.lockedUntil)) {
+    private static void bump(Bucket b, Instant now, int max) {
+        if (isLocked(b, now)) {
             return;
         }
-        if (b.windowStart == null || Duration.between(b.windowStart, now).compareTo(LOCK) > 0) {
+        if (b.windowStart == null || Duration.between(b.windowStart, now).compareTo(WINDOW) > 0) {
             b.windowStart = now;
             b.count = 0;
             b.lockedUntil = null;
         }
-        b.count++;
-        if (b.count >= max) {
-            b.lockedUntil = now.plus(LOCK);
+        if (++b.count >= max) {
+            b.lockedUntil = now.plus(WINDOW);
         }
+    }
+
+    private static String pair(String email, String ip) {
+        return normalize(email) + "|" + normalize(ip);
     }
 
     private static String normalize(String value) {
         return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
-    }
-
-    private static String currentIp() {
-        var attrs = RequestContextHolder.getRequestAttributes();
-        if (attrs instanceof ServletRequestAttributes sra) {
-            HttpServletRequest request = sra.getRequest();
-            String forwarded = request.getHeader("X-Forwarded-For");
-            if (forwarded != null && !forwarded.isBlank()) {
-                int comma = forwarded.indexOf(',');
-                return (comma < 0 ? forwarded : forwarded.substring(0, comma)).trim();
-            }
-            String ip = request.getRemoteAddr();
-            return ip == null || ip.isBlank() ? "unknown" : ip;
-        }
-        return "unknown";
     }
 
     private static final class Bucket {

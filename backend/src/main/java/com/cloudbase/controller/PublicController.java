@@ -4,6 +4,7 @@ import com.cloudbase.dto.PublicDtos.AppConfigResponse;
 import com.cloudbase.dto.PublicDtos.PlatformStatusResponse;
 import com.cloudbase.email.EmailService;
 import com.cloudbase.github.GitHubOAuthClient;
+import com.cloudbase.security.ClientIpResolver;
 import com.cloudbase.service.AdminService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
@@ -86,13 +87,7 @@ public class PublicController {
     }
 
     private static String clientIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            int comma = forwarded.indexOf(',');
-            return (comma < 0 ? forwarded : forwarded.substring(0, comma)).trim();
-        }
-        String ip = request.getRemoteAddr();
-        return ip == null || ip.isBlank() ? "unknown" : ip;
+        return ClientIpResolver.resolve(request);
     }
 
     private record CachedStatus(long atMs, PlatformStatusResponse body) {

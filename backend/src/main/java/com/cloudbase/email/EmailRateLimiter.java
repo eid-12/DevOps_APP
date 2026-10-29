@@ -185,13 +185,7 @@ public class EmailRateLimiter {
     }
 
     static String clientIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            int comma = forwarded.indexOf(',');
-            return (comma < 0 ? forwarded : forwarded.substring(0, comma)).trim();
-        }
-        String ip = request.getRemoteAddr();
-        return ip == null || ip.isBlank() ? "unknown" : ip;
+        return com.cloudbase.security.ClientIpResolver.resolve(request);
     }
 
     private static final class SendBucket {
