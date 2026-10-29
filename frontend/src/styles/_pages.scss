@@ -2274,12 +2274,12 @@
     padding: 0.7rem 0.75rem;
     color: #d6dbe3;
 
-    &:not(.p-highlight):not(.p-disabled):hover {
+    &:not(.p-select-option-selected):not(.p-disabled):hover {
       background: rgba(107, 154, 196, 0.14);
       color: #f8fafc;
     }
 
-    &.p-highlight {
+    &.p-select-option-selected {
       background: rgba(107, 154, 196, 0.28);
       color: #fff;
     }

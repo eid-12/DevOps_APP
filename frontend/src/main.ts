@@ -39,7 +39,7 @@ bootstrapApplication(AppComponent, {
   providers: [
     provideZoneChangeDetection({ eventCoalescing: true }),
     provideAnimations(),
-    providePrimeNG({ theme: { preset: LaraIndigo, options: { darkModeSelector: ':root' } } }),
+    providePrimeNG({ theme: { preset: LaraIndigo, options: { darkModeSelector: '.cb-dark' } } }),
     provideRouter(
       routes,
       withComponentInputBinding(),
