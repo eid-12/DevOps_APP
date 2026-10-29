@@ -18,4 +18,6 @@ python tests/local/lab.py stop            # removes only this lab's labelled con
 - `--jwt-expiration-ms` shortens tokens so the expiry checks finish quickly.
 - `verify_api.py` needs a fresh lab and must run before `browser.mjs` (it creates the fixtures). `ws_verify.mjs` also
   registers fixed accounts, so run it once per lab. `browser.mjs` resets its fixture and can be re-run.
+- `rollback_check.py --old-jar <jar> --new-jar <jar>` (lab started with the new jar and default token lifetime) proves
+  rollback compatibility of session revocation and the `JWT_SECRET` rotation recovery; see docs/operations.md.
 - Lab state lives in `%TEMP%/cloudbase-isolated-lab/` (state, API results, browser screenshots).

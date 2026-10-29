@@ -138,6 +138,17 @@ workers = [threading.Thread(target=race, args=(i,)) for i in range(5)]
 [w.join() for w in workers]
 check('5 concurrent requests near the limit: exactly one succeeds (%s)' % sorted(codes), sorted(codes) == [201, 402, 402, 402, 402])
 check('usage never exceeds the RAM limit', call('GET', '/api/auth/usage', token=qt)['memoryMbUsed'] <= 4096)
+# Tokens are readable: only non-secret claims. Logs never contain tokens, password hashes or passwords.
+import base64, subprocess
+def claim_names(token):
+    payload = token.split('.')[1]
+    return set(json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4))))
+check('session token payload holds only sub/role/sv/iat/exp', claim_names(ot) == {'sub', 'role', 'sv', 'iat', 'exp'})
+api_log = subprocess.run(['docker', 'logs', state()['prefix'] + '-api'], capture_output=True, text=True, encoding='utf-8', errors='replace')
+log_text = api_log.stdout + api_log.stderr
+check('API log contains no JWT', 'eyJ' not in log_text)
+check('API log contains no bcrypt hash', not any(m in log_text for m in ('$2a$', '$2b$', '$2y$')))
+check('API log contains no test password', PASSWORD not in log_text and 'Changed-Qa!2026' not in log_text)
 s = state()
 s['fixtures'] = {'projectId': pid, 'serviceId': sid, 'adminEmail': ADMIN, 'browserEmail': 'browser@cloudbase.test', 'password': PASSWORD}
 save(s)

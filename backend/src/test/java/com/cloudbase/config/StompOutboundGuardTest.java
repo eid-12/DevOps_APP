@@ -40,14 +40,14 @@ class StompOutboundGuardTest {
         owner.setRole(UserRole.USER);
         owner.setAccountStatus(AccountStatus.ACTIVE);
         owner.setEmailVerified(true);
-        owner.setPasswordHash("hash-1");
+
         when(users.findById("u1")).thenReturn(Optional.of(owner));
         Claims claims = mock(Claims.class);
         when(claims.getSubject()).thenReturn("u1");
         when(jwt.isTokenValid("t")).thenReturn(true);
         when(jwt.parseToken("t")).thenReturn(claims);
         when(claims.getExpiration()).thenReturn(new Date(System.currentTimeMillis() + 3_600_000));
-        when(jwt.isCurrentForPassword(claims, "hash-1")).thenReturn(true);
+        when(jwt.isCurrentSession(claims, 0)).thenReturn(true);
         when(services.findByIdWithProject("s1")).thenReturn(Optional.of(ServiceEntity.builder().id("s1")
                 .project(ProjectEntity.builder().id("p").ownerId("u1").name("p").build()).build()));
     }
@@ -97,7 +97,7 @@ class StompOutboundGuardTest {
     @Test
     void passwordChangeEndsTheOpenSession() {
         stomp(StompCommand.CONNECT);
-        owner.setPasswordHash("hash-2");
+        owner.setSessionVersion(1); // what a password change or reset does
         assertEquals(StompCommand.ERROR, StompHeaderAccessor.wrap(interceptor.guardOutbound(brokerDelivery())).getCommand());
     }
 }

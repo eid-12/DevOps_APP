@@ -97,7 +97,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             throw new IllegalArgumentException("WebSocket authentication required");
         }
         UserEntity user = currentUser(claims.getSubject());
-        if (!jwtService.isCurrentForPassword(claims, user.getPasswordHash())) {
+        if (!jwtService.isCurrentSession(claims, user.getSessionVersion())) {
             throw new IllegalArgumentException("WebSocket authentication required");
         }
         return claims;
@@ -134,7 +134,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             throw new IllegalArgumentException("WebSocket authentication required");
         }
         UserEntity user = currentUser(connectedUser.getId());
-        if (!jwtService.isCurrentForPassword(grant.claims(), user.getPasswordHash())) {
+        if (!jwtService.isCurrentSession(grant.claims(), user.getSessionVersion())) {
             throw new IllegalArgumentException("WebSocket authentication required");
         }
         if (destination == null) {

@@ -27,6 +27,11 @@ public class UserEntity {
     @Column(nullable = false)
     private String passwordHash;
 
+    /** Incremented on password change/reset; session tokens and reset links issued earlier stop working. */
+    @Column(name = "session_version", nullable = false)
+    @Builder.Default
+    private int sessionVersion = 0;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private UserRole role;

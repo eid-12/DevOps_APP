@@ -110,7 +110,7 @@ public class AuthServiceImpl implements AuthService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account is not active. Contact an administrator.");
         }
 
-        String token = jwtService.generateToken(user.getId(), user.getRole().name(), user.getPasswordHash());
+        String token = jwtService.generateToken(user.getId(), user.getRole().name(), user.getSessionVersion());
         var exp = jwtService.getExpiration(token);
         return new AuthResponse(
                 token,
@@ -153,7 +153,7 @@ public class AuthServiceImpl implements AuthService {
             user.setEmailVerificationCode(null);
             user.setEmailVerificationExpiresAt(null);
             userRepository.save(user);
-            String token = jwtService.generateToken(user.getId(), user.getRole().name(), user.getPasswordHash());
+            String token = jwtService.generateToken(user.getId(), user.getRole().name(), user.getSessionVersion());
             var exp = jwtService.getExpiration(token);
             return new AuthResponse(
                     token,
@@ -260,7 +260,7 @@ public class AuthServiceImpl implements AuthService {
         }
         UserEntity user = found.get();
         emailRateLimiter.acquireSend(EmailRateLimiter.Action.PASSWORD_RESET, user.getEmail());
-        String token = jwtService.generatePasswordResetToken(user.getId(), user.getPasswordHash());
+        String token = jwtService.generatePasswordResetToken(user.getId(), user.getSessionVersion());
         String resetUrl = UriComponentsBuilder
                 .fromUriString(resendProperties.appBaseUrl())
                 .path("/auth")
@@ -283,11 +283,12 @@ public class AuthServiceImpl implements AuthService {
         }
         UserEntity user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid or expired reset token"));
-        // Single use: the token is bound to the hash it was issued against, so it dies once a password is set.
-        if (!jwtService.isPasswordResetTokenCurrent(token, user.getPasswordHash())) {
+        // Single use: the link carries the session version it was issued at, which setting a password increments.
+        if (!jwtService.isPasswordResetTokenCurrent(token, user.getSessionVersion())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid or expired reset token");
         }
         user.setPasswordHash(passwordEncoder.encode(newPassword));
+        user.setSessionVersion(user.getSessionVersion() + 1); // signs out every existing session
         userRepository.save(user);
         return new MessageResponse("Password updated. You can sign in now.");
     }
@@ -510,9 +511,10 @@ public class AuthServiceImpl implements AuthService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Current password is incorrect");
         }
         managed.setPasswordHash(passwordEncoder.encode(newPassword));
+        managed.setSessionVersion(managed.getSessionVersion() + 1);
         UserEntity saved = userRepository.save(managed);
         // Every earlier session token is now invalid; hand this browser a fresh one so it stays signed in.
-        String token = jwtService.generateToken(saved.getId(), saved.getRole().name(), saved.getPasswordHash());
+        String token = jwtService.generateToken(saved.getId(), saved.getRole().name(), saved.getSessionVersion());
         return new AuthResponse(token, toModel(saved), "Password changed. Other sessions were signed out.",
                 jwtService.getExpiration(token).toInstant().toString(), jwtService.getExpiresInSeconds());
     }

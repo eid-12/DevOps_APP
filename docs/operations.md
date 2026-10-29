@@ -66,6 +66,28 @@ Automatic rollback covers a failed rollout. To return to an earlier good release
 2. Portainer → Stacks → cloudbase-platform → Editor: set both `image:` lines to those `<repo>:<sha>@sha256:<digest>` values, keep everything else, **Update the stack** with "Re-pull image" on.
 3. A later push to `master` will deploy again; to stop that, revert the bad commit on `master` instead.
 
+#### Session revocation and rollback
+
+Since migration `V19`, session tokens carry the user's `session_version` (`sv`), which a password change or
+reset increments; older tokens are then refused. Releases before that change ignore `sv`. Rolling back to one
+of them is safe for the database (it starts on the migrated schema; the extra column is ignored), **but it
+accepts again any token that a password change or reset had revoked, until that token expires (2 h by default).**
+Verified in `tests/local/rollback_check.py`.
+
+Recovery when rolling back past `V19` (also covers the automatic rollback of a failed deploy):
+
+1. Self-service password changes and resets are not audited (only admin-sent reset emails are), so assume some
+   tokens were revoked once the new release has served users. Only an automatic rollback of a rollout that never
+   became healthy can skip step 2.
+2. Rotate the token signing key together with the rollback: set a new random `JWT_SECRET` (at least
+   32 bytes, e.g. `openssl rand -base64 48`) in the stack environment in the same Portainer update that changes the
+   images. Every existing session ends, including the revoked ones; users sign in again. Rotating a production
+   secret needs the owner's approval: ask before doing it.
+3. Verify: a token issued before the rollback gets `401` on `GET /api/auth/me`; signing in works.
+4. Rolling forward again needs nothing extra: the new release honours `sv` immediately.
+
+The first deploy of the `sv` release itself signs every user out once (earlier tokens have no `sv`).
+
 ## Manual deploy (fallback when Actions is unavailable)
 
 1. Verify from clean outputs: `mvn clean verify` in `backend/`, `npm ci && npm run build` in `frontend/` (see the README “Test” section). The Dockerfiles build from source, so the images never reuse a local `target/` or `node_modules`. Do not bake `application-local.properties` into the JAR.
