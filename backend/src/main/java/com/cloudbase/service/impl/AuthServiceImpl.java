@@ -281,7 +281,8 @@ public class AuthServiceImpl implements AuthService {
         } catch (Exception e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid or expired reset token");
         }
-        UserEntity user = userRepository.findById(userId)
+        // Row lock until commit: concurrent uses of the same link queue here and see the incremented version.
+        UserEntity user = userRepository.lockById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid or expired reset token"));
         // Single use: the link carries the session version it was issued at, which setting a password increments.
         if (!jwtService.isPasswordResetTokenCurrent(token, user.getSessionVersion())) {
@@ -500,7 +501,8 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public AuthResponse changePassword(UserEntity user, String currentPassword, String newPassword) {
-        UserEntity managed = userRepository.findById(user.getId())
+        // Row lock until commit: a concurrent change or reset finishes first, then the current-password check fails.
+        UserEntity managed = userRepository.lockById(user.getId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
         if (currentPassword == null || currentPassword.isBlank()
                 || newPassword == null || newPassword.isBlank()) {
