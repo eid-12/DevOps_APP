@@ -18,6 +18,7 @@ import com.cloudbase.model.UserAccount;
 import com.cloudbase.model.UserRole;
 import com.cloudbase.repository.UserRepository;
 import com.cloudbase.security.JwtService;
+import com.cloudbase.security.LoginRateLimiter;
 import com.cloudbase.security.PasswordPolicy;
 import com.cloudbase.service.AuthService;
 import com.cloudbase.service.PlanQuotaService;
@@ -52,6 +53,7 @@ public class AuthServiceImpl implements AuthService {
     private final GitHubOAuthService gitHubOAuthService;
     private final EmailService emailService;
     private final EmailRateLimiter emailRateLimiter;
+    private final LoginRateLimiter loginRateLimiter;
     private final ResendProperties resendProperties;
     private final PlanQuotaService planQuotaService;
     private final String oauthSuccessRedirect;
@@ -66,6 +68,7 @@ public class AuthServiceImpl implements AuthService {
             GitHubOAuthProperties gitHubOAuthProperties,
             EmailService emailService,
             EmailRateLimiter emailRateLimiter,
+            LoginRateLimiter loginRateLimiter,
             ResendProperties resendProperties,
             PlanQuotaService planQuotaService
     ) {
@@ -76,6 +79,7 @@ public class AuthServiceImpl implements AuthService {
         this.gitHubOAuthService = gitHubOAuthService;
         this.emailService = emailService;
         this.emailRateLimiter = emailRateLimiter;
+        this.loginRateLimiter = loginRateLimiter;
         this.resendProperties = resendProperties;
         this.planQuotaService = planQuotaService;
         this.oauthSuccessRedirect = gitHubOAuthProperties.successRedirect();
@@ -84,12 +88,14 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public AuthResponse login(LoginRequest request) {
-        UserEntity user = findUserByEmail(request.email())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid email or password"));
-
-        if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+        // Throttle before any password work so a locked attacker cannot keep guessing.
+        loginRateLimiter.checkAllowed(request.email());
+        UserEntity user = findUserByEmail(request.email()).orElse(null);
+        if (user == null || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+            loginRateLimiter.recordFailure(request.email());
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid email or password");
         }
+        loginRateLimiter.clearFailures(request.email());
 
         if (!user.isEmailVerified()) {
             throw new ResponseStatusException(
