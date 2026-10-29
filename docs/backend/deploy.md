@@ -14,14 +14,12 @@ A user needs `deploymentEnabled`. I turn that on from Admin → users.
 
 ## GitHub path (the long one)
 
-> Currently disabled; see [github.md](github.md).
-
 1. User connects GitHub on Account, then adds a service from a repo.
-2. Backend writes (if needed) a Dockerfile and `.github/workflows/cloudbase-deploy.yml`, sets Actions secrets, and registers a webhook.
-3. GitHub Actions builds and pushes to Docker Hub under the platform namespace (`minipcer` in production).
+2. Backend writes (if needed) a Dockerfile and `.github/workflows/cloudbase-deploy.yml`, and registers a webhook. It writes no secrets.
+3. GitHub Actions builds and publishes to the repository's own GitHub Container Registry (`ghcr.io/<owner>/<repo>`) with its scoped `GITHUB_TOKEN`.
 4. GitHub POSTs the webhook to `api.cloudbase.website`. I check `GITHUB_WEBHOOK_SECRET`.
 5. Backend writes a compose file in memory: app service, resource limits, network `cloudbase`, env vars, optional volume, optional Watchtower sidecar for that stack.
-6. Portainer creates or updates the stack (`pullImage` on updates).
+6. The backend pulls the private image with the owner's GitHub token, then Portainer creates or updates the stack without an anonymous re-pull. Details: [github.md](github.md#webhook).
 7. Backend creates or updates the NPM proxy host so `https://<host>` hits the container.
 8. UI deploy stages: Queued → Building → Deploying → Verify → Success or Failed.
 

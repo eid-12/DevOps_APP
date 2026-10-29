@@ -19,6 +19,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -167,7 +168,8 @@ public class DeploymentOrchestrator {
         String stackName = stackName(service);
 
         Integer existingStackId = service.getPortainerStackId();
-        boolean pullImage = service.getSourceType() != ServiceSourceType.DATABASE;
+        // GHCR images are pre-pulled with the owner's credential below; an unauthenticated re-pull would fail.
+        boolean pullImage = service.getSourceType() != ServiceSourceType.DATABASE && !isGhcrImage(service);
         final String containerName = composeGenerator.resolveContainerName(service);
 
         // GitHub: refuse when CI never built an image (avoids opaque Portainer 500).
@@ -179,13 +181,25 @@ public class DeploymentOrchestrator {
                 onStackFailure(serviceId, deploymentId, new IllegalStateException(gate));
                 return reloadDeployment(deployment);
             }
-            String missingImage = missingDockerHubImageReason(service, imageTag);
-            if (missingImage != null) {
-                onStackFailure(serviceId, deploymentId, new IllegalStateException(missingImage));
-                return reloadDeployment(deployment);
+            if (isGhcrImage(service)) {
+                appendStage(deploymentId, DeploymentStatus.BUILDING, "building",
+                        "Pulling the image from GitHub Container Registry with the owner's GitHub access…");
+                String pullError = pullGhcrImage(service, imageTag);
+                if (pullError != null) {
+                    onStackFailure(serviceId, deploymentId, new IllegalStateException(pullError));
+                    return reloadDeployment(deployment);
+                }
+                appendStage(deploymentId, DeploymentStatus.BUILDING, "building",
+                        "Image pulled. Handing off to Portainer.");
+            } else {
+                String missingImage = missingDockerHubImageReason(service, imageTag);
+                if (missingImage != null) {
+                    onStackFailure(serviceId, deploymentId, new IllegalStateException(missingImage));
+                    return reloadDeployment(deployment);
+                }
+                appendStage(deploymentId, DeploymentStatus.BUILDING, "building",
+                        "Docker image found. Handing off to Portainer.");
             }
-            appendStage(deploymentId, DeploymentStatus.BUILDING, "building",
-                    "Docker image found. Handing off to Portainer.");
         }
 
         appendStage(deploymentId, DeploymentStatus.DEPLOYING, "deploying",
@@ -549,6 +563,51 @@ public class DeploymentOrchestrator {
     /**
      * @return failure reason, or null if deploy may proceed.
      */
+    static final String GHCR = "ghcr.io";
+    private static final Duration GHCR_PULL_TIMEOUT = Duration.ofMinutes(5);
+
+    static boolean isGhcrImage(ServiceEntity service) {
+        Map<String, Object> src = service.getSourceDetails();
+        return service.getSourceType() == ServiceSourceType.GITHUB && src != null
+                && String.valueOf(src.getOrDefault("imageName", "")).trim().toLowerCase(Locale.ROOT).startsWith(GHCR + "/");
+    }
+
+    /**
+     * Pull a tenant's private GHCR image with the service owner's own GitHub token (sent once to the Docker
+     * engine via Portainer, never stored there). The pull is also the access check: if the owner cannot read
+     * the package, the deploy stops, so nobody can run an image they could not pull themselves.
+     *
+     * @return null on success, otherwise a user-facing reason
+     */
+    String pullGhcrImage(ServiceEntity service, String imageTagOverride) {
+        Map<String, Object> src = service.getSourceDetails();
+        String imageName = String.valueOf(src.get("imageName")).trim();
+        String tag = imageTagOverride != null && !imageTagOverride.isBlank()
+                ? imageTagOverride.trim()
+                : String.valueOf(src.getOrDefault("imageTag", "latest")).trim();
+        String ownerId = service.getProject() == null ? null : service.getProject().getOwnerId();
+        UserEntity owner = ownerId == null ? null : userRepository.findById(ownerId).orElse(null);
+        if (owner == null || !StringUtils.hasText(owner.getGithubAccessToken()) || !StringUtils.hasText(owner.getGithubUsername())) {
+            return "Connect GitHub on Account so CloudBase can pull your private image, then redeploy.";
+        }
+        if (owner.getGithubScopes() == null || !owner.getGithubScopes().contains("read:packages")) {
+            return "Reconnect GitHub on Account to grant package read access (read:packages), then redeploy.";
+        }
+        try {
+            if (Boolean.TRUE.equals(portainerClient.hasRegistryFor(GHCR).block(Duration.ofSeconds(30)))) {
+                return "Deploy refused: Portainer has a shared ghcr.io registry credential, which would bypass each "
+                        + "owner's own access. Remove it in Portainer → Registries.";
+            }
+            portainerClient.pullImageWithAuth(imageName, tag, owner.getGithubUsername(), owner.getGithubAccessToken(), GHCR)
+                    .block(GHCR_PULL_TIMEOUT);
+            return null;
+        } catch (Exception e) {
+            String reason = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+            return "Could not pull " + imageName + ":" + tag + " from GitHub Container Registry (" + reason
+                    + "). Check that the repository's CloudBase workflow finished and that your GitHub account can read the package.";
+        }
+    }
+
     private static String githubDeployGateReason(ServiceEntity service) {
         Map<String, Object> src = service.getSourceDetails();
         if (src == null) {

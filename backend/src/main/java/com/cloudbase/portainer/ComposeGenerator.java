@@ -170,12 +170,15 @@ public class ComposeGenerator {
         app.put("image", image);
         app.put("container_name", resolveContainerName(service));
         app.put("restart", "unless-stopped");
-        app.put("pull_policy", "always");
+        // Private GHCR images are pulled beforehand with the owner's credential; compose must not re-pull
+        // anonymously (it would fail), and Watchtower has no credential either. Updates come from the webhook.
+        boolean ownerPulled = service.getSourceType() == ServiceSourceType.GITHUB && image.startsWith("ghcr.io/");
+        app.put("pull_policy", ownerPulled ? "missing" : "always");
         List<String> command = startCommand(service);
         if (!command.isEmpty()) {
             app.put("command", command);
         }
-        app.put("labels", watchtowerLabels(true, watchtowerScope(service)));
+        app.put("labels", watchtowerLabels(!ownerPulled, watchtowerScope(service)));
         app.put("deploy", limits(service.getQuotaMemoryMb() + "M", String.valueOf(service.getQuotaCpuMilli() / 1000.0)));
         Map<String, Object> env = envReferences(service);
         if (!env.isEmpty()) {

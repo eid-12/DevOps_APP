@@ -5,8 +5,8 @@ import com.cloudbase.entity.UserEntity;
 import com.cloudbase.github.GitHubOAuthException;
 import com.cloudbase.github.GitHubRepoClient;
 import com.cloudbase.github.GitHubRepoClient.OwnerRepo;
-import com.cloudbase.github.GitHubSecretEncryptor;
 import com.cloudbase.service.CiBootstrapService;
+import com.cloudbase.service.ComposeInputValidator;
 import com.cloudbase.service.PlatformSettingsService;
 import com.cloudbase.service.StartCommandValidator;
 import org.slf4j.Logger;
@@ -26,21 +26,14 @@ public class CiBootstrapServiceImpl implements CiBootstrapService {
     private static final String WORKFLOW_PATH = ".github/workflows/cloudbase-deploy.yml";
 
     private final GitHubRepoClient repoClient;
-    private final GitHubSecretEncryptor secretEncryptor;
     private final PlatformSettingsService settings;
 
     public CiBootstrapServiceImpl(
             GitHubRepoClient repoClient,
-            GitHubSecretEncryptor secretEncryptor,
             PlatformSettingsService settings
     ) {
         this.repoClient = repoClient;
-        this.secretEncryptor = secretEncryptor;
         this.settings = settings;
-    }
-
-    private String dockerHubNamespace() {
-        return settings.get(PlatformSettingsService.DOCKERHUB_NAMESPACE);
     }
 
     private String publicApiUrl() {
@@ -75,12 +68,17 @@ public class CiBootstrapServiceImpl implements CiBootstrapService {
         startCommand = validated.normalized();
         src.put("startCommand", startCommand);
 
-        String imageName = String.valueOf(src.getOrDefault("imageName", "")).trim();
-        if (!StringUtils.hasText(imageName) || "null".equalsIgnoreCase(imageName) || !imageName.contains("/")) {
-            // Keep stable Hub repo names across re-sync (include service id suffix).
-            String idSuffix = service.getId() != null ? service.getId().replace("svc-", "") : sanitize(service.getName());
-            imageName = dockerHubNamespace() + "/" + sanitize(service.getName()) + "-" + idSuffix;
+        OwnerRepo or;
+        try {
+            or = GitHubRepoClient.parseOwnerRepo(repoUrl);
+        } catch (GitHubOAuthException e) {
+            src.put("ciBootstrapped", false);
+            src.put("ciMessage", e.getMessage());
+            return src;
         }
+        // The image always lives in the repository's own GitHub Container Registry and is derived from the
+        // repository, never taken from user input, so a service cannot point at someone else's package.
+        String imageName = ghcrImageName(or.owner(), or.repo());
         src.put("imageName", imageName);
         src.put("runtime", runtime);
         // Default on unless explicitly disabled
@@ -92,15 +90,6 @@ public class CiBootstrapServiceImpl implements CiBootstrapService {
         if (!StringUtils.hasText(token)) {
             src.put("ciBootstrapped", false);
             src.put("ciMessage", "Connect GitHub on Account before CI bootstrap.");
-            return src;
-        }
-
-        OwnerRepo or;
-        try {
-            or = GitHubRepoClient.parseOwnerRepo(repoUrl);
-        } catch (GitHubOAuthException e) {
-            src.put("ciBootstrapped", false);
-            src.put("ciMessage", e.getMessage());
             return src;
         }
 
@@ -128,10 +117,8 @@ public class CiBootstrapServiceImpl implements CiBootstrapService {
                     true
             );
 
-            // Never copy CloudBase's own registry credentials into a tenant repository: the repository
-            // owner controls its workflows and could read them. (Tenant builds move to per-repo GHCR.)
-            boolean secretsOk = false;
-
+            // No secrets are written: the workflow publishes to the repository's own GHCR package with the
+            // job's scoped GITHUB_TOKEN. CloudBase's registry/Portainer credentials never reach a tenant repo.
             if (StringUtils.hasText(publicApiUrl())) {
                 String hookUrl = publicApiUrl() + "/api/webhooks/github";
                 repoClient.ensureWebhook(
@@ -139,20 +126,16 @@ public class CiBootstrapServiceImpl implements CiBootstrapService {
                         List.of("workflow_run")
                 );
                 webhookOk = true;
-                message = secretsOk
-                        ? "CI ready. Push to the repo to build & deploy via CloudBase."
-                        : "CI ready (workflow injected). Add DOCKERHUB_USERNAME/TOKEN secrets, then push.";
+                message = "CI ready. Push to the repository to build into its GitHub Container Registry and deploy.";
             } else {
-                message = secretsOk
-                        ? "Dockerfile/workflow + Docker Hub secrets injected. Set cloudbase.public-api-url for auto webhook."
-                        : "Dockerfile/workflow injected. Set Docker Hub secrets and cloudbase.public-api-url.";
+                message = "Dockerfile/workflow injected. Set cloudbase.public-api-url so pushes trigger deploys.";
             }
 
             src.put("ciBootstrapped", true);
             src.put("ciDockerfileCreated", dockerfileCreated);
             src.put("ciWorkflowCreated", workflowCreated);
             src.put("ciWebhookRegistered", webhookOk);
-            src.put("ciSecretsConfigured", secretsOk);
+            src.remove("ciSecretsConfigured");
             src.put("ciMessage", message);
             // Default HTTP port for common SPA/nginx Dockerfile
             if (!src.containsKey("containerPort")) {
@@ -297,9 +280,21 @@ public class CiBootstrapServiceImpl implements CiBootstrapService {
         return sb.toString();
     }
 
+    /** {@code ghcr.io/<owner>/<repo>} in lowercase, as GitHub Container Registry requires. */
+    static String ghcrImageName(String owner, String repo) {
+        return ComposeInputValidator.requireImage(
+                ("ghcr.io/" + owner + "/" + repo).toLowerCase(Locale.ROOT));
+    }
+
+    /**
+     * Workflow committed to the tenant repository. It publishes to that repository's own GHCR package
+     * using the job's GITHUB_TOKEN (scoped to this repository, expires with the job). It references no
+     * other secret, so nothing of CloudBase's is ever stored in or readable from the tenant repository.
+     * Actions are pinned to commit SHAs.
+     */
     static String workflowYaml(String imageName) {
         return """
-                # Generated by CloudBase - build & push on every push to the default branch
+                # Generated by CloudBase - build and publish to this repository's GitHub Container Registry
                 name: CloudBase Deploy
 
                 on:
@@ -318,7 +313,9 @@ public class CiBootstrapServiceImpl implements CiBootstrapService {
                       packages: write
                     steps:
                       - name: Checkout
-                        uses: actions/checkout@v4
+                        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+                        with:
+                          persist-credentials: false
 
                       - name: Set image tag
                         id: meta
@@ -327,17 +324,19 @@ public class CiBootstrapServiceImpl implements CiBootstrapService {
                           echo "tag=${SHA_SHORT}" >> "$GITHUB_OUTPUT"
                           echo "Image will be ${IMAGE_NAME}:${SHA_SHORT}"
 
-                      - name: Login to Docker Hub
-                        uses: docker/login-action@v3
+                      - name: Log in to GitHub Container Registry
+                        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
                         with:
-                          username: ${{ secrets.DOCKERHUB_USERNAME }}
-                          password: ${{ secrets.DOCKERHUB_TOKEN }}
+                          registry: ghcr.io
+                          username: ${{ github.actor }}
+                          password: ${{ secrets.GITHUB_TOKEN }}
 
                       - name: Build and push
-                        uses: docker/build-push-action@v6
+                        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
                         with:
                           context: .
                           push: true
+                          provenance: false
                           tags: |
                             ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}
                             ${{ env.IMAGE_NAME }}:latest

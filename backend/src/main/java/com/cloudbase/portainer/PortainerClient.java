@@ -9,8 +9,11 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 import com.cloudbase.service.PlatformSettingsService;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
@@ -319,6 +322,78 @@ public class PortainerClient {
                 .bodyToMono(byte[].class)
                 .map(this::decodeDockerLogStream)
                 .doOnError(e -> log.warn("Container logs failed id={}: {}", containerId, e.getMessage()));
+    }
+
+    /**
+     * Pull {@code image:tag} onto the endpoint with a one-off registry credential passed in the
+     * {@code X-Registry-Auth} header (never stored in Portainer). Docker reports pull failures inside the
+     * 200 response stream, so the stream is checked for an error line.
+     */
+    public Mono<Void> pullImageWithAuth(String image, String tag, String username, String token, String serverAddress) {
+        String auth = Base64.getUrlEncoder().encodeToString(
+                ("{\"username\":" + jsonString(username) + ",\"password\":" + jsonString(token)
+                        + ",\"serveraddress\":" + jsonString(serverAddress) + "}").getBytes(StandardCharsets.UTF_8));
+        return webClient.post()
+                .uri(b -> b.path("/api/endpoints/{eid}/docker/images/create")
+                        .queryParam("fromImage", image)
+                        .queryParam("tag", tag)
+                        .build(endpointId))
+                .header("X-Registry-Auth", auth)
+                .retrieve()
+                .bodyToMono(String.class)
+                .defaultIfEmpty("")
+                .flatMap(body -> {
+                    String error = pullStreamError(body);
+                    return error == null ? Mono.<Void>empty() : Mono.error(new IllegalStateException(error));
+                });
+    }
+
+    /** First error message in a Docker image-pull JSON stream, or null when the pull succeeded. */
+    static String pullStreamError(String body) {
+        for (String line : body.split("\n")) {
+            if (line.isBlank()) {
+                continue;
+            }
+            try {
+                var node = PULL_STREAM_JSON.readTree(line);
+                if (node.hasNonNull("error")) {
+                    return node.get("error").asText();
+                }
+            } catch (Exception notJson) {
+                return "image pull failed (unreadable response)";
+            }
+        }
+        return null;
+    }
+
+    private static final com.fasterxml.jackson.databind.ObjectMapper PULL_STREAM_JSON =
+            new com.fasterxml.jackson.databind.ObjectMapper();
+
+    /** True when Portainer holds a registry credential for this host (it could be used for other tenants' pulls). */
+    public Mono<Boolean> hasRegistryFor(String host) {
+        return webClient.get()
+                .uri("/api/registries")
+                .retrieve()
+                .bodyToMono(LIST_MAP_TYPE)
+                .map(list -> list.stream().anyMatch(r -> String.valueOf(r.get("URL")).toLowerCase(Locale.ROOT).contains(host)));
+    }
+
+    private static String jsonString(String value) {
+        StringBuilder sb = new StringBuilder("\"");
+        for (char c : (value == null ? "" : value).toCharArray()) {
+            switch (c) {
+                case '"' -> sb.append("\\\"");
+                case '\\' -> sb.append("\\\\");
+                default -> {
+                    if (c < 0x20) {
+                        sb.append(String.format("\\u%04x", (int) c));
+                    } else {
+                        sb.append(c);
+                    }
+                }
+            }
+        }
+        return sb.append('"').toString();
     }
 
     /**

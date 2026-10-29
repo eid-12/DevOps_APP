@@ -2,11 +2,10 @@
 
 GitHub is how most tenant apps get an image. CloudBase does not clone repos onto the Mini PC to compile them.
 
-> **Status: GitHub-repository services are disabled.** Provisioning used to write CloudBase's own Docker Hub
-> credentials into each tenant repository's Actions secrets, where the repository owner could read them. The backend
-> now rejects new GitHub services and CI re-syncs (HTTP 409) and never writes platform secrets to tenant repos. They
-> return once each repository builds into its own GitHub Container Registry with its scoped `GITHUB_TOKEN`.
-> Docker-image and database services are unaffected.
+> **No CloudBase credential ever goes into a tenant repository.** Until 2026-10-29 provisioning wrote the
+> platform's Docker Hub token into each connected repository's Actions secrets (found in at least one repository,
+> dated 2026-08-19). Builds now publish to the repository's own GitHub Container Registry with the job's scoped
+> `GITHUB_TOKEN`, and CloudBase has no code that writes repository secrets at all.
 
 ## OAuth
 
@@ -15,7 +14,7 @@ User hits Account → connect. Browser goes to GitHub, comes back to `/auth/gith
 Live callback: `https://www.cloudbase.website/auth/github/callback`  
 Local callback: `http://localhost:4200/auth/github/callback`
 
-Scopes I ask for: `read:user repo user:email workflow`. Repo + workflow are required so I can write files and secrets on *their* repo.
+Scopes requested: `read:user repo user:email workflow read:packages`. `repo` + `workflow` let CloudBase commit the Dockerfile and workflow to *their* repository; `read:packages` lets CloudBase pull *their* private image for *their* service. Accounts connected before `read:packages` was added must reconnect GitHub once.
 
 The GitHub App / OAuth App client id is public (`GET /api/public/app-config`). The secret is Admin → Hosting or env `GITHUB_CLIENT_SECRET`.
 
@@ -24,15 +23,20 @@ The GitHub App / OAuth App client id is public (`GET /api/public/app-config`). T
 When they add a GitHub service and deploy is allowed, `CiBootstrapService` talks to the GitHub API with **their** token:
 
 1. Dockerfile — write one if the repo has none (runtime from the picker: node, java, …).
-2. `.github/workflows/cloudbase-deploy.yml` — build on push, login to Docker Hub, push `minipcer/<name>:tag`.
-3. Actions secrets — Docker Hub user/token, webhook-related values, encrypted with the repo’s Actions public key (libsodium sealed box, in-process Java).
-4. Webhook — `https://api.cloudbase.website/api/webhooks/github`, secret `GITHUB_WEBHOOK_SECRET`.
+2. `.github/workflows/cloudbase-deploy.yml` — on push, build and publish `ghcr.io/<owner>/<repo>:<short sha>` (and `:latest`) with the job's own `GITHUB_TOKEN` (`packages: write`, scoped to that repository). Actions are pinned to commit SHAs. The image name is derived from the repository URL, never from user input.
+3. Webhook — `https://api.cloudbase.website/api/webhooks/github` for `workflow_run`, signed with `GITHUB_WEBHOOK_SECRET` (GitHub never shows the secret back to repository admins).
+
+No repository secrets are written. The package stays private when the repository is private; CloudBase never makes repositories or packages public.
 
 I do not run `docker build` on the Mini PC for their app. GitHub Actions does.
 
 ## Webhook
 
-GitHub POSTs when the image is on Hub. I verify HMAC. Unsigned or wrong secret = reject. Then I generate compose, update the Portainer stack with pull, refresh NPM.
+GitHub POSTs when the workflow run finishes. I verify the HMAC; unsigned or wrong secret = reject. Then:
+
+1. **Pull with the owner's access.** The backend pulls `ghcr.io/<owner>/<repo>:<sha>` onto the Mini PC through Portainer's Docker API with the service owner's own GitHub token in a one-off `X-Registry-Auth` header. It is never stored in Portainer. If the owner lacks `read:packages`, or cannot read the package, the deploy stops with a clear message — this is the access check, so no one can run an image they could not pull themselves.
+2. **Fail closed on shared credentials.** If Portainer ever has a `ghcr.io` registry configured, the deploy is refused: such a credential would be used for every tenant's pulls. Do not add one.
+3. **Deploy without anonymous re-pulls.** The stack uses `pull_policy: missing` and Portainer's re-pull is off for these images; Watchtower is disabled for them (updates come from the webhook). NPM is refreshed as usual.
 
 If the webhook URL is wrong (still pointing at localhost, or at `www` instead of `api`), deploys sit in Building forever. Live URL must be `CLOUDBASE_PUBLIC_API_URL` + `/api/webhooks/github`.
 

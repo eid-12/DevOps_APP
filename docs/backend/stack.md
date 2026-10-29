@@ -128,7 +128,7 @@ Rate limits live in-memory in `EmailRateLimiter` (one JVM replica; restart clear
 
 ## GitHub extras
 
-Writing Actions secrets uses GitHub’s libsodium sealed box, implemented in-process by `GitHubSecretEncryptor` with Bouncy Castle (`bcprov-jdk18on`); a unit test pins it byte-for-byte to libsodium output. No Python is needed at runtime. OAuth, repo files, webhooks: [github.md](github.md).
+CloudBase writes no GitHub Actions secrets. Tenant builds publish to the repository's own GHCR with its `GITHUB_TOKEN`; private images are pulled with the owner's token. OAuth, repo files, webhooks: [github.md](github.md).
 
 ## Scheduling (same JVM)
 
@@ -149,7 +149,7 @@ Writing Actions secrets uses GitHub’s libsodium sealed box, implemented in-pro
 | `DeploymentOrchestrator` | Portainer stack + NPM host + deployment rows |
 | `portainer` | Compose YAML + Portainer HTTP |
 | `npm` | Proxy hosts + TLS |
-| `github` | OAuth, repo bootstrap, secret encrypt |
+| `github` | OAuth, repo bootstrap (Dockerfile, workflow, webhook) |
 | `email` | Resend + rate limit |
 | `security` | JWT + filter + `SecurityConfig` |
 | `config` | CORS, WebClient/Netty, WebSocket, boot runners, errors |

@@ -240,61 +240,6 @@ public class GitHubRepoClient {
         }
     }
 
-    public void putActionsSecret(
-            String accessToken,
-            String owner,
-            String repo,
-            String secretName,
-            String secretValue,
-            GitHubSecretEncryptor encryptor
-    ) {
-        if (!StringUtils.hasText(secretValue)) {
-            return;
-        }
-        Map<String, Object> keyResp;
-        try {
-            keyResp = webClient.get()
-                    .uri("https://api.github.com/repos/{owner}/{repo}/actions/secrets/public-key", owner, repo)
-                    .headers(h -> auth(h, accessToken))
-                    .retrieve()
-                    .bodyToMono(MAP)
-                    .block();
-        } catch (WebClientResponseException e) {
-            log.warn("Cannot read Actions public key for {}/{}: HTTP {}", owner, repo, e.getStatusCode().value());
-            return;
-        }
-        if (keyResp == null || keyResp.get("key") == null || keyResp.get("key_id") == null) {
-            return;
-        }
-
-        String encrypted;
-        try {
-            encrypted = encryptor.encrypt(String.valueOf(keyResp.get("key")), secretValue);
-        } catch (Exception e) {
-            log.warn("Failed to encrypt Actions secret {}: {}", secretName, e.toString());
-            return;
-        }
-
-        Map<String, Object> body = Map.of(
-                "encrypted_value", encrypted,
-                "key_id", String.valueOf(keyResp.get("key_id"))
-        );
-        try {
-            webClient.put()
-                    .uri("https://api.github.com/repos/{owner}/{repo}/actions/secrets/{name}", owner, repo, secretName)
-                    .headers(h -> auth(h, accessToken))
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .bodyValue(body)
-                    .retrieve()
-                    .toBodilessEntity()
-                    .block();
-            log.info("Set Actions secret {} on {}/{}", secretName, owner, repo);
-        } catch (WebClientResponseException e) {
-            log.warn("Failed to set Actions secret {} on {}/{}: HTTP {} {}",
-                    secretName, owner, repo, e.getStatusCode().value(), e.getResponseBodyAsString());
-        }
-    }
-
     /**
      * Trigger {@code workflow_dispatch} for a workflow file (e.g. CloudBase deploy).
      * User stays in CloudBase — no need to open the Actions UI.
