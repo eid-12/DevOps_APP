@@ -95,7 +95,12 @@ call('PUT', '/api/auth/profile', {'name': 'Owner QA Updated'}, ot)
 check('profile update persisted', call('GET', '/api/auth/me', token=ot)['name'] == 'Owner QA Updated')
 call('PUT', '/api/auth/notifications', {'emailDeployments': False, 'emailFailures': True, 'emailWeeklyUsage': False}, ot)
 call('POST', '/api/auth/change-password', {'currentPassword': 'wrong', 'newPassword': 'Changed-Qa!2026'}, ot, 400)
-call('POST', '/api/auth/change-password', {'currentPassword': PASSWORD, 'newPassword': 'Changed-Qa!2026'}, ot)
+old_ot = ot
+changed = call('POST', '/api/auth/change-password', {'currentPassword': PASSWORD, 'newPassword': 'Changed-Qa!2026'}, ot)
+ot = changed['token']
+check('password change returns a fresh session for this browser', bool(ot) and call('GET', '/api/auth/me', token=ot)['email'] == 'owner@cloudbase.test')
+check('session issued before the password change is rejected', request('GET', '/api/auth/me', token=old_ot)[0] == 401)
+check('old session is rejected on project APIs too', request('GET', '/api/projects', token=old_ot)[0] == 401)
 call('POST', '/api/auth/login', {'email': 'owner@cloudbase.test', 'password': PASSWORD}, expected=401)
 call('POST', '/api/auth/login', {'email': 'owner@cloudbase.test', 'password': 'Changed-Qa!2026'})
 uid = users['other']['user']['id']

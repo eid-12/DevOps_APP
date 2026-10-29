@@ -28,14 +28,26 @@ public class JwtService {
         this.expirationMs = expirationMs;
     }
 
-    public String generateToken(String userId, String role) {
+    /**
+     * Session token. The "pwd" claim is a one-way fingerprint of the password hash at issue time:
+     * changing or resetting the password invalidates every session token issued before it.
+     */
+    public String generateToken(String userId, String role, String passwordHash) {
         return Jwts.builder()
                 .subject(userId)
                 .claim("role", role)
+                .claim("pwd", passwordFingerprint(passwordHash))
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + expirationMs))
                 .signWith(key)
                 .compact();
+    }
+
+    /** True when the session token was issued for the user's current password. */
+    public boolean isCurrentForPassword(Claims claims, String passwordHash) {
+        String claimed = claims.get("pwd", String.class);
+        return claimed != null && MessageDigest.isEqual(
+                claimed.getBytes(StandardCharsets.UTF_8), passwordFingerprint(passwordHash).getBytes(StandardCharsets.UTF_8));
     }
 
     public long getExpirationMs() {

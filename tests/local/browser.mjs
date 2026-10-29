@@ -119,11 +119,30 @@ try {
   check('GitHub service settings save succeeds from the UI', saved.sourceDetails.branch === 'release');
   await shot(user, '03-github-settings');
 
+  // 4b. changing the password in the UI keeps this browser signed in (the old token is revoked server-side)
+  step = 'password change';
+  await user.goto(WEB + '/account');
+  await user.locator('#acc-cur').fill(password);
+  await user.locator('#acc-new').fill('Browser-Changed!2026');
+  await user.locator('#acc-confirm').fill('Browser-Changed!2026');
+  await user.getByRole('button', { name: 'Change Password' }).click();
+  await user.getByText('Password changed', { exact: false }).first().waitFor({ timeout: 10000 });
+  const newToken = await user.evaluate(() => localStorage.getItem('cloudbase.token'));
+  check('UI password change stores the fresh session token', !!newToken && newToken !== token);
+  check('token from before the UI password change is revoked',
+    await api('GET', '/api/auth/me', undefined, token, 401).then(() => true, () => false));
+  await user.goto(WEB + '/dashboard');
+  await user.waitForTimeout(1500);
+  check('browser stays signed in after changing its password', /\/dashboard/.test(user.url()));
+  // Put the fixture password back so the next run can sign in.
+  await api('POST', '/api/auth/change-password', { currentPassword: 'Browser-Changed!2026', newPassword: password }, newToken);
+
   // 5. mobile layout
   step = 'mobile';
   const mobile = await newPage('mobile', { width: 390, height: 844 });
   await mobile.goto(WEB + '/auth');
-  await mobile.evaluate(t => { localStorage.setItem('cloudbase.token', t); localStorage.setItem('cloudbase.token.exp', String(Date.now() + 3600e3)); }, token);
+  await mobile.evaluate(t => { localStorage.setItem('cloudbase.token', t); localStorage.setItem('cloudbase.token.exp', String(Date.now() + 3600e3)); },
+    (await api('POST', '/api/auth/login', { email: browserEmail, password })).token); // earlier tokens were revoked by 4b
   for (const path of ['/dashboard', '/projects/' + project.id, `/projects/${project.id}/services/${gh.id}`]) {
     await mobile.goto(WEB + path);
     await mobile.waitForLoadState('networkidle');

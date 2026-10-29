@@ -62,7 +62,7 @@ public interface AuthService {
     UserAccount updateProfile(UserEntity user, String name);
 
     /** Change password after verifying the current one. */
-    com.cloudbase.dto.AuthDtos.MessageResponse changePassword(
+    com.cloudbase.dto.AuthDtos.AuthResponse changePassword(
             UserEntity user,
             String currentPassword,
             String newPassword

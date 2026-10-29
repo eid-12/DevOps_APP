@@ -276,7 +276,9 @@ export class AuthService {
   }
 
   changePassword(payload: { currentPassword: string; newPassword: string }): Observable<void> {
-    return this.http.post<{ message: string }>(`${this.apiBase}/auth/change-password`, payload).pipe(
+    // The server signs out every other session and returns a fresh token for this one.
+    return this.http.post<AuthResponse>(`${this.apiBase}/auth/change-password`, payload).pipe(
+      tap(response => this.persistSession(response)),
       map(() => void 0),
       catchError(err => throwError(() => err))
     );

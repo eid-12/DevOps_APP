@@ -88,7 +88,7 @@ public class AuthController {
     }
 
     @PostMapping("/change-password")
-    public com.cloudbase.dto.AuthDtos.MessageResponse changePassword(
+    public com.cloudbase.dto.AuthDtos.AuthResponse changePassword(
             @AuthenticationPrincipal UserEntity user,
             @Valid @RequestBody com.cloudbase.dto.AuthDtos.ChangePasswordRequest request
     ) {

@@ -40,12 +40,14 @@ class StompOutboundGuardTest {
         owner.setRole(UserRole.USER);
         owner.setAccountStatus(AccountStatus.ACTIVE);
         owner.setEmailVerified(true);
+        owner.setPasswordHash("hash-1");
         when(users.findById("u1")).thenReturn(Optional.of(owner));
         Claims claims = mock(Claims.class);
         when(claims.getSubject()).thenReturn("u1");
         when(jwt.isTokenValid("t")).thenReturn(true);
         when(jwt.parseToken("t")).thenReturn(claims);
-        when(jwt.getExpiration("t")).thenReturn(new Date(System.currentTimeMillis() + 3_600_000));
+        when(claims.getExpiration()).thenReturn(new Date(System.currentTimeMillis() + 3_600_000));
+        when(jwt.isCurrentForPassword(claims, "hash-1")).thenReturn(true);
         when(services.findByIdWithProject("s1")).thenReturn(Optional.of(ServiceEntity.builder().id("s1")
                 .project(ProjectEntity.builder().id("p").ownerId("u1").name("p").build()).build()));
     }
@@ -89,6 +91,13 @@ class StompOutboundGuardTest {
         assertEquals(1, interceptor.connectedSessionCount());
         stomp(StompCommand.DISCONNECT);
         assertEquals(0, interceptor.connectedSessionCount());
+        assertEquals(StompCommand.ERROR, StompHeaderAccessor.wrap(interceptor.guardOutbound(brokerDelivery())).getCommand());
+    }
+
+    @Test
+    void passwordChangeEndsTheOpenSession() {
+        stomp(StompCommand.CONNECT);
+        owner.setPasswordHash("hash-2");
         assertEquals(StompCommand.ERROR, StompHeaderAccessor.wrap(interceptor.guardOutbound(brokerDelivery())).getCommand());
     }
 }

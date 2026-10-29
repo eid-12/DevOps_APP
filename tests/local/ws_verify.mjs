@@ -164,6 +164,22 @@ await deploy(svc.id, ownerToken);
 check('reconnect after signing in again receives events', !!(await renewed.waitFor(f => f.command === 'MESSAGE' && f.headers.destination === topic, 60000)));
 renewed.disconnect();
 
+// 4b. a password change signs out other sessions, including open WebSockets
+const beforeChange = await Stomp.open(ownerToken);
+beforeChange.subscribe(topic);
+await sleep(500);
+const changed = await call('POST', '/api/auth/change-password', { currentPassword: PASSWORD, newPassword: 'Changed-Ws!2026' }, ownerToken);
+await deploy(svc.id, changed.token);
+check('open session from before a password change gets ERROR, not the event',
+  !!(await beforeChange.waitFor(f => f.command === 'ERROR', 60000)) && beforeChange.messages(topic).length === 0);
+check('token from before the password change cannot reconnect', (await Stomp.open(ownerToken)).frames.some(f => f.command === 'ERROR'));
+ownerToken = changed.token;
+const afterChange = await Stomp.open(ownerToken);
+check('token returned by the password change connects', afterChange.frames.some(f => f.command === 'CONNECTED'));
+afterChange.disconnect();
+await call('POST', '/api/auth/change-password', { currentPassword: 'Changed-Ws!2026', newPassword: PASSWORD }, ownerToken)
+  .then(r => { ownerToken = r.token; });
+
 // 5. session identities are released on disconnect (clean DISCONNECT and plain socket close)
 await sleep(1500);
 const idle = liveTokens();

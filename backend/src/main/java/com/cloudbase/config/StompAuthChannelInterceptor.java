@@ -57,13 +57,14 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             return message;
         }
         if (StompCommand.CONNECT.equals(accessor.getCommand())) {
-            UserEntity user = authenticate(accessor);
+            Claims claims = authenticate(accessor);
+            UserEntity user = currentUser(claims.getSubject());
             UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
                     user,
                     null,
                     List.of(new SimpleGrantedAuthority("ROLE_" + user.getRole().name()))
             );
-            auth.setDetails(jwtService.getExpiration(sessionToken(accessor)));
+            auth.setDetails(new SessionGrant(claims.getExpiration(), claims));
             accessor.setUser(auth);
             if (accessor.getSessionId() != null) sessions.put(accessor.getSessionId(), auth);
             return message;
@@ -82,7 +83,10 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         return message;
     }
 
-    private UserEntity authenticate(StompHeaderAccessor accessor) {
+    /** What a session was granted at CONNECT: rechecked on every delivery. */
+    private record SessionGrant(java.util.Date expires, Claims claims) {}
+
+    private Claims authenticate(StompHeaderAccessor accessor) {
         String token = sessionToken(accessor);
         if (token == null || token.isBlank() || !jwtService.isTokenValid(token)) {
             throw new IllegalArgumentException("WebSocket authentication required");
@@ -92,7 +96,11 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         if (purpose != null && !purpose.isBlank()) {
             throw new IllegalArgumentException("WebSocket authentication required");
         }
-        return currentUser(claims.getSubject());
+        UserEntity user = currentUser(claims.getSubject());
+        if (!jwtService.isCurrentForPassword(claims, user.getPasswordHash())) {
+            throw new IllegalArgumentException("WebSocket authentication required");
+        }
+        return claims;
     }
 
     private static String sessionToken(StompHeaderAccessor accessor) {
@@ -122,10 +130,13 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
     private void authorizeDestination(Principal principal, String destination) {
         if (!(principal instanceof UsernamePasswordAuthenticationToken auth)
                 || !(auth.getPrincipal() instanceof UserEntity connectedUser)
-                || !(auth.getDetails() instanceof java.util.Date expires) || !expires.after(new java.util.Date())) {
+                || !(auth.getDetails() instanceof SessionGrant grant) || !grant.expires().after(new java.util.Date())) {
             throw new IllegalArgumentException("WebSocket authentication required");
         }
         UserEntity user = currentUser(connectedUser.getId());
+        if (!jwtService.isCurrentForPassword(grant.claims(), user.getPasswordHash())) {
+            throw new IllegalArgumentException("WebSocket authentication required");
+        }
         if (destination == null) {
             throw new IllegalArgumentException("Invalid subscription");
         }

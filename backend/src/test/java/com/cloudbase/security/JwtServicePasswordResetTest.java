@@ -23,7 +23,15 @@ class JwtServicePasswordResetTest {
 
     @Test
     void sessionAndOAuthTokensAreNotResetTokens() {
-        assertThrows(IllegalArgumentException.class, () -> jwt.parsePasswordResetUserId(jwt.generateToken("u-1", "USER")));
+        assertThrows(IllegalArgumentException.class, () -> jwt.parsePasswordResetUserId(jwt.generateToken("u-1", "USER", "$2a$10$hash")));
         assertThrows(IllegalArgumentException.class, () -> jwt.parsePasswordResetUserId(jwt.generateOAuthState("u-1")));
+    }
+
+    @Test
+    void sessionTokenStopsMatchingOnceThePasswordChanges() {
+        String token = jwt.generateToken("u-1", "USER", "$2a$10$oldhash");
+        assertTrue(jwt.isCurrentForPassword(jwt.parseToken(token), "$2a$10$oldhash"));
+        assertFalse(jwt.isCurrentForPassword(jwt.parseToken(token), "$2a$10$newhash"));
+        assertFalse(token.contains("oldhash"), "the claim is a one-way fingerprint, not the hash");
     }
 }

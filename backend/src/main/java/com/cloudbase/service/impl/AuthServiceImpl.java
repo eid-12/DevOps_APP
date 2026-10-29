@@ -110,7 +110,7 @@ public class AuthServiceImpl implements AuthService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account is not active. Contact an administrator.");
         }
 
-        String token = jwtService.generateToken(user.getId(), user.getRole().name());
+        String token = jwtService.generateToken(user.getId(), user.getRole().name(), user.getPasswordHash());
         var exp = jwtService.getExpiration(token);
         return new AuthResponse(
                 token,
@@ -153,7 +153,7 @@ public class AuthServiceImpl implements AuthService {
             user.setEmailVerificationCode(null);
             user.setEmailVerificationExpiresAt(null);
             userRepository.save(user);
-            String token = jwtService.generateToken(user.getId(), user.getRole().name());
+            String token = jwtService.generateToken(user.getId(), user.getRole().name(), user.getPasswordHash());
             var exp = jwtService.getExpiration(token);
             return new AuthResponse(
                     token,
@@ -498,7 +498,7 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    public MessageResponse changePassword(UserEntity user, String currentPassword, String newPassword) {
+    public AuthResponse changePassword(UserEntity user, String currentPassword, String newPassword) {
         UserEntity managed = userRepository.findById(user.getId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
         if (currentPassword == null || currentPassword.isBlank()
@@ -510,8 +510,11 @@ public class AuthServiceImpl implements AuthService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Current password is incorrect");
         }
         managed.setPasswordHash(passwordEncoder.encode(newPassword));
-        userRepository.save(managed);
-        return new MessageResponse("Password changed");
+        UserEntity saved = userRepository.save(managed);
+        // Every earlier session token is now invalid; hand this browser a fresh one so it stays signed in.
+        String token = jwtService.generateToken(saved.getId(), saved.getRole().name(), saved.getPasswordHash());
+        return new AuthResponse(token, toModel(saved), "Password changed. Other sessions were signed out.",
+                jwtService.getExpiration(token).toInstant().toString(), jwtService.getExpiresInSeconds());
     }
 
     @Override
