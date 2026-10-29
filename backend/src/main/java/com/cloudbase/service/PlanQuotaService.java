@@ -7,8 +7,11 @@ import com.cloudbase.model.UserRole;
 import com.cloudbase.repository.DeploymentRepository;
 import com.cloudbase.repository.ProjectRepository;
 import com.cloudbase.repository.ServiceRepository;
+import com.cloudbase.repository.UserRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -23,15 +26,18 @@ public class PlanQuotaService {
     private final ProjectRepository projectRepository;
     private final ServiceRepository serviceRepository;
     private final DeploymentRepository deploymentRepository;
+    private final UserRepository userRepository;
 
     public PlanQuotaService(
             ProjectRepository projectRepository,
             ServiceRepository serviceRepository,
-            DeploymentRepository deploymentRepository
+            DeploymentRepository deploymentRepository,
+            UserRepository userRepository
     ) {
         this.projectRepository = projectRepository;
         this.serviceRepository = serviceRepository;
         this.deploymentRepository = deploymentRepository;
+        this.userRepository = userRepository;
     }
 
     public Map<String, Object> planInfo() {
@@ -75,8 +81,14 @@ public class PlanQuotaService {
         assertNotAlreadyOverResources(user);
     }
 
+    /**
+     * Must run inside the caller's write transaction: the owner row lock is held until it commits, so a
+     * concurrent request for the same owner sees this one's new service before checking its own.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
     public void assertCanAddService(UserEntity user, int memoryMb, int storageGb, int cpuMilli) {
         if (isAdmin(user)) return;
+        lockOwner(user);
         UsageSnapshot snap = snapshot(user);
         if (snap.memoryMb + Math.max(0, memoryMb) > FreePlanLimits.MEMORY_MB) {
             deny("RAM (" + FreePlanLimits.MEMORY_MB + " MB)", FreePlanLimits.MEMORY_MB);
@@ -113,8 +125,10 @@ public class PlanQuotaService {
         }
     }
 
+    @Transactional(propagation = Propagation.MANDATORY)
     public void assertCanUpdateQuotas(UserEntity user, int memoryDelta, int storageDelta, int cpuDelta) {
         if (isAdmin(user)) return;
+        lockOwner(user);
         UsageSnapshot snap = snapshot(user);
         if (memoryDelta > 0 && snap.memoryMb + memoryDelta > FreePlanLimits.MEMORY_MB) {
             deny("RAM (" + FreePlanLimits.MEMORY_MB + " MB)", FreePlanLimits.MEMORY_MB);
@@ -159,6 +173,11 @@ public class PlanQuotaService {
             }
         }
         return new UsageSnapshot(projectCount, services, running, memoryMb, cpuMilli, storageGb, deploys);
+    }
+
+    private void lockOwner(UserEntity user) {
+        userRepository.lockById(user.getId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required"));
     }
 
     private static void deny(String what, int limit) {

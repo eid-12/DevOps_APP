@@ -132,6 +132,23 @@ try {
   }
   await shot(mobile, '04-mobile-service');
 
+  // 5b. at the plan limit both Add Service buttons are disabled with the same reason (verify_api fills quota@)
+  step = 'plan limit buttons';
+  const quotaPage = await newPage('quota');
+  await signIn(quotaPage, 'quota@cloudbase.test');
+  const quotaToken = await quotaPage.evaluate(() => localStorage.getItem('cloudbase.token'));
+  const emptyProject = await api('POST', '/api/projects', { name: 'browser-empty-' + Date.now().toString(36) }, quotaToken, 201);
+  await quotaPage.goto(WEB + '/projects/' + emptyProject.id);
+  const addButtons = quotaPage.getByRole('button', { name: /Add Service/ });
+  await addButtons.nth(1).waitFor({ timeout: 10000 });
+  const states = await addButtons.evaluateAll(bs => bs.map(b => ({ disabled: b.disabled, title: b.title })));
+  check('header and empty-state Add Service are both disabled at the plan limit',
+    states.length === 2 && states.every(s => s.disabled), JSON.stringify(states));
+  check('both buttons give the same plan-limit reason', states.length === 2 && states[0].title === states[1].title && /Free plan limit/.test(states[0].title));
+  check('empty state explains why', await quotaPage.getByText(states[0]?.title || '-', { exact: true }).count() >= 1);
+  await shot(quotaPage, '05b-plan-limit');
+  await api('DELETE', '/api/projects/' + emptyProject.id, undefined, quotaToken, 204);
+
   // 6. admin suspends the user in the admin UI; the user's open session ends
   step = 'admin suspend';
   const admin = await newPage('admin');

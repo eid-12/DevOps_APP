@@ -32,6 +32,8 @@ import { TagModule } from 'primeng/tag';
 
 type AddServiceMode = 'github' | 'docker' | 'database' | null;
 
+const FREE_PLAN_LIMIT_MESSAGE = 'Free plan limit reached. Delete a service or see Billing.';
+
 @Component({
   selector: 'app-project-detail-page',
   standalone: true,
@@ -83,8 +85,8 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
           type="button"
           class="btn btn-primary railway-new-btn"
           (click)="openPicker()"
-          [disabled]="!project() || adding() || !canAddService() || project()?.status === 'ARCHIVED'"
-          [title]="!canAddService() && canManage() ? 'Free plan limit reached — see Billing' : ''"
+          [disabled]="!project() || adding() || !!addServiceBlockedReason()"
+          [title]="addServiceBlockedReason()"
         >+ Add Service</button>
       </div>
     </header>
@@ -270,9 +272,16 @@ type AddServiceMode = 'github' | 'docker' | 'database' | null;
           <p>No services yet</p>
           <p class="empty-sub">Add a GitHub repo, Docker image, or database to get started.</p>
           @if (canManage()) {
-            <button type="button" class="btn btn-primary u-mt-16" (click)="openPicker()">
-              + Add Service
-            </button>
+            <button
+              type="button"
+              class="btn btn-primary u-mt-16"
+              (click)="openPicker()"
+              [disabled]="adding() || !!addServiceBlockedReason()"
+              [title]="addServiceBlockedReason()"
+            >+ Add Service</button>
+            @if (addServiceBlockedReason(); as reason) {
+              <p class="empty-sub u-mt-4">{{ reason }}</p>
+            }
           }
         </div>
       } @else {
@@ -966,11 +975,18 @@ export class ProjectDetailPageComponent implements OnInit {
     return true;
   }
 
+  /** One reason for both Add Service buttons; empty when adding is allowed. The backend enforces the limits. */
+  addServiceBlockedReason(): string {
+    if (!this.canManage()) return '';
+    if (this.project()?.status === 'ARCHIVED') return 'Archived projects cannot get new services.';
+    if (!this.canAddService()) return FREE_PLAN_LIMIT_MESSAGE;
+    return '';
+  }
+
   openPicker() {
-    if (!this.canAddService() || this.project()?.status === 'ARCHIVED') {
-      if (this.canManage() && !this.auth.canAddService(this.usage(), this.plan())) {
-        this.error.set('Free plan limit reached. Delete a service or see Billing.');
-      }
+    const blocked = this.addServiceBlockedReason();
+    if (blocked || !this.canManage()) {
+      if (blocked) this.error.set(blocked);
       return;
     }
     this.prompt = '';

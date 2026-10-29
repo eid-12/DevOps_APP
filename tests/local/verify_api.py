@@ -1,6 +1,7 @@
 """Real HTTP + PostgreSQL integration checks. Infrastructure is the local mock, never production."""
 import json
 import sys
+import threading
 import time
 from lab import request, state, save, PASSWORD, ADMIN, STATE_DIR
 
@@ -110,6 +111,28 @@ call('POST', '/api/auth/forgot-password', {'email': 'owner@cloudbase.test'}, exp
 call('GET', '/api/auth/github/authorize', token=ot, expected=503)
 call('POST', '/api/auth/github/exchange', {'code': 'synthetic-never-valid'}, ot, 503)
 call('GET', '/api/projects/proj-missing', token=ot, expected=404)
+# Free plan resources are enforced by the API, also for direct and concurrent requests (row lock per owner).
+quota_user = call('POST', '/api/auth/register', {'name': 'Quota QA', 'email': 'quota@cloudbase.test', 'password': PASSWORD})
+call('PATCH', '/api/admin/users/' + quota_user['user']['id'] + '/deployment-access', {'enabled': True}, at)
+qt = quota_user['token']
+qpid = call('POST', '/api/projects', {'name': 'quota'}, qt, 201)['id']
+def quota_service(name, memory):
+    return {'name': name, 'sourceType': 'DOCKER', 'sourceDetails': {'imageName': 'nginx', 'imageTag': 'alpine', 'containerPort': 80},
+            'quota': {'memoryMb': memory, 'cpuMilli': 100, 'storageGb': 0}}
+for i in range(7):
+    call('POST', '/api/projects/' + qpid + '/services', quota_service('base%d' % i, 512), qt, 201)
+code, body = request('POST', '/api/projects/' + qpid + '/services', quota_service('too-big', 1024), qt)
+check('direct API request over the RAM limit is refused with 402', code == 402)
+codes = []
+barrier = threading.Barrier(5)
+def race(i):
+    barrier.wait()
+    codes.append(request('POST', '/api/projects/' + qpid + '/services', quota_service('race%d' % i, 512), qt)[0])
+workers = [threading.Thread(target=race, args=(i,)) for i in range(5)]
+[w.start() for w in workers]
+[w.join() for w in workers]
+check('5 concurrent requests near the limit: exactly one succeeds (%s)' % sorted(codes), sorted(codes) == [201, 402, 402, 402, 402])
+check('usage never exceeds the RAM limit', call('GET', '/api/auth/usage', token=qt)['memoryMbUsed'] <= 4096)
 s = state()
 s['fixtures'] = {'projectId': pid, 'serviceId': sid, 'adminEmail': ADMIN, 'browserEmail': 'browser@cloudbase.test', 'password': PASSWORD}
 save(s)
