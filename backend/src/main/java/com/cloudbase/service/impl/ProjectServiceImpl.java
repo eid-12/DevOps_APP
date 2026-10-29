@@ -176,6 +176,7 @@ public class ProjectServiceImpl implements ProjectService {
         int memoryMb = request.quota() != null ? request.quota().memoryMb() : 512;
         int cpuMilli = request.quota() != null ? request.quota().cpuMilli() : 500;
         int storageGb = request.quota() != null ? request.quota().storageGb() : 2;
+        ComposeInputValidator.requireResourceLimits(memoryMb, cpuMilli, storageGb);
         int volumeGb = request.volume() != null ? Math.max(0, request.volume().sizeGb()) : 0;
 
         if (request.sourceType() == ServiceSourceType.GITHUB) {
@@ -970,6 +971,8 @@ public class ProjectServiceImpl implements ProjectService {
             service.setSourceDetails(details);
         }
         if (request.quota() != null) {
+            ComposeInputValidator.requireResourceLimits(
+                    request.quota().memoryMb(), request.quota().cpuMilli(), request.quota().storageGb());
             int memDelta = request.quota().memoryMb() - service.getQuotaMemoryMb();
             int cpuDelta = request.quota().cpuMilli() - service.getQuotaCpuMilli();
             planQuotaService.assertCanUpdateQuotas(user, memDelta, 0, cpuDelta);

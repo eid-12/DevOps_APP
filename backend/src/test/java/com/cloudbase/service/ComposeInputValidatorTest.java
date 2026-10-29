@@ -22,6 +22,19 @@ class ComposeInputValidatorTest {
     }
 
     @Test
+    void resourceLimitsMustBeRealBoundedValues() {
+        assertDoesNotThrow(() -> ComposeInputValidator.requireResourceLimits(128, 100, 0));
+        assertDoesNotThrow(() -> ComposeInputValidator.requireResourceLimits(4096, 2000, 5));
+        // 0 or negative would be emitted as an "unlimited" Docker limit.
+        for (int[] bad : new int[][]{{0, 500, 1}, {-1, 500, 1}, {512, 0, 1}, {512, -250, 1}, {512, 500, -1},
+                {999_999, 500, 1}, {512, 999_999, 1}}) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> ComposeInputValidator.requireResourceLimits(bad[0], bad[1], bad[2]),
+                    bad[0] + "/" + bad[1] + "/" + bad[2]);
+        }
+    }
+
+    @Test
     void rejectsValuesThatCouldBreakOutOfAYamlScalar() {
         for (String image : List.of("nginx\nprivileged: true", "nginx latest", "nginx:latest\"", "Nginx", "nginx#x",
                 "nginx:", "/nginx", "nginx//app", "")) {

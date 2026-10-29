@@ -8,6 +8,8 @@ import com.cloudbase.service.PlatformSettingsService;
 import com.cloudbase.service.StartCommandValidator;
 import com.cloudbase.service.VolumeMountValidator;
 import org.springframework.beans.factory.annotation.Value;
+import org.yaml.snakeyaml.DumperOptions;
+import org.yaml.snakeyaml.Yaml;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -55,6 +57,9 @@ public class ComposeGenerator {
     }
 
     public String generateCompose(ServiceEntity service, String userId, String imageTagOverride) {
+        // Never emit a 0/negative limit: Docker would read it as "unlimited".
+        ComposeInputValidator.requireResourceLimits(
+                service.getQuotaMemoryMb(), service.getQuotaCpuMilli(), Math.max(0, service.getQuotaStorageGb()));
         return switch (service.getSourceType()) {
             case GITHUB -> generateGitHubCompose(service, userId, imageTagOverride);
             case DOCKER -> generateDockerCompose(service, userId, imageTagOverride);
@@ -160,34 +165,26 @@ public class ComposeGenerator {
         String mountPath = (service.getVolumeMountPath() != null && !service.getVolumeMountPath().isBlank())
                 ? VolumeMountValidator.normalizeAndValidate(service.getVolumeMountPath())
                 : "/data";
-        String containerName = resolveContainerName(service);
-        String svcKey = sanitizeName(service.getName());
-        String scope = watchtowerScope(service);
 
-        StringBuilder compose = new StringBuilder();
-        compose.append("services:\n");
-        compose.append("  ").append(svcKey).append(":\n");
-        compose.append("    image: ").append(yamlDoubleQuoted(image)).append("\n");
-        compose.append("    container_name: ").append(containerName).append("\n");
-        compose.append("    restart: unless-stopped\n");
-        compose.append("    pull_policy: always\n");
-        appendStartCommand(compose, service);
-        compose.append("    labels:\n");
-        compose.append("      com.centurylinklabs.watchtower.enable: \"true\"\n");
-        compose.append("      com.centurylinklabs.watchtower.scope: \"").append(scope).append("\"\n");
-        compose.append("    deploy:\n");
-        compose.append("      resources:\n");
-        compose.append("        limits:\n");
-        compose.append("          memory: ").append(service.getQuotaMemoryMb()).append("M\n");
-        compose.append("          cpus: '").append(service.getQuotaCpuMilli() / 1000.0).append("'\n");
-        appendEnvReferences(compose, service);
+        Map<String, Object> app = new LinkedHashMap<>();
+        app.put("image", image);
+        app.put("container_name", resolveContainerName(service));
+        app.put("restart", "unless-stopped");
+        app.put("pull_policy", "always");
+        List<String> command = startCommand(service);
+        if (!command.isEmpty()) {
+            app.put("command", command);
+        }
+        app.put("labels", watchtowerLabels(true, watchtowerScope(service)));
+        app.put("deploy", limits(service.getQuotaMemoryMb() + "M", String.valueOf(service.getQuotaCpuMilli() / 1000.0)));
+        Map<String, Object> env = envReferences(service);
+        if (!env.isEmpty()) {
+            app.put("environment", env);
+        }
         // Always persist data so a restart / Watchtower recreate keeps files.
-        compose.append("    volumes:\n");
-        compose.append("      - ").append(volumePath).append(":").append(mountPath).append("\n");
-        appendNetworks(compose, service.getProject().getId());
-        appendWatchtower(compose, service);
-        appendNetworkDefinitions(compose, service.getProject().getId());
-        return compose.toString();
+        app.put("volumes", List.of(volumePath + ":" + mountPath));
+        app.put("networks", serviceNetworks(service.getProject().getId()));
+        return stack(sanitizeName(service.getName()), app, service);
     }
 
     private String generateDatabaseCompose(ServiceEntity service, String userId) {
@@ -195,27 +192,26 @@ public class ComposeGenerator {
         String dbTypeStr = String.valueOf(src.getOrDefault("dbType", "POSTGRESQL"));
         DatabaseType dbType = DatabaseType.valueOf(dbTypeStr);
         String volumePath = resolveVolumePath(userId, service.getProject().getId(), service.getId());
+        String dbName = sanitizeDbIdentifier(service.getName());
+        // Passwords are ${...} references; Portainer's stack env supplies the generated values.
         return switch (dbType) {
-            case POSTGRESQL -> databaseBlock(service, volumePath, "postgres:16-alpine",
-                    List.of(
-                            "POSTGRES_DB=" + sanitizeDbIdentifier(service.getName()),
-                            "POSTGRES_USER=cbuser",
-                            "POSTGRES_PASSWORD=${DB_PASSWORD}"
-                    ), "/var/lib/postgresql/data");
-            case MYSQL -> databaseBlock(service, volumePath, "mysql:8.0",
-                    List.of(
-                            "MYSQL_DATABASE=" + sanitizeDbIdentifier(service.getName()),
-                            "MYSQL_USER=cbuser",
-                            "MYSQL_PASSWORD=${DB_PASSWORD}",
-                            "MYSQL_ROOT_PASSWORD=${DB_ROOT_PASSWORD}"
-                    ), "/var/lib/mysql");
-            case REDIS -> databaseBlock(service, volumePath, "redis:7-alpine",
-                    List.of(), "/data", "redis-server --requirepass ${REDIS_PASSWORD}");
-            case MONGODB -> databaseBlock(service, volumePath, "mongo:7",
-                    List.of(
-                            "MONGO_INITDB_ROOT_USERNAME=cbuser",
-                            "MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD}"
-                    ), "/data/db");
+            case POSTGRESQL -> databaseBlock(service, volumePath, "postgres:16-alpine", orderedMap(
+                    "POSTGRES_DB", dbName,
+                    "POSTGRES_USER", "cbuser",
+                    "POSTGRES_PASSWORD", "${DB_PASSWORD}"
+            ), "/var/lib/postgresql/data", null);
+            case MYSQL -> databaseBlock(service, volumePath, "mysql:8.0", orderedMap(
+                    "MYSQL_DATABASE", dbName,
+                    "MYSQL_USER", "cbuser",
+                    "MYSQL_PASSWORD", "${DB_PASSWORD}",
+                    "MYSQL_ROOT_PASSWORD", "${DB_ROOT_PASSWORD}"
+            ), "/var/lib/mysql", null);
+            case REDIS -> databaseBlock(service, volumePath, "redis:7-alpine", Map.of(),
+                    "/data", "redis-server --requirepass ${REDIS_PASSWORD}");
+            case MONGODB -> databaseBlock(service, volumePath, "mongo:7", orderedMap(
+                    "MONGO_INITDB_ROOT_USERNAME", "cbuser",
+                    "MONGO_INITDB_ROOT_PASSWORD", "${MONGO_PASSWORD}"
+            ), "/data/db", null);
         };
     }
 
@@ -223,87 +219,81 @@ public class ComposeGenerator {
             ServiceEntity service,
             String volumePath,
             String image,
-            List<String> envLines,
-            String dataPath
-    ) {
-        return databaseBlock(service, volumePath, image, envLines, dataPath, null);
-    }
-
-    private String databaseBlock(
-            ServiceEntity service,
-            String volumePath,
-            String image,
-            List<String> envLines,
+            Map<String, Object> env,
             String dataPath,
             String command
     ) {
-        String scope = watchtowerScope(service);
-        StringBuilder compose = new StringBuilder();
-        compose.append("services:\n");
-        compose.append("  ").append(sanitizeName(service.getName())).append(":\n");
-        compose.append("    image: ").append(image).append("\n");
-        compose.append("    container_name: ").append(resolveContainerName(service)).append("\n");
-        compose.append("    restart: unless-stopped\n");
+        Map<String, Object> db = new LinkedHashMap<>();
+        db.put("image", image);
+        db.put("container_name", resolveContainerName(service));
+        db.put("restart", "unless-stopped");
         // Never auto-upgrade DB engines via Watchtower (data/compat risk).
-        compose.append("    labels:\n");
-        compose.append("      com.centurylinklabs.watchtower.enable: \"false\"\n");
-        compose.append("      com.centurylinklabs.watchtower.scope: \"").append(scope).append("\"\n");
+        db.put("labels", watchtowerLabels(false, watchtowerScope(service)));
         if (command != null) {
-            compose.append("    command: ").append(command).append("\n");
+            db.put("command", command);
         }
-        if (!envLines.isEmpty()) {
-            compose.append("    environment:\n");
-            for (String line : envLines) {
-                String[] parts = line.split("=", 2);
-                compose.append("      ").append(parts[0]).append(": ").append(parts[1]).append("\n");
-            }
+        if (!env.isEmpty()) {
+            db.put("environment", env);
         }
-        compose.append("    volumes:\n");
-        compose.append("      - ").append(volumePath).append(":").append(dataPath).append("\n");
-        compose.append("    deploy:\n");
-        compose.append("      resources:\n");
-        compose.append("        limits:\n");
-        compose.append("          memory: ").append(service.getQuotaMemoryMb()).append("M\n");
-        appendNetworks(compose, service.getProject().getId());
+        db.put("volumes", List.of(volumePath + ":" + dataPath));
+        db.put("deploy", Map.of("resources", Map.of("limits", orderedMap("memory", service.getQuotaMemoryMb() + "M"))));
+        db.put("networks", serviceNetworks(service.getProject().getId()));
         // Still ship Watchtower so stopped app siblings in same scope can revive;
         // DB itself stays disabled via enable=false.
-        appendWatchtower(compose, service);
-        appendNetworkDefinitions(compose, service.getProject().getId());
-        return compose.toString();
+        return stack(sanitizeName(service.getName()), db, service);
+    }
+
+    /** One stack: the service, the optional Watchtower sidecar, and the network definitions. */
+    private String stack(String serviceKey, Map<String, Object> serviceDef, ServiceEntity service) {
+        Map<String, Object> services = new LinkedHashMap<>();
+        services.put(serviceKey, serviceDef);
+        if (watchtowerEnabled) {
+            services.put("watchtower", watchtower(service));
+        }
+        Map<String, Object> networks = new LinkedHashMap<>();
+        // Per-project network is created with the stack; the shared network must already exist (NPM + other stacks).
+        networks.put(projectNetworkName(service.getProject().getId()), Map.of("driver", "bridge"));
+        networks.put(sharedNetwork(), Map.of("external", true));
+        Map<String, Object> root = new LinkedHashMap<>();
+        root.put("services", services);
+        root.put("networks", networks);
+        return toYaml(root);
     }
 
     /**
      * Sidecar: polls for new images and can revive stopped containers in this stack's scope.
      */
-    private void appendWatchtower(StringBuilder compose, ServiceEntity service) {
-        if (!watchtowerEnabled) {
-            return;
-        }
-        String scope = watchtowerScope(service);
-        String wtName = "cb-wt-" + service.getId();
+    private Map<String, Object> watchtower(ServiceEntity service) {
+        Map<String, Object> wt = new LinkedHashMap<>();
         // nickfedor fork: containrrr 1.7.1 speaks Docker API 1.25; modern engines require >= 1.40
-        compose.append("  watchtower:\n");
-        compose.append("    image: nickfedor/watchtower:1.21.0\n");
-        compose.append("    container_name: ").append(wtName).append("\n");
-        compose.append("    restart: unless-stopped\n");
-        compose.append("    volumes:\n");
-        compose.append("      - /var/run/docker.sock:/var/run/docker.sock\n");
-        compose.append("    environment:\n");
-        compose.append("      WATCHTOWER_LABEL_ENABLE: \"true\"\n");
-        compose.append("      WATCHTOWER_SCOPE: \"").append(scope).append("\"\n");
-        compose.append("      WATCHTOWER_CLEANUP: \"true\"\n");
-        compose.append("      WATCHTOWER_INCLUDE_STOPPED: \"true\"\n");
-        compose.append("      WATCHTOWER_REVIVE_STOPPED: \"true\"\n");
-        compose.append("      WATCHTOWER_POLL_INTERVAL: \"300\"\n");
-        compose.append("      DOCKER_API_VERSION: \"1.44\"\n");
-        compose.append("    labels:\n");
-        compose.append("      com.centurylinklabs.watchtower.enable: \"false\"\n");
-        compose.append("    deploy:\n");
-        compose.append("      resources:\n");
-        compose.append("        limits:\n");
-        compose.append("          memory: 64M\n");
-        compose.append("          cpus: '0.10'\n");
+        wt.put("image", "nickfedor/watchtower:1.21.0");
+        wt.put("container_name", resolveWatchtowerContainerName(service));
+        wt.put("restart", "unless-stopped");
+        wt.put("volumes", List.of("/var/run/docker.sock:/var/run/docker.sock"));
+        wt.put("environment", orderedMap(
+                "WATCHTOWER_LABEL_ENABLE", "true",
+                "WATCHTOWER_SCOPE", watchtowerScope(service),
+                "WATCHTOWER_CLEANUP", "true",
+                "WATCHTOWER_INCLUDE_STOPPED", "true",
+                "WATCHTOWER_REVIVE_STOPPED", "true",
+                "WATCHTOWER_POLL_INTERVAL", "300",
+                "DOCKER_API_VERSION", "1.44"
+        ));
+        wt.put("labels", orderedMap("com.centurylinklabs.watchtower.enable", "false"));
+        wt.put("deploy", limits("64M", "0.10"));
         // Docker socket only - no app network required
+        return wt;
+    }
+
+    private static Map<String, Object> watchtowerLabels(boolean enable, String scope) {
+        return orderedMap(
+                "com.centurylinklabs.watchtower.enable", enable ? "true" : "false",
+                "com.centurylinklabs.watchtower.scope", scope
+        );
+    }
+
+    private static Map<String, Object> limits(String memory, String cpus) {
+        return Map.of("resources", Map.of("limits", orderedMap("memory", memory, "cpus", cpus)));
     }
 
     private static String watchtowerScope(ServiceEntity service) {
@@ -313,20 +303,14 @@ public class ComposeGenerator {
     /**
      * Override image CMD with a validated exec-form start command (no shell).
      */
-    private void appendStartCommand(StringBuilder compose, ServiceEntity service) {
+    private static List<String> startCommand(ServiceEntity service) {
         Map<String, Object> src = service.getSourceDetails() != null ? service.getSourceDetails() : Map.of();
         Object raw = src.get("startCommand");
         if (raw == null) {
-            return;
+            return List.of();
         }
         var validated = StartCommandValidator.validateOrNull(String.valueOf(raw));
-        if (validated == null || validated.argv().isEmpty()) {
-            return;
-        }
-        compose.append("    command:\n");
-        for (String arg : validated.argv()) {
-            compose.append("      - ").append(yamlDoubleQuoted(arg)).append("\n");
-        }
+        return validated == null ? List.of() : validated.argv();
     }
 
     /** Validated {@code name:tag}, or the name as given when it already carries a tag or digest. */
@@ -336,42 +320,40 @@ public class ComposeGenerator {
         return hasTagOrDigest ? name : name + ":" + ComposeInputValidator.requireImageTag(tag.trim());
     }
 
-    private static String yamlDoubleQuoted(String value) {
-        return "\"" + value
-                .replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                + "\"";
-    }
-
     /**
      * Reference env keys as ${KEY} so Portainer stack env supplies values at deploy time.
      * Concrete values are not baked into YAML (safer for secrets / redeploys).
      */
-    private void appendEnvReferences(StringBuilder compose, ServiceEntity service) {
-        if (service.getEnvVars() == null || service.getEnvVars().isEmpty()) {
-            return;
+    private static Map<String, Object> envReferences(ServiceEntity service) {
+        Map<String, Object> env = new LinkedHashMap<>();
+        if (service.getEnvVars() != null) {
+            service.getEnvVars().keySet().stream().sorted().forEach(key ->
+                    env.put(ComposeInputValidator.requireEnvKey(key), "${" + key + "}"));
         }
-        compose.append("    environment:\n");
-        service.getEnvVars().keySet().stream().sorted().forEach(key -> {
-            ComposeInputValidator.requireEnvKey(key);
-            compose.append("      ").append(key).append(": ${").append(key).append("}\n");
-        });
+        return env;
     }
 
-    private void appendNetworks(StringBuilder compose, String projectId) {
-        compose.append("    networks:\n");
-        compose.append("      - project-").append(projectId).append("\n");
-        compose.append("      - ").append(sharedNetwork()).append("\n");
+    private List<String> serviceNetworks(String projectId) {
+        return List.of(projectNetworkName(projectId), sharedNetwork());
     }
 
-    private void appendNetworkDefinitions(StringBuilder compose, String projectId) {
-        compose.append("networks:\n");
-        // Per-project network is created with the stack (not pre-existing).
-        compose.append("  project-").append(projectId).append(":\n");
-        compose.append("    driver: bridge\n");
-        // Shared cloudbase network must already exist (NPM + other stacks).
-        compose.append("  ").append(sharedNetwork()).append(":\n");
-        compose.append("    external: true\n");
+    private static Map<String, Object> orderedMap(String... keyValues) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        for (int i = 0; i < keyValues.length; i += 2) {
+            m.put(keyValues[i], keyValues[i + 1]);
+        }
+        return m;
+    }
+
+    /** All compose text goes through the YAML serializer, which quotes/escapes every value it emits. */
+    private static String toYaml(Map<String, Object> root) {
+        DumperOptions options = new DumperOptions();
+        options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
+        options.setIndent(2);
+        options.setIndicatorIndent(2);
+        options.setIndentWithIndicator(true);
+        options.setSplitLines(false);
+        return new Yaml(options).dump(root);
     }
 
     private String resolveVolumePath(String userId, String projectId, String serviceId) {

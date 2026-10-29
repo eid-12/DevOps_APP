@@ -1,0 +1,48 @@
+services:
+  my-db:
+    image: mysql:8.0
+    container_name: cb-svc-mysql
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
+      com.centurylinklabs.watchtower.scope: "cb-svc-mysql"
+    environment:
+      MYSQL_DATABASE: my_db
+      MYSQL_USER: cbuser
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    volumes:
+      - /var/lib/cloudbase/users/u-owner1/proj-1/svc-mysql:/var/lib/mysql
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    networks:
+      - project-proj-1
+      - cloudbase
+  watchtower:
+    image: nickfedor/watchtower:1.21.0
+    container_name: cb-wt-svc-mysql
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      WATCHTOWER_LABEL_ENABLE: "true"
+      WATCHTOWER_SCOPE: "cb-svc-mysql"
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_INCLUDE_STOPPED: "true"
+      WATCHTOWER_REVIVE_STOPPED: "true"
+      WATCHTOWER_POLL_INTERVAL: "300"
+      DOCKER_API_VERSION: "1.44"
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: '0.10'
+networks:
+  project-proj-1:
+    driver: bridge
+  cloudbase:
+    external: true

@@ -1,0 +1,26 @@
+services:
+  my-db:
+    image: postgres:16-alpine
+    container_name: cb-svc-postgresql
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
+      com.centurylinklabs.watchtower.scope: "cb-svc-postgresql"
+    environment:
+      POSTGRES_DB: my_db
+      POSTGRES_USER: cbuser
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - /var/lib/cloudbase/users/u-owner1/proj-1/svc-postgresql:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    networks:
+      - project-proj-1
+      - cloudbase
+networks:
+  project-proj-1:
+    driver: bridge
+  cloudbase:
+    external: true

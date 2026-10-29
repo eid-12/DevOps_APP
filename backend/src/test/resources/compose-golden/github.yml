@@ -1,0 +1,24 @@
+services:
+  web-app:
+    image: "minipcer/web-app-gh1:abc1234"
+    container_name: cb-svc-gh1
+    restart: unless-stopped
+    pull_policy: always
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+      com.centurylinklabs.watchtower.scope: "cb-svc-gh1"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+    volumes:
+      - /var/lib/cloudbase/users/u-owner1/proj-1/svc-gh1:/data
+    networks:
+      - project-proj-1
+      - cloudbase
+networks:
+  project-proj-1:
+    driver: bridge
+  cloudbase:
+    external: true

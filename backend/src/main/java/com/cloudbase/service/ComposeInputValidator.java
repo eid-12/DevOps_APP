@@ -41,6 +41,25 @@ public final class ComposeInputValidator {
         return tag;
     }
 
+    /** Docker treats a 0 memory/CPU limit as "unlimited", so a limit must always be a real, bounded value. */
+    public static final int MIN_MEMORY_MB = 32;
+    public static final int MAX_MEMORY_MB = 32_768;
+    public static final int MIN_CPU_MILLI = 10;
+    public static final int MAX_CPU_MILLI = 16_000;
+    public static final int MAX_STORAGE_GB = 1_024;
+
+    public static void requireResourceLimits(int memoryMb, int cpuMilli, int storageGb) {
+        if (memoryMb < MIN_MEMORY_MB || memoryMb > MAX_MEMORY_MB) {
+            throw new IllegalArgumentException("Memory must be between " + MIN_MEMORY_MB + " and " + MAX_MEMORY_MB + " MB");
+        }
+        if (cpuMilli < MIN_CPU_MILLI || cpuMilli > MAX_CPU_MILLI) {
+            throw new IllegalArgumentException("CPU must be between " + MIN_CPU_MILLI + " and " + MAX_CPU_MILLI + " millicores");
+        }
+        if (storageGb < 0 || storageGb > MAX_STORAGE_GB) {
+            throw new IllegalArgumentException("Storage must be between 0 and " + MAX_STORAGE_GB + " GB");
+        }
+    }
+
     public static String requireEnvKey(String key) {
         if (key == null || !ENV_KEY.matcher(key).matches()) {
             throw new IllegalArgumentException("Invalid environment variable name: letters, digits and '_', not starting with a digit");

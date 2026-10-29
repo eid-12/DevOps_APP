@@ -1,0 +1,53 @@
+services:
+  web-app:
+    image: "nginx:1.27-alpine"
+    container_name: cb-svc-dock1
+    restart: unless-stopped
+    pull_policy: always
+    command:
+      - "node"
+      - "server.js"
+      - "--port"
+      - "8080"
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+      com.centurylinklabs.watchtower.scope: "cb-svc-dock1"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+    environment:
+      API_URL: ${API_URL}
+      SECRET_TOKEN: ${SECRET_TOKEN}
+    volumes:
+      - /var/lib/cloudbase/users/u-owner1/proj-1/svc-dock1:/app/data
+    networks:
+      - project-proj-1
+      - cloudbase
+  watchtower:
+    image: nickfedor/watchtower:1.21.0
+    container_name: cb-wt-svc-dock1
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      WATCHTOWER_LABEL_ENABLE: "true"
+      WATCHTOWER_SCOPE: "cb-svc-dock1"
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_INCLUDE_STOPPED: "true"
+      WATCHTOWER_REVIVE_STOPPED: "true"
+      WATCHTOWER_POLL_INTERVAL: "300"
+      DOCKER_API_VERSION: "1.44"
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: '0.10'
+networks:
+  project-proj-1:
+    driver: bridge
+  cloudbase:
+    external: true
