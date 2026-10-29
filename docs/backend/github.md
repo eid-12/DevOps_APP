@@ -2,6 +2,12 @@
 
 GitHub is how most tenant apps get an image. CloudBase does not clone repos onto the Mini PC to compile them.
 
+> **Status: GitHub-repository services are disabled.** Provisioning used to write CloudBase's own Docker Hub
+> credentials into each tenant repository's Actions secrets, where the repository owner could read them. The backend
+> now rejects new GitHub services and CI re-syncs (HTTP 409) and never writes platform secrets to tenant repos. They
+> return once each repository builds into its own GitHub Container Registry with its scoped `GITHUB_TOKEN`.
+> Docker-image and database services are unaffected.
+
 ## OAuth
 
 User hits Account → connect. Browser goes to GitHub, comes back to `/auth/github/callback`. SPA sends the `code` to Spring Boot. Backend exchanges it for a user token (client secret stays on the server).

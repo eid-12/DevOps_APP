@@ -14,6 +14,8 @@ A user needs `deploymentEnabled`. I turn that on from Admin → users.
 
 ## GitHub path (the long one)
 
+> Currently disabled; see [github.md](github.md).
+
 1. User connects GitHub on Account, then adds a service from a repo.
 2. Backend writes (if needed) a Dockerfile and `.github/workflows/cloudbase-deploy.yml`, sets Actions secrets, and registers a webhook.
 3. GitHub Actions builds and pushes to Docker Hub under the platform namespace (`minipcer` in production).

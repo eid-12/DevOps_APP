@@ -178,6 +178,9 @@ public class ProjectServiceImpl implements ProjectService {
         int storageGb = request.quota() != null ? request.quota().storageGb() : 2;
         int volumeGb = request.volume() != null ? Math.max(0, request.volume().sizeGb()) : 0;
 
+        if (request.sourceType() == ServiceSourceType.GITHUB) {
+            requireGitHubSourceAvailable();
+        }
         planQuotaService.assertNotAlreadyOver(user);
         planQuotaService.assertCanAddService(user, memoryMb, volumeGb, cpuMilli);
         if (request.sourceType() != ServiceSourceType.GITHUB) {
@@ -387,6 +390,7 @@ public class ProjectServiceImpl implements ProjectService {
         if (service.getSourceType() != ServiceSourceType.GITHUB) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "CI sync is only for GitHub services");
         }
+        requireGitHubSourceAvailable();
         // Ensure auto-deploy stays on when user asks to sync CI/webhook
         Map<String, Object> details = service.getSourceDetails() != null
                 ? new HashMap<>(service.getSourceDetails())
@@ -944,6 +948,7 @@ public class ProjectServiceImpl implements ProjectService {
             // Re-bootstrap CI only when GitHub build source fields actually change (avoid slow GitHub I/O on every save)
             if (service.getSourceType() == com.cloudbase.model.ServiceSourceType.GITHUB
                     && githubCiFieldsChanged(previousDetails, details)) {
+                requireGitHubSourceAvailable();
                 ServiceEntity savedGh = serviceRepository.save(service);
                 try {
                     Map<String, Object> enriched = ciBootstrapService.bootstrapGitHubService(user, savedGh);
@@ -1047,6 +1052,18 @@ public class ProjectServiceImpl implements ProjectService {
             return String.valueOf(m.get("value"));
         }
         return raw == null ? "" : String.valueOf(raw);
+    }
+
+    static final String GITHUB_SOURCE_DISABLED =
+            "GitHub-repository services are temporarily unavailable while builds move to each repository's own "
+                    + "GitHub Container Registry. Deploy a Docker image instead; existing services keep running.";
+
+    /**
+     * GitHub-source provisioning used to copy the platform's Docker Hub credentials into tenant repositories.
+     * It stays off until the per-repository GHCR build path replaces it.
+     */
+    private static void requireGitHubSourceAvailable() {
+        throw new ResponseStatusException(HttpStatus.CONFLICT, GITHUB_SOURCE_DISABLED);
     }
 
     /** Reject image values that could not be written safely into the generated compose YAML. */

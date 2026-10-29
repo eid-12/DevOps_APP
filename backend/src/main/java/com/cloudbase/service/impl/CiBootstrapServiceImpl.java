@@ -43,16 +43,6 @@ public class CiBootstrapServiceImpl implements CiBootstrapService {
         return settings.get(PlatformSettingsService.DOCKERHUB_NAMESPACE);
     }
 
-    private String dockerHubUsername() {
-        String u = settings.get(PlatformSettingsService.DOCKERHUB_USERNAME);
-        return StringUtils.hasText(u) ? u : dockerHubNamespace();
-    }
-
-    private String dockerHubToken() {
-        String t = settings.get(PlatformSettingsService.DOCKERHUB_TOKEN);
-        return t == null ? "" : t;
-    }
-
     private String publicApiUrl() {
         String u = settings.get(PlatformSettingsService.PUBLIC_API_URL);
         return u == null ? "" : u.trim().replaceAll("/$", "");
@@ -138,18 +128,9 @@ public class CiBootstrapServiceImpl implements CiBootstrapService {
                     true
             );
 
+            // Never copy CloudBase's own registry credentials into a tenant repository: the repository
+            // owner controls its workflows and could read them. (Tenant builds move to per-repo GHCR.)
             boolean secretsOk = false;
-            if (StringUtils.hasText(dockerHubToken())) {
-                repoClient.putActionsSecret(
-                        token, or.owner(), or.repo(),
-                        "DOCKERHUB_USERNAME", dockerHubUsername(), secretEncryptor
-                );
-                repoClient.putActionsSecret(
-                        token, or.owner(), or.repo(),
-                        "DOCKERHUB_TOKEN", dockerHubToken(), secretEncryptor
-                );
-                secretsOk = true;
-            }
 
             if (StringUtils.hasText(publicApiUrl())) {
                 String hookUrl = publicApiUrl() + "/api/webhooks/github";
