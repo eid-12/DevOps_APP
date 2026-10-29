@@ -85,7 +85,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             throw new IllegalArgumentException("WebSocket authentication required");
         }
         UserEntity user = userRepository.findById(claims.getSubject()).orElse(null);
-        if (user == null) {
+        if (user == null || !jwtService.isCurrentSession(claims, user.getSessionVersion())) {
             throw new IllegalArgumentException("WebSocket authentication required");
         }
         return user;

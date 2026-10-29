@@ -6,12 +6,8 @@ import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import javax.crypto.Mac;
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
-import java.security.GeneralSecurityException;
-import java.security.MessageDigest;
-import java.util.Base64;
 import java.util.Date;
 
 @Service
@@ -28,10 +24,12 @@ public class JwtService {
         this.expirationMs = expirationMs;
     }
 
-    public String generateToken(String userId, String role) {
+    /** Session token carrying the user's session version ("sv"), same claim as the main line. */
+    public String generateToken(String userId, String role, int sessionVersion) {
         return Jwts.builder()
                 .subject(userId)
                 .claim("role", role)
+                .claim("sv", sessionVersion)
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + expirationMs))
                 .signWith(key)
@@ -50,15 +48,18 @@ public class JwtService {
         return parseToken(token).getExpiration();
     }
 
-    /**
-     * Short-lived password-reset token (30 minutes), bound to the user's current password hash
-     * so it stops working once the password changes (single use).
-     */
-    public String generatePasswordResetToken(String userId, String currentPasswordHash) {
+    /** True when the token was issued at the user's current session version (tokens without one are stale). */
+    public boolean isCurrentSession(Claims claims, int sessionVersion) {
+        Integer issued = claims.get("sv", Integer.class);
+        return issued != null && issued == sessionVersion;
+    }
+
+    /** Short-lived password-reset token (30 minutes), single use through the session version. */
+    public String generatePasswordResetToken(String userId, int sessionVersion) {
         return Jwts.builder()
                 .subject(userId)
                 .claim("purpose", "password_reset")
-                .claim("pwf", passwordFingerprint(currentPasswordHash))
+                .claim("sv", sessionVersion)
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + 30 * 60 * 1000L))
                 .signWith(key)
@@ -69,13 +70,9 @@ public class JwtService {
         return passwordResetClaims(token).getSubject();
     }
 
-    /** True when the token was issued against this exact password hash (i.e. not used yet). */
-    public boolean isPasswordResetTokenCurrent(String token, String currentPasswordHash) {
-        String issuedFor = passwordResetClaims(token).get("pwf", String.class);
-        return issuedFor != null && MessageDigest.isEqual(
-                issuedFor.getBytes(StandardCharsets.UTF_8),
-                passwordFingerprint(currentPasswordHash).getBytes(StandardCharsets.UTF_8)
-        );
+    /** True when the reset link was issued at the user's current session version (i.e. not used yet). */
+    public boolean isPasswordResetTokenCurrent(String token, int sessionVersion) {
+        return isCurrentSession(passwordResetClaims(token), sessionVersion);
     }
 
     private Claims passwordResetClaims(String token) {
@@ -84,18 +81,6 @@ public class JwtService {
             throw new IllegalArgumentException("Invalid password reset token");
         }
         return claims;
-    }
-
-    /** Keyed digest so the token never carries anything derived from the hash an attacker could use offline. */
-    private String passwordFingerprint(String passwordHash) {
-        try {
-            Mac mac = Mac.getInstance("HmacSHA256");
-            mac.init(key);
-            byte[] digest = mac.doFinal((passwordHash == null ? "" : passwordHash).getBytes(StandardCharsets.UTF_8));
-            return Base64.getUrlEncoder().withoutPadding().encodeToString(digest);
-        } catch (GeneralSecurityException e) {
-            throw new IllegalStateException("HmacSHA256 unavailable", e);
-        }
     }
 
     /** Short-lived CSRF state for GitHub OAuth (bound to CloudBase userId). */

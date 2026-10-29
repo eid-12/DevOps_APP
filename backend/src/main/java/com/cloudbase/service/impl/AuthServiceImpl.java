@@ -107,7 +107,7 @@ public class AuthServiceImpl implements AuthService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account has been suspended. Contact an administrator.");
         }
 
-        String token = jwtService.generateToken(user.getId(), user.getRole().name());
+        String token = jwtService.generateToken(user.getId(), user.getRole().name(), user.getSessionVersion());
         var exp = jwtService.getExpiration(token);
         return new AuthResponse(
                 token,
@@ -150,7 +150,7 @@ public class AuthServiceImpl implements AuthService {
             user.setEmailVerificationCode(null);
             user.setEmailVerificationExpiresAt(null);
             userRepository.save(user);
-            String token = jwtService.generateToken(user.getId(), user.getRole().name());
+            String token = jwtService.generateToken(user.getId(), user.getRole().name(), user.getSessionVersion());
             var exp = jwtService.getExpiration(token);
             return new AuthResponse(
                     token,
@@ -257,7 +257,7 @@ public class AuthServiceImpl implements AuthService {
         }
         UserEntity user = found.get();
         emailRateLimiter.acquireSend(EmailRateLimiter.Action.PASSWORD_RESET, user.getEmail());
-        String token = jwtService.generatePasswordResetToken(user.getId(), user.getPasswordHash());
+        String token = jwtService.generatePasswordResetToken(user.getId(), user.getSessionVersion());
         String resetUrl = UriComponentsBuilder
                 .fromUriString(resendProperties.appBaseUrl())
                 .path("/auth")
@@ -278,13 +278,14 @@ public class AuthServiceImpl implements AuthService {
         } catch (Exception e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid or expired reset token");
         }
-        UserEntity user = userRepository.findById(userId)
+        // Row lock until commit: concurrent uses of the same link queue here and see the incremented version.
+        UserEntity user = userRepository.lockById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid or expired reset token"));
-        // Single use: the token is bound to the hash it was issued against, so it dies once a password is set.
-        if (!jwtService.isPasswordResetTokenCurrent(token, user.getPasswordHash())) {
+        if (!jwtService.isPasswordResetTokenCurrent(token, user.getSessionVersion())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid or expired reset token");
         }
         user.setPasswordHash(passwordEncoder.encode(newPassword));
+        user.setSessionVersion(user.getSessionVersion() + 1); // signs out every existing session
         userRepository.save(user);
         return new MessageResponse("Password updated. You can sign in now.");
     }
@@ -496,7 +497,8 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public MessageResponse changePassword(UserEntity user, String currentPassword, String newPassword) {
-        UserEntity managed = userRepository.findById(user.getId())
+        // Row lock until commit: a concurrent change or reset finishes first, then the current-password check fails.
+        UserEntity managed = userRepository.lockById(user.getId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
         if (currentPassword == null || currentPassword.isBlank()
                 || newPassword == null || newPassword.isBlank()) {
@@ -507,8 +509,10 @@ public class AuthServiceImpl implements AuthService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Current password is incorrect");
         }
         managed.setPasswordHash(passwordEncoder.encode(newPassword));
+        // Revokes every session including this one: this rollback build keeps the older UI, which signs in again.
+        managed.setSessionVersion(managed.getSessionVersion() + 1);
         userRepository.save(managed);
-        return new MessageResponse("Password changed");
+        return new MessageResponse("Password changed. Sign in again with the new password.");
     }
 
     @Override

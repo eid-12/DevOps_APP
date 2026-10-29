@@ -78,6 +78,7 @@ public class BootstrapAdminRunner implements ApplicationRunner {
         user.setDeploymentEnabled(true);
         user.setEmailVerified(true);
         user.setPasswordHash(passwordEncoder.encode(password));
+        user.setSessionVersion(user.getSessionVersion() + 1); // password re-set from env: earlier sessions end
         userRepository.save(user);
         log.info("Promoted existing user to administrator from bootstrap env: {}", email);
     }
