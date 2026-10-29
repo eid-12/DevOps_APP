@@ -188,6 +188,7 @@ public class ProjectServiceImpl implements ProjectService {
         Map<String, Object> details = request.sourceDetails() != null
                 ? new HashMap<>(request.sourceDetails())
                 : new HashMap<>();
+        if (request.sourceType() == ServiceSourceType.GITHUB) rejectManagedGitHubFields(details);
         validateImageDetails(details);
 
         ServiceEntity service = ServiceEntity.builder()
@@ -244,7 +245,7 @@ public class ProjectServiceImpl implements ProjectService {
 
         // B2: inject Dockerfile + Actions workflow + webhook for GitHub services
         if (saved.getSourceType() == com.cloudbase.model.ServiceSourceType.GITHUB) {
-            Map<String, Object> enriched = ciBootstrapService.bootstrapGitHubService(user, saved);
+            Map<String, Object> enriched = ciBootstrapService.bootstrapGitHubService(serviceOwner(saved), saved);
             saved.setSourceDetails(enriched);
             if (enriched.get("containerPort") instanceof Number n) {
                 saved.setContainerPort(n.intValue());
@@ -397,7 +398,7 @@ public class ProjectServiceImpl implements ProjectService {
         }
         service.setSourceDetails(details);
         ServiceEntity saved = serviceRepository.save(service);
-        Map<String, Object> enriched = ciBootstrapService.bootstrapGitHubService(user, saved);
+        Map<String, Object> enriched = ciBootstrapService.bootstrapGitHubService(serviceOwner(saved), saved);
         saved.setSourceDetails(enriched);
         if (enriched.get("containerPort") instanceof Number n) {
             saved.setContainerPort(n.intValue());
@@ -900,10 +901,12 @@ public class ProjectServiceImpl implements ProjectService {
     public ServiceEntity updateService(String serviceId, UserEntity user, UpdateServiceRequest request) {
         requireDeploymentEnabled(user);
         ServiceEntity service = getService(serviceId, user);
+        boolean refreshCi = false;
         if (request.name() != null && !request.name().isBlank()) {
             service.setName(request.name().trim());
         }
         if (request.sourceDetails() != null) {
+            if (service.getSourceType() == ServiceSourceType.GITHUB) rejectManagedGitHubFields(request.sourceDetails());
             Map<String, Object> previousDetails = service.getSourceDetails() != null
                     ? new HashMap<>(service.getSourceDetails())
                     : new HashMap<>();
@@ -945,23 +948,15 @@ public class ProjectServiceImpl implements ProjectService {
             // Re-bootstrap CI only when GitHub build source fields actually change (avoid slow GitHub I/O on every save)
             if (service.getSourceType() == com.cloudbase.model.ServiceSourceType.GITHUB
                     && githubCiFieldsChanged(previousDetails, details)) {
-                ServiceEntity savedGh = serviceRepository.save(service);
-                try {
-                    Map<String, Object> enriched = ciBootstrapService.bootstrapGitHubService(user, savedGh);
-                    savedGh.setSourceDetails(enriched);
-                    if (enriched.get("containerPort") instanceof Number pn) {
-                        savedGh.setContainerPort(pn.intValue());
-                    }
-                    return serviceRepository.save(savedGh);
-                } catch (Exception e) {
-                    log.warn("CI re-bootstrap on update failed for {}: {}", serviceId, e.toString());
-                }
+                refreshCi = true;
             }
         }
         if (request.runtime() != null && !request.runtime().isBlank()) {
             Map<String, Object> details = service.getSourceDetails() != null
                     ? new HashMap<>(service.getSourceDetails())
                     : new HashMap<>();
+            if (service.getSourceType() == ServiceSourceType.GITHUB
+                    && !request.runtime().trim().equals(details.get("runtime"))) refreshCi = true;
             details.put("runtime", request.runtime().trim());
             service.setSourceDetails(details);
         }
@@ -984,6 +979,11 @@ public class ProjectServiceImpl implements ProjectService {
             planQuotaService.assertCanUpdateQuotas(user, 0, newVol - oldVol, 0);
             service.setVolumeMountPath(VolumeMountValidator.normalizeAndValidate(request.volume().mountPath()));
             service.setVolumeSizeGb(request.volume().sizeGb());
+        }
+        if (refreshCi) {
+            Map<String, Object> enriched = ciBootstrapService.bootstrapGitHubService(serviceOwner(service), service);
+            service.setSourceDetails(enriched);
+            if (enriched.get("containerPort") instanceof Number port) service.setContainerPort(port.intValue());
         }
         return serviceRepository.save(service);
     }
@@ -1021,6 +1021,17 @@ public class ProjectServiceImpl implements ProjectService {
             }
         });
         return saved;
+    }
+
+    private UserEntity serviceOwner(ServiceEntity service) {
+        return userRepository.findById(service.getProject().getOwnerId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Service owner not found"));
+    }
+
+    private static void rejectManagedGitHubFields(Map<String, Object> details) {
+        if (details.keySet().stream().anyMatch(k -> k.equals("imageName") || k.startsWith("ci"))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "GitHub image and CI status are managed by CloudBase");
+        }
     }
 
     private static boolean githubCiFieldsChanged(Map<String, Object> before, Map<String, Object> after) {

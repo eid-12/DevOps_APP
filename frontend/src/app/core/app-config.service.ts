@@ -33,6 +33,7 @@ export class AppConfigService {
   }
 
   githubClientId(): string {
+    if (this.config()) return this.config()!.githubClientId?.trim() ?? '';
     const live = this.config()?.githubClientId?.trim();
     if (live) return live;
     return (environment as { githubClientId?: string }).githubClientId?.trim() ?? '';
@@ -57,7 +58,8 @@ export class AppConfigService {
     if (this.config()) {
       return !!this.config()?.githubConfigured && this.githubClientId().length > 0;
     }
-    return this.githubClientId().length > 0;
+    // A failed runtime-config request must not activate a build-time OAuth app from another deployment.
+    return false;
   }
 
   emailEnabled(): boolean {

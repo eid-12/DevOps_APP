@@ -46,7 +46,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                     if (purpose == null || purpose.isBlank()) {
                         String userId = claims.getSubject();
                         UserEntity user = userRepository.findById(userId).orElse(null);
-                        if (user != null && user.getAccountStatus() != AccountStatus.SUSPENDED) {
+                        if (user != null && user.getAccountStatus() == AccountStatus.ACTIVE && user.isEmailVerified()) {
                             var auth = new UsernamePasswordAuthenticationToken(
                                     user,
                                     null,

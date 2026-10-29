@@ -590,11 +590,14 @@ public class DeploymentOrchestrator {
         if (owner == null || !StringUtils.hasText(owner.getGithubAccessToken()) || !StringUtils.hasText(owner.getGithubUsername())) {
             return "Connect GitHub on Account so CloudBase can pull your private image, then redeploy.";
         }
-        if (owner.getGithubScopes() == null || !owner.getGithubScopes().contains("read:packages")) {
+        if (owner.getGithubScopes() == null || java.util.Arrays.stream(owner.getGithubScopes().split("[,\\s]+"))
+                .noneMatch("read:packages"::equals)) {
             return "Reconnect GitHub on Account to grant package read access (read:packages), then redeploy.";
         }
         try {
-            if (Boolean.TRUE.equals(portainerClient.hasRegistryFor(GHCR).block(Duration.ofSeconds(30)))) {
+            Boolean sharedRegistry = portainerClient.hasRegistryFor(GHCR).block(Duration.ofSeconds(30));
+            if (sharedRegistry == null) return "Deploy refused: could not verify GHCR registry credential isolation. Retry when Portainer is available.";
+            if (Boolean.TRUE.equals(sharedRegistry)) {
                 return "Deploy refused: Portainer has a shared ghcr.io registry credential, which would bypass each "
                         + "owner's own access. Remove it in Portainer → Registries.";
             }

@@ -3,6 +3,7 @@ package com.cloudbase.config;
 import com.cloudbase.entity.ServiceEntity;
 import com.cloudbase.entity.UserEntity;
 import com.cloudbase.model.UserRole;
+import com.cloudbase.model.AccountStatus;
 import com.cloudbase.repository.ServiceRepository;
 import com.cloudbase.repository.UserRepository;
 import com.cloudbase.security.JwtService;
@@ -10,6 +11,8 @@ import io.jsonwebtoken.Claims;
 import org.springframework.lang.NonNull;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
+import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
+import org.springframework.messaging.simp.SimpMessageType;
 import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.ChannelInterceptor;
@@ -34,6 +37,8 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
     private final JwtService jwtService;
     private final UserRepository userRepository;
     private final ServiceRepository serviceRepository;
+    /** Session id -> authentication from CONNECT; the broker's outbound messages carry only the session id. */
+    private final java.util.Map<String, UsernamePasswordAuthenticationToken> sessions = new java.util.concurrent.ConcurrentHashMap<>();
 
     public StompAuthChannelInterceptor(
             JwtService jwtService,
@@ -58,24 +63,27 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
                     null,
                     List.of(new SimpleGrantedAuthority("ROLE_" + user.getRole().name()))
             );
+            auth.setDetails(jwtService.getExpiration(sessionToken(accessor)));
             accessor.setUser(auth);
+            if (accessor.getSessionId() != null) sessions.put(accessor.getSessionId(), auth);
+            return message;
+        }
+        if (StompCommand.DISCONNECT.equals(accessor.getCommand()) && accessor.getSessionId() != null) {
+            sessions.remove(accessor.getSessionId());
             return message;
         }
         if (StompCommand.SUBSCRIBE.equals(accessor.getCommand())) {
             authorizeSubscribe(accessor);
         }
+        // This endpoint only streams server events; clients may not impersonate the event publisher.
+        if (StompCommand.SEND.equals(accessor.getCommand())) {
+            throw new IllegalArgumentException("Client event publishing is not supported");
+        }
         return message;
     }
 
     private UserEntity authenticate(StompHeaderAccessor accessor) {
-        String header = firstHeader(accessor, "Authorization");
-        if (header == null || header.isBlank()) {
-            header = firstHeader(accessor, "authorization");
-        }
-        String token = firstHeader(accessor, "token");
-        if (header != null && header.startsWith("Bearer ")) {
-            token = header.substring(7).trim();
-        }
+        String token = sessionToken(accessor);
         if (token == null || token.isBlank() || !jwtService.isTokenValid(token)) {
             throw new IllegalArgumentException("WebSocket authentication required");
         }
@@ -84,20 +92,40 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         if (purpose != null && !purpose.isBlank()) {
             throw new IllegalArgumentException("WebSocket authentication required");
         }
-        UserEntity user = userRepository.findById(claims.getSubject()).orElse(null);
-        if (user == null) {
+        return currentUser(claims.getSubject());
+    }
+
+    private static String sessionToken(StompHeaderAccessor accessor) {
+        String header = firstHeader(accessor, "Authorization");
+        if (header == null || header.isBlank()) {
+            header = firstHeader(accessor, "authorization");
+        }
+        String token = firstHeader(accessor, "token");
+        if (header != null && header.startsWith("Bearer ")) {
+            token = header.substring(7).trim();
+        }
+        return token;
+    }
+
+    private UserEntity currentUser(String id) {
+        UserEntity user = userRepository.findById(id).orElse(null);
+        if (user == null || user.getAccountStatus() != AccountStatus.ACTIVE || !user.isEmailVerified()) {
             throw new IllegalArgumentException("WebSocket authentication required");
         }
         return user;
     }
 
     private void authorizeSubscribe(StompHeaderAccessor accessor) {
-        Principal principal = accessor.getUser();
+        authorizeDestination(accessor.getUser(), accessor.getDestination());
+    }
+
+    private void authorizeDestination(Principal principal, String destination) {
         if (!(principal instanceof UsernamePasswordAuthenticationToken auth)
-                || !(auth.getPrincipal() instanceof UserEntity user)) {
+                || !(auth.getPrincipal() instanceof UserEntity connectedUser)
+                || !(auth.getDetails() instanceof java.util.Date expires) || !expires.after(new java.util.Date())) {
             throw new IllegalArgumentException("WebSocket authentication required");
         }
-        String destination = accessor.getDestination();
+        UserEntity user = currentUser(connectedUser.getId());
         if (destination == null) {
             throw new IllegalArgumentException("Invalid subscription");
         }
@@ -115,6 +143,20 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         }
         if (!user.getId().equals(service.getProject().getOwnerId())) {
             throw new IllegalArgumentException("Invalid subscription");
+        }
+    }
+
+    /** Recheck existing subscriptions as well: suspension, expiry and role changes take effect on delivery. */
+    public Message<?> guardOutbound(Message<?> message) {
+        SimpMessageHeaderAccessor accessor = SimpMessageHeaderAccessor.wrap(message);
+        if (accessor.getMessageType() != SimpMessageType.MESSAGE) return message;
+        // The simple broker copies the publisher's headers, not the subscriber's user: resolve it by session.
+        Principal subscriber = accessor.getSessionId() != null ? sessions.get(accessor.getSessionId()) : null;
+        try {
+            authorizeDestination(subscriber, accessor.getDestination());
+            return message;
+        } catch (RuntimeException denied) {
+            return null;
         }
     }
 

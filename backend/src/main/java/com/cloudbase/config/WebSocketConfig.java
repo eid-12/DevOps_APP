@@ -31,6 +31,17 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     }
 
     @Override
+    public void configureClientOutboundChannel(ChannelRegistration registration) {
+        registration.interceptors(new org.springframework.messaging.support.ChannelInterceptor() {
+            @Override
+            public org.springframework.messaging.Message<?> preSend(
+                    org.springframework.messaging.Message<?> message, org.springframework.messaging.MessageChannel channel) {
+                return stompAuthChannelInterceptor.guardOutbound(message);
+            }
+        });
+    }
+
+    @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws")
                 .setAllowedOrigins(webConfig.allowedOrigins().toArray(String[]::new))

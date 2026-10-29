@@ -106,6 +106,9 @@ public class AuthServiceImpl implements AuthService {
         if (user.getAccountStatus() == AccountStatus.SUSPENDED) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account has been suspended. Contact an administrator.");
         }
+        if (user.getAccountStatus() != AccountStatus.ACTIVE) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account is not active. Contact an administrator.");
+        }
 
         String token = jwtService.generateToken(user.getId(), user.getRole().name());
         var exp = jwtService.getExpiration(token);
