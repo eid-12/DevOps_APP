@@ -1,7 +1,7 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { DropdownModule } from 'primeng/dropdown';
+import { SelectModule } from 'primeng/select';
 import { TagModule } from 'primeng/tag';
 import { ProjectEnvironment } from '../core/models';
 
@@ -11,15 +11,15 @@ interface EnvOption {
   short: string;
   hint: string;
   icon: string;
-  severity: 'success' | 'warning' | 'info' | 'danger' | 'secondary' | 'contrast';
+  severity: 'success' | 'warn' | 'info' | 'danger' | 'secondary' | 'contrast';
 }
 
 @Component({
   selector: 'app-environment-select',
   standalone: true,
-  imports: [CommonModule, FormsModule, DropdownModule, TagModule],
+  imports: [CommonModule, FormsModule, SelectModule, TagModule],
   template: `
-    <p-dropdown
+    <p-select
       [options]="options"
       [ngModel]="value"
       (ngModelChange)="onChange($event)"
@@ -58,7 +58,7 @@ interface EnvOption {
           <p-tag [value]="item.short" [severity]="item.severity" styleClass="cb-env-tag" />
         </div>
       </ng-template>
-    </p-dropdown>
+    </p-select>
   `
 })
 export class EnvironmentSelectComponent {
@@ -82,7 +82,7 @@ export class EnvironmentSelectComponent {
       short: 'STG',
       hint: 'Pre-release / QA',
       icon: 'pi pi-server',
-      severity: 'warning'
+      severity: 'warn'
     },
     {
       label: 'Development',

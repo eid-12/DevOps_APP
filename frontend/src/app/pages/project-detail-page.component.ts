@@ -1212,10 +1212,10 @@ export class ProjectDetailPageComponent implements OnInit {
     } as Record<string, string>)[type ?? 'node'] ?? 'Node.js';
   }
 
-  envSeverity(env?: string): 'success' | 'info' | 'warning' | 'danger' | 'secondary' | 'contrast' {
+  envSeverity(env?: string): 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast' {
     switch (env) {
       case 'staging':
-        return 'warning';
+        return 'warn';
       case 'development':
         return 'info';
       case 'production':

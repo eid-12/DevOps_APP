@@ -63,7 +63,7 @@ const STRONG_PASSWORD_PATTERN = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#.
           <h3>GitHub</h3>
           <p-tag
             [value]="githubConnected() ? 'Connected' : 'Not connected'"
-            [severity]="githubConnected() ? 'success' : 'warning'"
+            [severity]="githubConnected() ? 'success' : 'warn'"
           />
         </div>
 

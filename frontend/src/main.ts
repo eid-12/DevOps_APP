@@ -1,4 +1,4 @@
-import { APP_INITIALIZER, ErrorHandler, importProvidersFrom } from '@angular/core';
+import { APP_INITIALIZER, ErrorHandler, importProvidersFrom, provideZoneChangeDetection } from '@angular/core';
 import { bootstrapApplication } from '@angular/platform-browser';
 import { provideAnimations } from '@angular/platform-browser/animations';
 import {
@@ -12,6 +12,9 @@ import {
 import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
 import { NgxSpinnerModule } from 'ngx-spinner';
 import { MessageService } from 'primeng/api';
+import { providePrimeNG } from 'primeng/config';
+import { definePreset } from '@primeuix/themes';
+import Lara from '@primeuix/themes/lara';
 import { AppComponent } from './app/app.component';
 import { routes } from './app/app.routes';
 import { authInterceptor } from './app/core/auth.interceptor';
@@ -22,9 +25,21 @@ import { CloudBaseTitleStrategy } from './app/core/title.strategy';
 import { AppErrorHandler } from './app/core/app-error.handler';
 import { initializeAuthSession } from './app/core/app-init';
 
+// Lara with indigo primary, always dark: the PrimeNG 18+ equivalent of the old lara-dark-indigo CSS theme.
+const LaraIndigo = definePreset(Lara, {
+  semantic: {
+    primary: {
+      50: '{indigo.50}', 100: '{indigo.100}', 200: '{indigo.200}', 300: '{indigo.300}', 400: '{indigo.400}',
+      500: '{indigo.500}', 600: '{indigo.600}', 700: '{indigo.700}', 800: '{indigo.800}', 900: '{indigo.900}', 950: '{indigo.950}'
+    }
+  }
+});
+
 bootstrapApplication(AppComponent, {
   providers: [
+    provideZoneChangeDetection({ eventCoalescing: true }),
     provideAnimations(),
+    providePrimeNG({ theme: { preset: LaraIndigo, options: { darkModeSelector: ':root' } } }),
     provideRouter(
       routes,
       withComponentInputBinding(),

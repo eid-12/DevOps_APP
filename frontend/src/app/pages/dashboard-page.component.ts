@@ -1117,10 +1117,10 @@ export class DashboardPageComponent implements OnInit {
     return ({ GITHUB: '⊙', DOCKER: '◈', DATABASE: '◉' } as Record<string, string>)[type] ?? '◌';
   }
 
-  envSeverity(env?: string): 'success' | 'info' | 'warning' | 'danger' | 'secondary' | 'contrast' {
+  envSeverity(env?: string): 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast' {
     switch (env) {
       case 'staging':
-        return 'warning';
+        return 'warn';
       case 'development':
         return 'info';
       case 'production':

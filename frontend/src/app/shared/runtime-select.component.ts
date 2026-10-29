@@ -1,7 +1,7 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { DropdownModule } from 'primeng/dropdown';
+import { SelectModule } from 'primeng/select';
 import { TagModule } from 'primeng/tag';
 import { ServiceRuntime } from '../core/models';
 
@@ -16,9 +16,9 @@ interface RuntimeOption {
 @Component({
   selector: 'app-runtime-select',
   standalone: true,
-  imports: [CommonModule, FormsModule, DropdownModule, TagModule],
+  imports: [CommonModule, FormsModule, SelectModule, TagModule],
   template: `
-    <p-dropdown
+    <p-select
       [options]="options"
       [ngModel]="value"
       (ngModelChange)="onChange($event)"
@@ -54,7 +54,7 @@ interface RuntimeOption {
           <p-tag [value]="item.short" severity="secondary" styleClass="cb-env-tag" />
         </div>
       </ng-template>
-    </p-dropdown>
+    </p-select>
   `
 })
 export class RuntimeSelectComponent {

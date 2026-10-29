@@ -1,7 +1,7 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { DropdownModule } from 'primeng/dropdown';
+import { SelectModule } from 'primeng/select';
 import { DOCKER_IMAGE_PRESETS } from './service-source.util';
 
 interface DockerPresetOption {
@@ -16,9 +16,9 @@ interface DockerPresetOption {
 @Component({
   selector: 'app-docker-preset-select',
   standalone: true,
-  imports: [CommonModule, FormsModule, DropdownModule],
+  imports: [CommonModule, FormsModule, SelectModule],
   template: `
-    <p-dropdown
+    <p-select
       [options]="options"
       [ngModel]="value"
       (ngModelChange)="onChange($event)"
@@ -51,7 +51,7 @@ interface DockerPresetOption {
           </div>
         </div>
       </ng-template>
-    </p-dropdown>
+    </p-select>
   `
 })
 export class DockerPresetSelectComponent {

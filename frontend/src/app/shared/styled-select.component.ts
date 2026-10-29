@@ -1,7 +1,7 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { DropdownModule } from 'primeng/dropdown';
+import { SelectModule } from 'primeng/select';
 
 export interface StyledSelectOption {
   label: string;
@@ -13,9 +13,9 @@ export interface StyledSelectOption {
 @Component({
   selector: 'app-styled-select',
   standalone: true,
-  imports: [CommonModule, FormsModule, DropdownModule],
+  imports: [CommonModule, FormsModule, SelectModule],
   template: `
-    <p-dropdown
+    <p-select
       [options]="options"
       [ngModel]="value"
       (ngModelChange)="onChange($event)"
@@ -51,7 +51,7 @@ export interface StyledSelectOption {
           </div>
         </div>
       </ng-template>
-    </p-dropdown>
+    </p-select>
   `
 })
 export class StyledSelectComponent {

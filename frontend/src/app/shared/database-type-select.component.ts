@@ -1,7 +1,7 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { DropdownModule } from 'primeng/dropdown';
+import { SelectModule } from 'primeng/select';
 import { TagModule } from 'primeng/tag';
 import { DatabaseType } from '../core/models';
 import { DB_PRESETS } from './service-source.util';
@@ -12,15 +12,15 @@ interface DbOption {
   hint: string;
   port: number;
   icon: string;
-  severity: 'success' | 'info' | 'warning' | 'danger' | 'secondary' | 'contrast';
+  severity: 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 }
 
 @Component({
   selector: 'app-database-type-select',
   standalone: true,
-  imports: [CommonModule, FormsModule, DropdownModule, TagModule],
+  imports: [CommonModule, FormsModule, SelectModule, TagModule],
   template: `
-    <p-dropdown
+    <p-select
       [options]="options"
       [ngModel]="value"
       (ngModelChange)="onChange($event)"
@@ -56,7 +56,7 @@ interface DbOption {
           <p-tag [value]="':' + item.port" [severity]="item.severity" styleClass="cb-env-tag" />
         </div>
       </ng-template>
-    </p-dropdown>
+    </p-select>
   `
 })
 export class DatabaseTypeSelectComponent {
@@ -72,7 +72,7 @@ export class DatabaseTypeSelectComponent {
       hint: p.hint,
       port: p.port,
       icon: key === 'REDIS' ? 'pi pi-bolt' : key === 'MONGODB' ? 'pi pi-database' : 'pi pi-server',
-      severity: key === 'POSTGRESQL' ? 'info' : key === 'MYSQL' ? 'warning' : key === 'REDIS' ? 'danger' : 'success'
+      severity: key === 'POSTGRESQL' ? 'info' : key === 'MYSQL' ? 'warn' : key === 'REDIS' ? 'danger' : 'success'
     };
   });
 

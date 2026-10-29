@@ -2224,8 +2224,8 @@
 }
 
 /* Environment / runtime PrimeNG dropdown */
-.cb-env-dropdown.p-dropdown,
-.p-dropdown.cb-env-dropdown {
+.cb-env-dropdown.p-select,
+.p-select.cb-env-dropdown {
   width: 100%;
   background: rgba(15, 23, 42, 0.92);
   border: 1px solid rgba(148, 163, 184, 0.22);
@@ -2243,20 +2243,20 @@
     box-shadow: 0 0 0 3px rgba(107, 154, 196, 0.18);
   }
 
-  .p-dropdown-label {
+  .p-select-label {
     padding: 0.72rem 0.9rem;
     color: #d6dbe3;
     font-weight: 500;
   }
 
-  .p-dropdown-trigger {
+  .p-select-dropdown {
     color: #94a3b8;
     width: 2.6rem;
   }
 }
 
-.cb-env-panel.p-dropdown-panel,
-.p-dropdown-panel.cb-env-panel {
+.cb-env-panel.p-select-overlay,
+.p-select-overlay.cb-env-panel {
   background: #0f172a;
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 14px;
@@ -2264,11 +2264,11 @@
   margin-top: 6px;
   overflow: hidden;
 
-  .p-dropdown-items {
+  .p-select-list {
     padding: 6px;
   }
 
-  .p-dropdown-item {
+  .p-select-option {
     border-radius: 10px;
     margin: 2px 0;
     padding: 0.7rem 0.75rem;
@@ -2328,14 +2328,14 @@
   padding: 0.12rem 0.5rem;
 }
 
-.cb-repo-panel.p-dropdown-panel {
+.cb-repo-panel.p-select-overlay {
   min-width: min(420px, 92vw);
 
-  .p-dropdown-filter-container {
+  .p-select-header {
     padding: 0.55rem 0.65rem 0.35rem;
   }
 
-  .p-dropdown-filter {
+  .p-select-filter {
     background: rgba(15, 23, 42, 0.95);
     border: 1px solid rgba(148, 163, 184, 0.22);
     border-radius: 10px;
@@ -2343,15 +2343,15 @@
     padding: 0.55rem 0.7rem;
   }
 
-  .p-dropdown-items-wrapper {
+  .p-select-list-container {
     max-height: 280px;
   }
 }
 
-.cb-select-compact.p-dropdown {
+.cb-select-compact.p-select {
   min-width: 168px;
 
-  .p-dropdown-label {
+  .p-select-label {
     padding: 0.45rem 0.7rem;
     font-size: 0.85rem;
   }
@@ -2385,7 +2385,7 @@
   &[data-tone='other'] { background: #cbd5e1; color: #334155; }
 }
 
-.cb-runtime-panel.p-dropdown-panel {
+.cb-runtime-panel.p-select-overlay {
   min-width: min(360px, 92vw);
 }
 

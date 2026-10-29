@@ -1,16 +1,16 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { DropdownModule } from 'primeng/dropdown';
+import { SelectModule } from 'primeng/select';
 import { TagModule } from 'primeng/tag';
 import { GitHubRepo } from '../core/models';
 
 @Component({
   selector: 'app-github-repo-select',
   standalone: true,
-  imports: [CommonModule, FormsModule, DropdownModule, TagModule],
+  imports: [CommonModule, FormsModule, SelectModule, TagModule],
   template: `
-    <p-dropdown
+    <p-select
       [options]="repos"
       [ngModel]="value"
       (ngModelChange)="onChange($event)"
@@ -35,7 +35,7 @@ import { GitHubRepo } from '../core/models';
             <i class="pi pi-github" aria-hidden="true"></i>
             <span class="cb-env-selected-label text-overflow-ellipsis overflow-hidden white-space-nowrap">{{ r.fullName }}</span>
             @if (r.isPrivate) {
-              <p-tag value="Private" severity="warning" styleClass="cb-env-tag" />
+              <p-tag value="Private" severity="warn" styleClass="cb-env-tag" />
             }
           </div>
         }
@@ -52,13 +52,13 @@ import { GitHubRepo } from '../core/models';
             </div>
           </div>
           @if (r.isPrivate) {
-            <p-tag value="Private" icon="pi pi-lock" severity="warning" styleClass="cb-env-tag" />
+            <p-tag value="Private" icon="pi pi-lock" severity="warn" styleClass="cb-env-tag" />
           } @else {
             <p-tag value="Public" severity="success" styleClass="cb-env-tag" />
           }
         </div>
       </ng-template>
-    </p-dropdown>
+    </p-select>
   `
 })
 export class GithubRepoSelectComponent {
