@@ -156,8 +156,18 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             authorizeDestination(subscriber, accessor.getDestination());
             return message;
         } catch (RuntimeException denied) {
-            return null;
+            // Replace the event with an ERROR frame: Spring closes the WebSocket after sending one.
+            if (accessor.getSessionId() != null) sessions.remove(accessor.getSessionId());
+            StompHeaderAccessor error = StompHeaderAccessor.create(StompCommand.ERROR);
+            error.setSessionId(accessor.getSessionId());
+            error.setMessage("Session is no longer authorized");
+            return org.springframework.messaging.support.MessageBuilder.createMessage(new byte[0], error.getMessageHeaders());
         }
+    }
+
+    /** Sessions currently holding a CONNECT authentication (for leak checks). */
+    int connectedSessionCount() {
+        return sessions.size();
     }
 
     private static String firstHeader(StompHeaderAccessor accessor, String name) {

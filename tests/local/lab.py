@@ -69,7 +69,8 @@ def start(args):
     if not (frontend / 'index.html').exists():
         raise RuntimeError('Frontend build missing')
     prefix = 'cb-local-' + uuid.uuid4().hex[:8]
-    s = {'prefix': prefix, 'containers': [], 'network': prefix, 'frontend': str(frontend)}
+    s = {'prefix': prefix, 'containers': [], 'network': prefix, 'frontend': str(frontend),
+         'jwtExpirationMs': args.jwt_expiration_ms or 7200000}
     save(s)
     try:
         docker('network', 'create', '--internal', '--label', 'cloudbase.local-test=' + prefix, prefix)
@@ -108,10 +109,14 @@ def start(args):
             'CLOUDBASE_WATCHTOWER_ENABLED': 'false', 'CLOUDBASE_VOLUME_ROOT': '/tmp/cloudbase-test',
             'CLOUDBASE_CORS_ALLOWED_ORIGINS': 'http://127.0.0.1',
         }
+        if args.jwt_expiration_ms:
+            env['JWT_EXPIRATION_MS'] = str(int(args.jwt_expiration_ms))
         envargs = [v for k, val in env.items() for v in ('-e', k + '=' + val)]
         docker('run', *common, '--name', name, '--network-alias', 'api', '--memory', '640m', '--cpus', '1',
                '--mount', f'type=bind,source={jar},target=/app.jar,readonly',
-               *envargs, '--entrypoint', 'java', 'eclipse-temurin:17-jre-alpine',
+               *envargs, '--entrypoint', 'java',
+               # The JDK image adds jcmd, used by ws_verify.mjs to count retained session objects.
+               'eclipse-temurin:17-jdk-alpine' if args.jdk else 'eclipse-temurin:17-jre-alpine',
                '-Xmx384m', '-jar', '/app.jar')
         gateway = prefix + '-gateway'
         s['containers'].append(gateway)
@@ -159,5 +164,7 @@ if __name__ == '__main__':
     parser.add_argument('command', choices=['start', 'stop'])
     parser.add_argument('--jar')
     parser.add_argument('--frontend')
+    parser.add_argument('--jwt-expiration-ms', type=int)
+    parser.add_argument('--jdk', action='store_true')
     args = parser.parse_args()
     {'start': lambda: start(args), 'stop': stop}[args.command]()

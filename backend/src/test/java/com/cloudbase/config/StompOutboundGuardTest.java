@@ -21,8 +21,8 @@ import org.springframework.messaging.support.MessageBuilder;
 import java.util.Date;
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -70,20 +70,25 @@ class StompOutboundGuardTest {
     @Test
     void deliversToTheConnectedOwner() {
         stomp(StompCommand.CONNECT);
-        assertNotNull(interceptor.guardOutbound(brokerDelivery()));
+        Message<?> delivery = brokerDelivery();
+        assertSame(delivery, interceptor.guardOutbound(delivery));
     }
 
     @Test
-    void stopsDeliveringAfterSuspension() {
+    void suspensionReplacesTheEventWithAnErrorThatClosesTheSession() {
         stomp(StompCommand.CONNECT);
         owner.setAccountStatus(AccountStatus.SUSPENDED);
-        assertNull(interceptor.guardOutbound(brokerDelivery()));
+        Message<?> out = interceptor.guardOutbound(brokerDelivery());
+        assertEquals(StompCommand.ERROR, StompHeaderAccessor.wrap(out).getCommand());
+        assertEquals(0, interceptor.connectedSessionCount());
     }
 
     @Test
     void forgetsTheSessionOnDisconnect() {
         stomp(StompCommand.CONNECT);
+        assertEquals(1, interceptor.connectedSessionCount());
         stomp(StompCommand.DISCONNECT);
-        assertNull(interceptor.guardOutbound(brokerDelivery()));
+        assertEquals(0, interceptor.connectedSessionCount());
+        assertEquals(StompCommand.ERROR, StompHeaderAccessor.wrap(interceptor.guardOutbound(brokerDelivery())).getCommand());
     }
 }

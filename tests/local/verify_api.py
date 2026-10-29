@@ -37,6 +37,9 @@ for role in ['owner', 'other', 'browser']:
     call('POST', '/api/projects', {'name': 'blocked'}, registered['token'], expected=403)
     call('PATCH', '/api/admin/users/' + registered['user']['id'] + '/deployment-access', {'enabled': True}, at)
 ot, bt = users['owner']['token'], users['other']['token']
+admin_health = call('GET', '/actuator/health', token=at)
+check('admin health includes component details', 'components' in admin_health and 'db' in admin_health['components'])
+check('non-admin health hides component details', set(call('GET', '/actuator/health', token=ot)) == {'status'})
 call('GET', '/api/admin/users', token=ot, expected=403)
 call('PUT', '/api/admin/hosting-settings', {}, ot, expected=403)
 call('PATCH', '/api/admin/users/' + users['owner']['user']['id'] + '/role', {'role': 'ADMIN'}, ot, expected=403)
@@ -57,6 +60,19 @@ svc = call('POST', '/api/projects/' + pid + '/services', {
     'sourceDetails': {'repositoryUrl': 'https://github.com/local-qa/synthetic-app', 'branch': 'main', 'runtime': 'node'},
     'quota': {'memoryMb': 128, 'cpuMilli': 100, 'storageGb': 0}}, ot, 201)
 sid = svc['id']
+code, _ = request('POST', '/api/projects/' + pid + '/services', {'name': 'forged-image', 'sourceType': 'GITHUB',
+    'sourceDetails': {'repositoryUrl': 'https://github.com/local-qa/synthetic-app', 'branch': 'main', 'runtime': 'node',
+                      'imageName': 'ghcr.io/victim/private'}, 'quota': {'memoryMb': 128, 'cpuMilli': 100, 'storageGb': 0}}, ot)
+check('GitHub service cannot be created with a caller-chosen image', code == 400)
+for field in ['imageName', 'ciBootstrapped', 'ciWorkflowCreated', 'ciWebhookRegistered', 'ciMessage']:
+    code, _ = request('PUT', '/api/projects/services/' + sid, {'sourceDetails': {field: True if field.startswith('ci') and field != 'ciMessage' else 'x'}}, ot)
+    check('GitHub field ' + field + ' is rejected on update', code == 400)
+docker_svc = call('POST', '/api/projects/' + pid + '/services', {'name': 'local-docker', 'sourceType': 'DOCKER',
+    'sourceDetails': {'imageName': 'nginx', 'imageTag': 'alpine', 'containerPort': 80},
+    'quota': {'memoryMb': 64, 'cpuMilli': 100, 'storageGb': 0}}, ot, 201)
+call('PUT', '/api/projects/services/' + docker_svc['id'], {'sourceDetails': {'imageName': 'nginxdemos/hello', 'imageTag': 'latest'}}, ot)
+check('Docker services may still change their own image',
+      call('GET', '/api/projects/services/' + docker_svc['id'], token=ot)['sourceDetails']['imageName'] == 'nginxdemos/hello')
 for suffix in ['', '/logs', '/metrics', '/db-connection', '/deployments', '/vanity-subdomain']:
     call('GET', '/api/projects/services/' + sid + suffix, token=bt, expected=403)
 call('PUT', '/api/projects/services/' + sid, {'name': 'stolen'}, bt, 403)
@@ -88,6 +104,8 @@ check('deactivated account cannot obtain fresh session', request('POST', '/api/a
 call('PATCH', '/api/admin/users/' + uid + '/account-status', {'accountStatus': 'ACTIVE'}, at)
 call('PATCH', '/api/admin/users/' + uid + '/account-status', {'accountStatus': 'SUSPENDED'}, at)
 call('GET', '/api/auth/me', token=bt, expected=401)
+check('suspended account cannot sign in', request('POST', '/api/auth/login', {'email': 'other@cloudbase.test', 'password': PASSWORD})[0] == 403)
+check('suspended account is refused on project APIs too', request('GET', '/api/projects', token=bt)[0] == 401)
 call('POST', '/api/auth/forgot-password', {'email': 'owner@cloudbase.test'}, expected=503)
 call('GET', '/api/auth/github/authorize', token=ot, expected=503)
 call('POST', '/api/auth/github/exchange', {'code': 'synthetic-never-valid'}, ot, 503)

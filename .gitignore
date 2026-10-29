@@ -31,3 +31,5 @@ frontend/src/environments/environment.ts
 
 # Scratch files
 test.txt
+
+tests/local/node_modules/
