@@ -16,6 +16,7 @@
 #   GITHUB_TOKEN, GITHUB_REPOSITORY   (used to refuse rolling back to an older commit)
 # Optional env:
 #   DEPLOY_TIMEOUT_SECONDS (default 300)
+#   DEPLOY_RECONCILE_SECONDS (default 900): how long to wait for an unreachable Portainer before reporting unknown state
 #   CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET (if Portainer is put behind Cloudflare Access)
 #
 # Never prints stack env values or credentials: Portainer stack responses contain the env, so they are
@@ -122,12 +123,31 @@ wait_healthy() {  # $1 = expected backend image, $2 = expected frontend image, $
       fi
     else
       ok_since=""
+      [[ "$(field "$be" 1)" == missing ]] && ! reachable && { log "waiting: portainer unreachable"; sleep 10; continue; }
       log "waiting: backend $(field "$be" 2) frontend $(field "$fe" 2) postgres $(field "$pg" 2)/$(field "$pg" 4)"
     fi
     sleep 10
   done
   return 1
 }
+
+reachable() { portainer -o /dev/null --max-time 20 "${PORTAINER_URL}/api/stacks/${PORTAINER_STACK_ID}" 2>/dev/null; }
+
+wait_reachable() {  # until Portainer answers again, at most RECONCILE_SECONDS
+  local deadline=$((SECONDS + RECONCILE))
+  until reachable; do
+    (( SECONDS < deadline )) || return 1
+    log "portainer unreachable; waiting to reconcile before any rollback"
+    sleep 10
+  done
+}
+
+unknown_state() {
+  fail "STATE UNKNOWN: Portainer unreachable for ${RECONCILE}s after the rollout of ${DEPLOY_SHA:0:7}; no blind rollback was attempted. \
+Check the running cloudbase-backend/frontend images before acting. New: ${BACKEND_IMAGE##*/} Previous: ${PREV_BACKEND##*/} / ${PREV_FRONTEND##*/}"
+}
+
+RECONCILE="${DEPLOY_RECONCILE_SECONDS:-900}"
 
 log "rolling out ${DEPLOY_SHA:0:7}"
 if update_stack "$WORK/next.yml" && wait_healthy "$BACKEND_IMAGE" "$FRONTEND_IMAGE" "$DEPLOY_SHA"; then
@@ -136,8 +156,30 @@ if update_stack "$WORK/next.yml" && wait_healthy "$BACKEND_IMAGE" "$FRONTEND_IMA
   exit 0
 fi
 
-echo "::error::rollout of ${DEPLOY_SHA:0:7} failed health checks within ${TIMEOUT}s; rolling back"
+# An unreachable control plane is not an unhealthy release: find out what is actually running first.
+echo "::error::rollout of ${DEPLOY_SHA:0:7} not confirmed healthy within ${TIMEOUT}s; reconciling live state"
+wait_reachable || unknown_state
+BE="$(container backend)"; FE="$(container frontend)"
+log "live: backend $(field "$BE" 1 | sed 's#.*/##') ($(field "$BE" 2)), frontend $(field "$FE" 1 | sed 's#.*/##') ($(field "$FE" 2))"
+
+if [[ "$(field "$BE" 1)" == "$BACKEND_IMAGE" && "$(field "$FE" 1)" == "$FRONTEND_IMAGE" ]] \
+   && wait_healthy "$BACKEND_IMAGE" "$FRONTEND_IMAGE" "$DEPLOY_SHA"; then
+  log "::notice::new images are running and healthy after the control plane recovered"
+  log "deployed ${DEPLOY_SHA}"
+  echo "skipped=false" >> "${GITHUB_OUTPUT:-/dev/null}"
+  exit 0
+fi
+
+if [[ "$(field "$BE" 1)" == "$PREV_BACKEND" && "$(field "$FE" 1)" == "$PREV_FRONTEND" ]]; then
+  # The rollout never reached the containers. Put the stack file back so it matches what runs.
+  if update_stack "$WORK/previous.yml" && wait_healthy "$PREV_BACKEND" "$PREV_FRONTEND" ""; then
+    fail "rollout did not apply; production is still on the previous images (${PREV_BACKEND##*/}) and healthy; stack file restored"
+  fi
+fi
+
+echo "::error::rolling back to the previous images"
 if update_stack "$WORK/previous.yml" && wait_healthy "$PREV_BACKEND" "$PREV_FRONTEND" ""; then
   fail "rolled back to previous images (${PREV_BACKEND##*/})"
 fi
-fail "ROLLBACK ALSO FAILED: restore manually with the previous images ${PREV_BACKEND} / ${PREV_FRONTEND}"
+reachable || unknown_state
+fail "ROLLBACK FAILED with Portainer reachable: restore manually with the previous images ${PREV_BACKEND} / ${PREV_FRONTEND}"

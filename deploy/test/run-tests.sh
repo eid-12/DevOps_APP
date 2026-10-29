@@ -20,7 +20,7 @@ start_mock() {  # mode compare
     kill "$MOCK_PID" 2>/dev/null || true
     wait "$MOCK_PID" 2>/dev/null || true
   fi
-  MODE="$1" COMPARE="$2" PORT="$PORT" node deploy/test/mock-portainer.js >/dev/null &
+  MODE="$1" COMPARE="$2" OUTAGE_SECONDS="${OUTAGE_SECONDS:-15}" PORT="$PORT" node deploy/test/mock-portainer.js >/dev/null &
   MOCK_PID=$!
   for _ in $(seq 1 50); do curl -s "http://127.0.0.1:${PORT}/_puts" >/dev/null && return; sleep 0.1; done
   echo "mock did not start"; exit 1
@@ -34,7 +34,7 @@ run_deploy() {  # timeout -> sets RC
   FRONTEND_IMAGE="minipcer/cloudbase-frontend:${NEW_SHA}@${FE_DIGEST}" \
   HEALTH_API_URL="http://127.0.0.1:${PORT}/health" HEALTH_WEB_URL="http://127.0.0.1:${PORT}/health/web" \
   GITHUB_TOKEN=test GITHUB_REPOSITORY=o/r GITHUB_API_URL="http://127.0.0.1:${PORT}/github" \
-  DEPLOY_TIMEOUT_SECONDS="$1" GITHUB_OUTPUT=/dev/null \
+  DEPLOY_TIMEOUT_SECONDS="$1" DEPLOY_RECONCILE_SECONDS="${RECONCILE:-60}" GITHUB_OUTPUT=/dev/null \
     bash deploy/portainer-deploy.sh >"$OUT" 2>&1
   RC=$?
   set -e
@@ -82,6 +82,26 @@ check "exits non-zero without updating" '[[ $RC -ne 0 && "$(puts | jq length)" =
 echo "6. wrong API key fails before any change"
 start_mock ok ahead; API_KEY=wrong run_deploy 45
 check "exits non-zero without updating" '[[ $RC -ne 0 && "$(puts | jq length)" == 0 ]]'
+
+echo "7. tunnel outage: rollout never reached the containers -> reconcile, no blind rollback"
+start_mock outage ahead; run_deploy 35
+check "exits non-zero" '[[ $RC -ne 0 ]]'
+check "reports production unchanged" 'grep -q "rollout did not apply; production is still on the previous images" "$OUT"'
+check "stack file restored to the previous images" '[[ "$(puts | jq -r ".[-1].backend")" == cloudbase-backend:$(printf "a%.0s" {1..40})@sha256:* ]]'
+check "says portainer was unreachable" 'grep -q "portainer unreachable" "$OUT"'
+common_checks
+
+echo "8. outage outlasts the health window but the new release did start -> verified, no rollback"
+OUTAGE_SECONDS=45 start_mock outage-applied ahead; run_deploy 35
+check "exits 0" '[[ $RC -eq 0 ]]'
+check "exactly one update" '[[ "$(puts | jq length)" == 1 ]]'
+check "notes recovery" 'grep -q "after the control plane recovered" "$OUT"'
+
+echo "9. portainer never comes back -> unknown state, no blind rollback"
+start_mock outage-forever ahead; RECONCILE=20 run_deploy 35
+check "exits non-zero" '[[ $RC -ne 0 ]]'
+check "reports unknown state" 'grep -q "STATE UNKNOWN" "$OUT"'
+check "no rollback update was sent" '[[ "$(curl -s "http://127.0.0.1:${PORT}/_puts" | jq length)" == 1 ]]'
 
 if (( failures )); then echo "${failures} check(s) failed"; exit 1; fi
 echo "all deploy script scenarios passed"

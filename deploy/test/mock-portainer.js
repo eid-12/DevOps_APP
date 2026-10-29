@@ -2,6 +2,9 @@
 // MODE=ok         new images come up healthy
 // MODE=broken     new backend never passes the HTTP health checks -> script must roll back
 // MODE=crashloop  new backend keeps restarting while "running" -> script must roll back
+// MODE=outage          after the rollout PUT, /api answers 530 for OUTAGE_SECONDS and the rollout never reaches the containers
+// MODE=outage-applied  same outage, but the new containers did start
+// MODE=outage-forever  /api answers 530 for good after the rollout PUT
 // COMPARE=ahead|behind|identical|diverged  GitHub compare status of deployed...new
 // GET /_puts returns what each stack update sent (without the env values).
 const http = require('http');
@@ -27,7 +30,11 @@ let file = [
 const env = [{ name: 'DB_PASS', value: 'SECRET-DB-VALUE' }, { name: 'JWT_SECRET', value: 'SECRET-JWT-VALUE' }];
 const puts = [];
 let restarts = 0;
-const img = name => (file.match(new RegExp(`image:\\s*(\\S*cloudbase-${name}\\S*)`)) || [])[1];
+let outageUntil = 0;
+let running = null; // images the containers actually run; null = whatever the stack file says
+const OUTAGE_MS = Number(process.env.OUTAGE_SECONDS || 15) * 1000;
+const fileImg = name => (file.match(new RegExp(`image:\\s*(\\S*cloudbase-${name}\\S*)`)) || [])[1];
+const img = name => (running ? running[name] : fileImg(name));
 const rev = () => (img('backend').match(/:([0-9a-f]{40})@/) || [])[1];
 const newDeployed = () => !img('backend').includes(OLD_SHA);
 
@@ -38,6 +45,7 @@ http.createServer((req, res) => {
     const u = req.url;
     if (u.startsWith('/github/')) return send(200, { status: process.env.COMPARE || 'ahead' });
     if (u === '/_puts') return send(200, puts);
+    if (u.startsWith('/api/') && Date.now() < outageUntil) { res.writeHead(530); return res.end('error code: 1033'); }
     if (u.startsWith('/api/') && req.headers['x-api-key'] !== 'test-key') return send(401, { message: 'bad key' });
     if (u === '/api/stacks/44' && req.method === 'GET') return send(200, { Id: 44, Name: 'cloudbase-platform', EndpointId: 3, Env: env });
     if (u === '/api/stacks/44/file') return send(200, { StackFileContent: file });
@@ -50,7 +58,13 @@ http.createServer((req, res) => {
         volumesKept: b.StackFileContent.includes('data:/var/lib/postgresql/data'),
         postgresUntouched: b.StackFileContent.includes('image: postgres:16-alpine')
       });
+      const first = puts.length === 1;
+      if (first && MODE.startsWith('outage')) {
+        outageUntil = MODE === 'outage-forever' ? Infinity : Date.now() + OUTAGE_MS;
+        if (MODE === 'outage') running = { backend: fileImg('backend'), frontend: fileImg('frontend') };
+      }
       file = b.StackFileContent;
+      if (!first) running = null;
       restarts = 0;
       return send(200, { Id: 44 });
     }
