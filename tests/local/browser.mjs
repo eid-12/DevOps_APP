@@ -171,6 +171,7 @@ try {
   // 6. admin suspends the user in the admin UI; the user's open session ends
   step = 'admin suspend';
   const admin = await newPage('admin');
+  admin.on('dialog', d => d.accept()); // Suspend asks for confirmation
   await signIn(admin, adminEmail);
   await admin.goto(WEB + '/admin');
   await admin.getByText('User Governance', { exact: true }).click();

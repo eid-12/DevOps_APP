@@ -888,6 +888,7 @@ export class AdminPageComponent implements OnInit {
   }
 
   suspendAccount(user: UserAccount) {
+    if (!window.confirm(`Suspend ${user.name}? Their sessions end and their running services are stopped.`)) return;
     this.adminService.setAccountStatus(user.id, 'SUSPENDED').subscribe({
       next: () => { this.setGovernanceMessage(`${user.name} suspended.`); this.loadAll(); },
       error: e => this.setGovernanceMessage(e?.error?.message ?? 'Failed.', 'error')
@@ -906,6 +907,8 @@ export class AdminPageComponent implements OnInit {
   }
 
   toggleRole(user: UserAccount) {
+    const next = user.role === 'ADMIN' ? 'ordinary user' : 'administrator';
+    if (!window.confirm(`Make ${user.name} an ${next}?`)) return;
     const nextRole = user.role === 'ADMIN' ? 'USER' : 'ADMIN';
     this.adminService.updateRole(user.id, nextRole).subscribe({
       next: () => { this.setGovernanceMessage(`${user.name} role → ${nextRole}.`); this.loadAll(); },

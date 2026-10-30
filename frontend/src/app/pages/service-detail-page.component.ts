@@ -55,6 +55,7 @@ interface MetricSample {
   memPct: number;
 }
 
+const DEPLOYMENTS_PAGE_SIZE = 50;
 const ROLLBACK_WATCH_ATTEMPTS = 100; // 3 s apart: five minutes
 
 @Component({
@@ -386,6 +387,9 @@ const ROLLBACK_WATCH_ATTEMPTS = 100; // 3 s apart: five minutes
                 </article>
               }
             </div>
+            @if (canLoadOlder()) {
+              <button type="button" class="btn btn-ghost btn-sm u-mt-10" (click)="loadOlderDeployments()">Load older deployments</button>
+            }
           }
         </section>
       }
@@ -1234,6 +1238,9 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
   private termHistory: string[] = [];
   private liveTimer: ReturnType<typeof setInterval> | null = null;
   private rollbackWatchTimer: ReturnType<typeof setTimeout> | null = null;
+  private olderDeployments: Deployment[] = [];
+  private nextDeploymentPage = 1;
+  readonly canLoadOlder = signal(false);
   private shouldScrollTerm = false;
   private shouldScrollLogs = false;
   projectId = '';
@@ -1431,7 +1438,7 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
   private watchRollback(deploymentId: string, attempt = 0) {
     this.projectService.getDeployments(this.serviceId).subscribe({
       next: deps => {
-        this.deployments.set(deps);
+        this.showDeployments(deps);
         const status = deps.find(d => d.id === deploymentId)?.status;
         if (status === 'SUCCESS' || status === 'FAILED' || status === 'CANCELLED') {
           this.projectService.getService(this.projectId, this.serviceId).subscribe({
@@ -1460,8 +1467,30 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
 
   loadDeployments() {
     this.projectService.getDeployments(this.serviceId).subscribe({
-      next: deps => this.deployments.set(deps),
-      error: () => this.deployments.set([])
+      next: deps => this.showDeployments(deps),
+      error: () => this.showDeployments([])
+    });
+  }
+
+  /** Polling refreshes the newest page; pages opened with "Load older" stay in the list. */
+  private showDeployments(latest: Deployment[]) {
+    const seen = new Set(latest.map(d => d.id));
+    this.deployments.set([...latest, ...this.olderDeployments.filter(d => !seen.has(d.id))]);
+    if (!this.olderDeployments.length) this.canLoadOlder.set(latest.length === DEPLOYMENTS_PAGE_SIZE);
+  }
+
+  loadOlderDeployments() {
+    this.projectService.getDeployments(this.serviceId, this.nextDeploymentPage).subscribe({
+      next: page => {
+        this.nextDeploymentPage++;
+        this.olderDeployments = [...this.olderDeployments, ...page];
+        this.canLoadOlder.set(page.length === DEPLOYMENTS_PAGE_SIZE);
+        this.deployments.update(list => {
+          const seen = new Set(list.map(d => d.id));
+          return [...list, ...page.filter(d => !seen.has(d.id))];
+        });
+      },
+      error: () => this.message.set('Could not load older deployments.')
     });
   }
 

@@ -41,7 +41,7 @@ class Stomp {
         const [command, ...lines] = head.split('\n');
         if (!command) continue; // heart-beat
         const headers = Object.fromEntries(lines.map(l => [l.slice(0, l.indexOf(':')), l.slice(l.indexOf(':') + 1)]));
-        this.frames.push({ command, headers, body: rest.join('\n\n').replace(/\0$/, '') });
+        this.frames.push({ command, headers, body: rest.join('\n\n').replace(/\0$/, ''), at: Date.now() });
       }
       this.wake();
     }
@@ -148,15 +148,17 @@ check('reactivated owner receives events again on a new session', !!(await resto
 restored.disconnect();
 
 // 4. token expiry and reconnect (logout is client-side: a JWT stays valid until it expires)
-await settle(svc.id, ownerToken);
+// No settle here on purpose: events of the previous deploy may arrive before expiry, which is legitimate.
 ownerToken = await login(users['ws-owner'].email);
-const expiresAt = Date.now() + lab.jwtExpirationMs;
+const tokenExp = JSON.parse(Buffer.from(ownerToken.split('.')[1], 'base64url')).exp * 1000; // the server's expiry
+const expiresAt = tokenExp;
 const expiring = await Stomp.open(ownerToken);
 expiring.subscribe(topic);
 await sleep(Math.max(0, expiresAt - Date.now()) + 2000);
-const beforeExpiry = expiring.messages(topic).length;
+const pre = expiring.messages(topic);
+check(`events before expiry were delivered before it (${pre.length})`, pre.every(f => f.at < tokenExp));
 await deploy(svc.id, await login('admin@cloudbase.test')); // the earlier admin token expired as well
-check('expired-token session gets ERROR instead of the event', !!(await expiring.waitFor(f => f.command === 'ERROR', 60000)) && expiring.messages(topic).length === beforeExpiry);
+check('expired-token session gets ERROR instead of the event', !!(await expiring.waitFor(f => f.command === 'ERROR', 60000)) && expiring.messages(topic).every(f => f.at < tokenExp));
 const expiredRetry = await Stomp.open(ownerToken);
 check('reconnect with the expired token is refused', expiredRetry.frames.some(f => f.command === 'ERROR'));
 ownerToken = await login(users['ws-owner'].email);

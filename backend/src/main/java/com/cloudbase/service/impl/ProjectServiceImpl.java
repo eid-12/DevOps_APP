@@ -136,7 +136,7 @@ public class ProjectServiceImpl implements ProjectService {
         planQuotaService.assertCanCreateProject(user);
 
         lockOwner(user.getId());
-        Optional<ProjectEntity> replay = findReplay(user.getId(), idempotencyKey, "project", request.name(),
+        Optional<ProjectEntity> replay = findReplay(user.getId(), idempotencyKey, "project", request.toString(),
                 projectRepository::findById);
         if (replay.isPresent()) {
             return replay.get();
@@ -152,7 +152,7 @@ public class ProjectServiceImpl implements ProjectService {
                 .build();
 
         ProjectEntity saved = projectRepository.save(project);
-        rememberKey(user.getId(), idempotencyKey, "project", request.name(), saved.getId());
+        rememberKey(user.getId(), idempotencyKey, "project", request.toString(), saved.getId());
         return saved;
     }
 
@@ -187,7 +187,12 @@ public class ProjectServiceImpl implements ProjectService {
     }
 
     private static String requestHash(String input) {
-        return org.springframework.util.DigestUtils.md5DigestAsHex(String.valueOf(input).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        try {
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(String.valueOf(input).getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     @Override
@@ -229,7 +234,7 @@ public class ProjectServiceImpl implements ProjectService {
 
         lockOwner(project.getOwnerId());
         Optional<ServiceEntity> replay = findReplay(project.getOwnerId(), idempotencyKey, "service",
-                projectId + "/" + request.name(), serviceRepository::findById);
+                projectId + "/" + request, serviceRepository::findById);
         if (replay.isPresent()) {
             return replay.get();
         }
@@ -303,7 +308,7 @@ public class ProjectServiceImpl implements ProjectService {
         }
 
         ServiceEntity saved = serviceRepository.save(service);
-        rememberKey(project.getOwnerId(), idempotencyKey, "service", projectId + "/" + request.name(), saved.getId());
+        rememberKey(project.getOwnerId(), idempotencyKey, "service", projectId + "/" + request, saved.getId());
 
         // B2: inject Dockerfile + Actions workflow + webhook for GitHub services
         if (saved.getSourceType() == com.cloudbase.model.ServiceSourceType.GITHUB) {
@@ -526,9 +531,10 @@ public class ProjectServiceImpl implements ProjectService {
     }
 
     @Override
-    public List<DeploymentEntity> getDeployments(String serviceId, UserEntity user) {
+    public List<DeploymentEntity> getDeployments(String serviceId, UserEntity user, int page, int size) {
         getService(serviceId, user);
-        return deploymentRepository.findTop50ByServiceIdOrderByStartedAtDesc(serviceId);
+        return deploymentRepository.findByServiceIdOrderByStartedAtDesc(serviceId, org.springframework.data.domain.PageRequest.of(
+                Math.max(0, page), Math.min(100, Math.max(1, size))));
     }
 
     @Override

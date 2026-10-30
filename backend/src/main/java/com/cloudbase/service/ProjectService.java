@@ -33,7 +33,7 @@ public interface ProjectService {
 
     DeploymentEntity deploy(String serviceId, UserEntity user, DeployServiceRequest request);
     DeploymentEntity rollback(String serviceId, String deploymentId, UserEntity user);
-    List<DeploymentEntity> getDeployments(String serviceId, UserEntity user);
+    List<DeploymentEntity> getDeployments(String serviceId, UserEntity user, int page, int size);
 
     ServiceEntity updateEnvVars(String serviceId, UserEntity user, UpdateEnvVarsRequest request);
     /** @deprecated Platform subdomains are opaque; use {@link #setCustomDomain}. */

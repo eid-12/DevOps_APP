@@ -237,9 +237,11 @@ public class ProjectController {
     @GetMapping("/services/{serviceId}/deployments")
     public List<DeploymentEntity> getDeployments(
             @AuthenticationPrincipal UserEntity user,
-            @PathVariable String serviceId
+            @PathVariable String serviceId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size
     ) {
-        return projectService.getDeployments(serviceId, user);
+        return projectService.getDeployments(serviceId, user, page, size);
     }
 
     @PostMapping("/services/{serviceId}/deployments/{deploymentId}/cancel")

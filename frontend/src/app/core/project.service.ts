@@ -153,8 +153,8 @@ export class ProjectService {
     return this.api.deleteSharedVariable(projectId, variableId);
   }
 
-  getDeployments(serviceId: string): Observable<Deployment[]> {
-    return this.api.getDeployments(serviceId);
+  getDeployments(serviceId: string, page = 0): Observable<Deployment[]> {
+    return this.api.getDeployments(serviceId, page);
   }
 
   getLogs(serviceId: string): Observable<ServiceLogLine[]> {

@@ -67,8 +67,17 @@ email = 'rollback-' + uuid.uuid4().hex[:6] + '@cloudbase.test'
 code, reg = request('POST', '/api/auth/register', {'name': 'Rollback QA', 'email': email, 'password': PASSWORD})
 assert code == 200, reg
 t1 = request('POST', '/api/auth/login', {'email': email, 'password': PASSWORD})[1]['token']
+admin_id = request('POST', '/api/auth/login', {'email': ADMIN, 'password': PASSWORD})[1]
+request('PATCH', '/api/admin/users/' + reg['user']['id'] + '/deployment-access', {'enabled': True}, admin_id['token'])
 changed = request('POST', '/api/auth/change-password', {'currentPassword': PASSWORD, 'newPassword': 'Rolled-Qa!2026'}, t1)[1]
 t2 = changed['token']
+import urllib.request as _u
+def create_project(token, key):
+    req = _u.Request(state()['api'] + '/api/projects', method='POST', data=json.dumps({'name': 'survives-rollback'}).encode(),
+                     headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token, 'Idempotency-Key': key})
+    return json.loads(_u.urlopen(req, timeout=30).read())['id']
+idem = uuid.uuid4().hex
+kept = create_project(t2, idem)
 check('new release: token from before the password change is revoked', request('GET', '/api/auth/me', token=t1)[0] == 401)
 
 check('old release starts on the migrated database (V19 present)', restart_api(args.old_jar))
@@ -85,6 +94,8 @@ if args.expect_safe:
     check('roll forward: new release starts again', restart_api(args.new_jar))
     check('roll forward: token issued by the rollback build is accepted', request('GET', '/api/auth/me', token=t5)[0] == 200)
     check('roll forward: tokens revoked on the rollback build stay revoked', request('GET', '/api/auth/me', token=t4)[0] == 401)
+    check('data survives rollback and roll forward', request('GET', '/api/projects/' + kept, token=t5)[0] == 200)
+    check('V20 key still replays after roll forward', create_project(t5, idem) == kept)
     print(f'{sum(results)}/{len(results)} rollback checks passed')
     sys.exit(0 if all(results) else 1)
 check('RISK CONFIRMED: old release accepts the token the new release had revoked', revived)

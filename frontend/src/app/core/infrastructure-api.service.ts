@@ -43,9 +43,9 @@ export class InfrastructureApiService {
       .pipe(map(mapDeployment));
   }
 
-  getDeployments(serviceId: string): Observable<Deployment[]> {
+  getDeployments(serviceId: string, page = 0): Observable<Deployment[]> {
     return this.http
-      .get<BackendDeployment[]>(`${this.base}/projects/services/${serviceId}/deployments`)
+      .get<BackendDeployment[]>(`${this.base}/projects/services/${serviceId}/deployments`, { params: { page } })
       .pipe(map(list => list.map(mapDeployment)));
   }
 
