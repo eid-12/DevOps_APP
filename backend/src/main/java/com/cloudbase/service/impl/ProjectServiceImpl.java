@@ -62,6 +62,11 @@ import java.util.UUID;
 @Transactional
 public class ProjectServiceImpl implements ProjectService {
 
+    private static final String SETUP_PENDING_CI = "PENDING_CI";
+    private static final String SETUP_PENDING_DEPLOY = "PENDING_DEPLOY";
+    private static final String SETUP_FAILED = "FAILED";
+    private static final String SETUP_DONE = "DONE";
+    private static final int SETUP_RESUME_AFTER_SECONDS = 60;
     private static final List<com.cloudbase.model.DeploymentStatus> IN_FLIGHT = List.of(
             com.cloudbase.model.DeploymentStatus.QUEUED, com.cloudbase.model.DeploymentStatus.BUILDING,
             com.cloudbase.model.DeploymentStatus.DEPLOYING);
@@ -82,6 +87,10 @@ public class ProjectServiceImpl implements ProjectService {
     private final PlanQuotaService planQuotaService;
     @org.springframework.beans.factory.annotation.Autowired
     private com.cloudbase.repository.IdempotencyKeyRepository idempotencyKeys;
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.transaction.support.TransactionTemplate transactions;
+    @jakarta.persistence.PersistenceContext
+    private jakarta.persistence.EntityManager entityManager;
     private final UserRepository userRepository;
     private final VanitySubdomainService vanitySubdomainService;
 
@@ -227,8 +236,20 @@ public class ProjectServiceImpl implements ProjectService {
                 projectId, services.size());
     }
 
+    /**
+     * Creation is a sequence of committed steps, not one transaction: the service row (with its progress and
+     * the idempotency key) commits before any external effect, and each step commits after its effect. A crash
+     * therefore leaves a tracked row. Repeating a step is safe because GitHub files and webhooks and the stack
+     * (named after the service id) are reused. Nothing is ever deleted as compensation.
+     */
     @Override
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
     public ServiceEntity addService(String projectId, UserEntity user, CreateServiceRequest request, String idempotencyKey) {
+        String serviceId = transactions.execute(tx -> createServiceRecord(projectId, user, request, idempotencyKey));
+        return finishSetup(serviceId, user.getEmail(), true);
+    }
+
+    private String createServiceRecord(String projectId, UserEntity user, CreateServiceRequest request, String idempotencyKey) {
         requireDeploymentEnabled(user);
         ProjectEntity project = getProject(projectId, user);
 
@@ -236,7 +257,7 @@ public class ProjectServiceImpl implements ProjectService {
         Optional<ServiceEntity> replay = findReplay(project.getOwnerId(), idempotencyKey, "service",
                 projectId + "/" + request, serviceRepository::findById);
         if (replay.isPresent()) {
-            return replay.get();
+            return replay.get().getId();
         }
 
         int memoryMb = request.quota() != null ? request.quota().memoryMb() : 512;
@@ -268,6 +289,7 @@ public class ProjectServiceImpl implements ProjectService {
                 .quotaCpuMilli(cpuMilli)
                 .quotaStorageGb(storageGb)
                 .createdAt(java.time.Instant.now())
+                .setupState(request.sourceType() == ServiceSourceType.GITHUB ? SETUP_PENDING_CI : SETUP_PENDING_DEPLOY)
                 .build();
 
         service.setContainerName("cb-" + service.getId());
@@ -309,33 +331,72 @@ public class ProjectServiceImpl implements ProjectService {
 
         ServiceEntity saved = serviceRepository.save(service);
         rememberKey(project.getOwnerId(), idempotencyKey, "service", projectId + "/" + request, saved.getId());
+        return saved.getId();
+    }
 
-        // B2: inject Dockerfile + Actions workflow + webhook for GitHub services
-        if (saved.getSourceType() == com.cloudbase.model.ServiceSourceType.GITHUB) {
-            Map<String, Object> enriched = ciBootstrapService.bootstrapGitHubService(serviceOwner(saved), saved);
-            saved.setSourceDetails(enriched);
-            if (enriched.get("containerPort") instanceof Number n) {
-                saved.setContainerPort(n.intValue());
-            } else {
-                saved.setContainerPort(composeGenerator.resolveContainerPort(saved));
+    /** Runs the remaining steps. Each holds the owner lock, so concurrent retries and recovery take turns. */
+    private ServiceEntity finishSetup(String serviceId, String actor, boolean retryFailed) {
+        try {
+            transactions.executeWithoutResult(tx -> {
+                ServiceEntity service = lockedService(serviceId);
+                if (retryFailed && SETUP_FAILED.equals(service.getSetupState())) {
+                    service.setSetupState(service.getSourceType() == ServiceSourceType.GITHUB ? SETUP_PENDING_CI : SETUP_PENDING_DEPLOY);
+                    service.setStatus(ServiceStatus.PENDING);
+                }
+                if (SETUP_PENDING_CI.equals(service.getSetupState())) {
+                    Map<String, Object> enriched = ciBootstrapService.bootstrapGitHubService(serviceOwner(service), service);
+                    service.setSourceDetails(enriched);
+                    service.setContainerPort(enriched.get("containerPort") instanceof Number n
+                            ? Integer.valueOf(n.intValue()) : composeGenerator.resolveContainerPort(service));
+                    service.setSetupState(SETUP_PENDING_DEPLOY);
+                }
+                serviceRepository.save(service);
+            });
+        } catch (RuntimeException e) {
+            transactions.executeWithoutResult(tx -> {
+                ServiceEntity service = lockedService(serviceId);
+                if (SETUP_PENDING_CI.equals(service.getSetupState())) {
+                    service.setSetupState(SETUP_FAILED);
+                    service.setStatus(ServiceStatus.FAILED);
+                    serviceRepository.save(service);
+                }
+            });
+            throw e;
+        }
+        transactions.executeWithoutResult(tx -> {
+            ServiceEntity service = lockedService(serviceId);
+            if (SETUP_PENDING_DEPLOY.equals(service.getSetupState())) {
+                service.setSetupState(SETUP_DONE);
+                serviceRepository.save(service);
+                try {
+                    orchestrator.startDeploy(service, actor, new DeployServiceRequest(null, null), null);
+                } catch (Exception e) {
+                    log.warn("Auto-deploy on addService failed for {}: {}", serviceId, e.toString());
+                }
             }
-            saved = serviceRepository.save(saved);
-            // Same as Docker/DB: start deploy (auto-builds image if needed — user stays in CloudBase)
+        });
+        return transactions.execute(tx -> serviceRepository.findByIdWithProject(serviceId).orElseThrow());
+    }
+
+    private ServiceEntity lockedService(String serviceId) {
+        ServiceEntity service = serviceRepository.findByIdWithProject(serviceId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Service not found"));
+        lockOwner(service.getProject().getOwnerId());
+        entityManager.refresh(service);
+        return service;
+    }
+
+    @Override
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
+    public void resumeInterruptedSetups() {
+        Instant before = Instant.now().minusSeconds(SETUP_RESUME_AFTER_SECONDS);
+        for (ServiceEntity s : serviceRepository.findBySetupStateInAndCreatedAtBefore(List.of(SETUP_PENDING_CI, SETUP_PENDING_DEPLOY), before)) {
             try {
-                orchestrator.startDeploy(saved, user.getEmail(), new DeployServiceRequest(null, null), null);
-            } catch (Exception e) {
-                log.warn("Auto-deploy on addService (GitHub) failed for {}: {}", saved.getId(), e.toString());
-            }
-        } else {
-            // Databases / Docker images: auto-deploy on create when deployment is enabled
-            try {
-                orchestrator.startDeploy(saved, user.getEmail(), new DeployServiceRequest(null, null), null);
-            } catch (Exception e) {
-                log.warn("Auto-deploy on addService failed for {}: {}", saved.getId(), e.toString());
+                finishSetup(s.getId(), "setup-recovery", false);
+            } catch (RuntimeException e) {
+                log.warn("Setup recovery failed for {}: {}", s.getId(), e.toString());
             }
         }
-
-        return saved;
     }
 
     @Override

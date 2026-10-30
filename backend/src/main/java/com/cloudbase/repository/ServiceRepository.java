@@ -18,6 +18,8 @@ public interface ServiceRepository extends JpaRepository<ServiceEntity, String> 
 
     List<ServiceEntity> findByStatus(ServiceStatus status);
 
+    List<ServiceEntity> findBySetupStateInAndCreatedAtBefore(List<String> states, java.time.Instant before);
+
     @Query("select s from ServiceEntity s where lower(s.subdomain) = lower(:value)")
     Optional<ServiceEntity> findBySubdomainIgnoreCase(@Param("value") String value);
 

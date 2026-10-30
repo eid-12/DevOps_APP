@@ -30,6 +30,8 @@ public class StaleDeploymentCleanup {
     private final ServiceRepository serviceRepository;
     private final DeploymentEventPublisher eventPublisher;
     @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.beans.factory.ObjectProvider<ProjectService> projectServiceProvider;
+    @org.springframework.beans.factory.annotation.Autowired
     private com.cloudbase.repository.IdempotencyKeyRepository idempotencyKeys;
 
     public StaleDeploymentCleanup(
@@ -40,6 +42,11 @@ public class StaleDeploymentCleanup {
         this.deploymentRepository = deploymentRepository;
         this.serviceRepository = serviceRepository;
         this.eventPublisher = eventPublisher;
+    }
+
+    @Scheduled(fixedDelayString = "${cloudbase.setup.resume-ms:60000}", initialDelayString = "${cloudbase.setup.resume-initial-ms:30000}")
+    public void resumeInterruptedServiceSetups() {
+        projectServiceProvider.getObject().resumeInterruptedSetups();
     }
 
     @Scheduled(cron = "0 40 3 * * *")

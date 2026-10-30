@@ -18,6 +18,11 @@ import java.util.Map;
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class ServiceEntity {
 
+    /** Creation progress: PENDING_CI, PENDING_DEPLOY, FAILED or DONE. Advances only after a step succeeded. */
+    @Column(name = "setup_state", nullable = false, length = 16)
+    @Builder.Default
+    private String setupState = "DONE";
+
     @Id
     @Column(length = 36)
     private String id;

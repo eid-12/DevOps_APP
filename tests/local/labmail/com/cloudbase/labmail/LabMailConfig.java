@@ -17,6 +17,28 @@ import java.util.Map;
 @Configuration
 public class LabMailConfig {
 
+    /** Fault injection around GitHub setup, driven by flag files in the lab API container; simulates GitHub itself. */
+    @Bean
+    public static org.springframework.beans.factory.config.BeanPostProcessor labCiFaults() {
+        return new org.springframework.beans.factory.config.BeanPostProcessor() {
+            @Override
+            public Object postProcessAfterInitialization(Object bean, String name) {
+                if (!(bean instanceof com.cloudbase.service.CiBootstrapService)) return bean;
+                return Proxy.newProxyInstance(bean.getClass().getClassLoader(), new Class<?>[]{com.cloudbase.service.CiBootstrapService.class}, (p, m, a) -> {
+                    if (!m.getName().equals("bootstrapGitHubService")) return m.invoke(bean, a);
+                    if (Files.deleteIfExists(Path.of("/tmp/lab-halt-before-ci"))) Runtime.getRuntime().halt(137);
+                    Files.writeString(Path.of("/tmp/lab-ci-calls"), "x", java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+                    if (Files.exists(Path.of("/tmp/lab-ci-fail"))) throw new IllegalStateException("simulated GitHub failure");
+                    if (Files.deleteIfExists(Path.of("/tmp/lab-halt-after-ci"))) Runtime.getRuntime().halt(137);
+                    Map<String, Object> d = new java.util.HashMap<>(((com.cloudbase.entity.ServiceEntity) a[1]).getSourceDetails());
+                    d.put("ciBootstrapped", true);
+                    d.put("imageName", "synthetic/app");
+                    return d;
+                });
+            }
+        };
+    }
+
     @Bean
     @Primary
     public EmailService labEmailService() {

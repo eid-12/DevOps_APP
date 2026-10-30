@@ -25,6 +25,9 @@ public interface ProjectService {
     ProjectEntity createProject(UserEntity user, CreateProjectRequest request, String idempotencyKey);
     void deleteProject(String projectId, UserEntity user);
 
+    /** Continues service creations interrupted by a crash; safe to run at any time. */
+    void resumeInterruptedSetups();
+
     ServiceEntity addService(String projectId, UserEntity user, CreateServiceRequest request, String idempotencyKey);
     ServiceEntity getService(String serviceId, UserEntity user);
     void deleteService(String serviceId, UserEntity user);
