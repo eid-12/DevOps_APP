@@ -45,6 +45,7 @@ for (const [tag, viewport] of [['desk', { width: 1280, height: 800 }], ['mob', {
   check(`${tag} ordinary user cannot open /admin`, !new URL(p.url()).pathname.startsWith('/admin'), p.url());
   await p.goto(WEB + '/projects/proj-missing'); await settled(p);
   check(`${tag} missing project shows a way back`, /not found|back to projects/i.test(await p.locator('body').innerText()));
+  check(`${tag} missing project hides project actions`, !(await p.getByRole("button", { name: /Add Service/ }).first().isVisible().catch(() => false)));
   await p.screenshot({ path: join(SHOTS, `${tag}-missing.png`) });
   check(`${tag} no console errors`, errs.length === 0, errs.join(' | '));
   await p.context().close();

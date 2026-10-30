@@ -14,6 +14,11 @@ public interface DeploymentRepository extends JpaRepository<DeploymentEntity, St
     List<DeploymentEntity> findByServiceIdOrderByStartedAtDesc(String serviceId);
     List<DeploymentEntity> findByProjectIdOrderByStartedAtDesc(String projectId);
 
+    /** The history a service page shows; older rows stay in the database. */
+    List<DeploymentEntity> findTop50ByServiceIdOrderByStartedAtDesc(String serviceId);
+
+    long countByProjectIdInAndStartedAtGreaterThanEqual(Collection<String> projectIds, Instant since);
+
     List<DeploymentEntity> findByServiceIdAndStatusInAndFinishedAtIsNull(
             String serviceId,
             Collection<DeploymentStatus> statuses

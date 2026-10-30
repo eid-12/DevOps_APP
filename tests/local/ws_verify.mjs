@@ -148,12 +148,15 @@ check('reactivated owner receives events again on a new session', !!(await resto
 restored.disconnect();
 
 // 4. token expiry and reconnect (logout is client-side: a JWT stays valid until it expires)
+await settle(svc.id, ownerToken);
+ownerToken = await login(users['ws-owner'].email);
 const expiresAt = Date.now() + lab.jwtExpirationMs;
 const expiring = await Stomp.open(ownerToken);
 expiring.subscribe(topic);
 await sleep(Math.max(0, expiresAt - Date.now()) + 2000);
+const beforeExpiry = expiring.messages(topic).length;
 await deploy(svc.id, await login('admin@cloudbase.test')); // the earlier admin token expired as well
-check('expired-token session gets ERROR instead of the event', !!(await expiring.waitFor(f => f.command === 'ERROR', 60000)) && expiring.messages(topic).length === 0);
+check('expired-token session gets ERROR instead of the event', !!(await expiring.waitFor(f => f.command === 'ERROR', 60000)) && expiring.messages(topic).length === beforeExpiry);
 const expiredRetry = await Stomp.open(ownerToken);
 check('reconnect with the expired token is refused', expiredRetry.frames.some(f => f.command === 'ERROR'));
 ownerToken = await login(users['ws-owner'].email);

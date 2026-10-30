@@ -528,7 +528,7 @@ public class ProjectServiceImpl implements ProjectService {
     @Override
     public List<DeploymentEntity> getDeployments(String serviceId, UserEntity user) {
         getService(serviceId, user);
-        return deploymentRepository.findByServiceIdOrderByStartedAtDesc(serviceId);
+        return deploymentRepository.findTop50ByServiceIdOrderByStartedAtDesc(serviceId);
     }
 
     @Override

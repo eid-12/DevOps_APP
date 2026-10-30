@@ -149,29 +149,20 @@ public class PlanQuotaService {
         int memoryMb = 0;
         int cpuMilli = 0;
         int storageGb = 0;
-        for (ProjectEntity p : projects) {
-            List<ServiceEntity> list = serviceRepository.findByProject_Id(p.getId());
-            for (ServiceEntity s : list) {
-                services++;
-                if (s.getStatus() != null && "RUNNING".equals(s.getStatus().name())) {
-                    running++;
-                }
-                memoryMb += Math.max(0, s.getQuotaMemoryMb());
-                cpuMilli += Math.max(0, s.getQuotaCpuMilli());
-                if (s.getVolumeSizeGb() != null && s.getVolumeSizeGb() > 0) {
-                    storageGb += s.getVolumeSizeGb();
-                }
+        for (ServiceEntity s : serviceRepository.findByOwnerIdWithProject(user.getId())) {
+            services++;
+            if (s.getStatus() != null && "RUNNING".equals(s.getStatus().name())) {
+                running++;
+            }
+            memoryMb += Math.max(0, s.getQuotaMemoryMb());
+            cpuMilli += Math.max(0, s.getQuotaCpuMilli());
+            if (s.getVolumeSizeGb() != null && s.getVolumeSizeGb() > 0) {
+                storageGb += s.getVolumeSizeGb();
             }
         }
         Instant monthStart = Instant.now().minus(30, ChronoUnit.DAYS);
-        int deploys = 0;
-        for (ProjectEntity p : projects) {
-            for (ServiceEntity s : serviceRepository.findByProject_Id(p.getId())) {
-                deploys += (int) deploymentRepository.findByServiceIdOrderByStartedAtDesc(s.getId()).stream()
-                        .filter(d -> d.getStartedAt() != null && !d.getStartedAt().isBefore(monthStart))
-                        .count();
-            }
-        }
+        int deploys = projects.isEmpty() ? 0 : (int) deploymentRepository.countByProjectIdInAndStartedAtGreaterThanEqual(
+                projects.stream().map(ProjectEntity::getId).toList(), monthStart);
         return new UsageSnapshot(projectCount, services, running, memoryMb, cpuMilli, storageGb, deploys);
     }
 

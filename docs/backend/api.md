@@ -60,3 +60,7 @@ How it is wired (Tomcat + simple broker + interceptor): [stack.md](stack.md).
 ## Postman
 
 I do not keep a collection in this repo. Use the table above or the OpenAPI in my head.
+
+## Retrying creates
+
+`POST /api/projects` and `POST /api/projects/{id}/services` accept an `Idempotency-Key` header (8-64 letters, digits or dashes). Repeating a request with the same key returns the original resource, also concurrently or after a restart, so a lost response (502, timeout) is safe to retry. Keys last 7 days; a key reused for different input gets 409.

@@ -59,7 +59,7 @@ const FREE_PLAN_LIMIT_MESSAGE = 'Free plan limit reached. Delete a service or se
           ← Projects
         </button>
         <div>
-          <h1 class="railway-page-title">{{ project()?.name ?? '…' }}</h1>
+          <h1 class="railway-page-title">{{ project()?.name ?? (loading() ? '…' : 'Project') }}</h1>
           @if (project()?.description) {
             <p class="railway-page-sub">{{ project()?.description }}</p>
           } @else if (project()) {
@@ -80,12 +80,14 @@ const FREE_PLAN_LIMIT_MESSAGE = 'Free plan limit reached. Delete a service or se
           class="btn btn-ghost"
           (click)="openSettings()"
           [disabled]="!project()"
+          [style.display]="!project() && !loading() ? 'none' : null"
         >Settings</button>
         <button
           type="button"
           class="btn btn-primary railway-new-btn"
           (click)="openPicker()"
           [disabled]="!project() || adding() || !!addServiceBlockedReason()"
+          [style.display]="!project() && !loading() ? 'none' : null"
           [title]="addServiceBlockedReason()"
         >+ Add Service</button>
       </div>
