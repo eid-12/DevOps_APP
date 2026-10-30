@@ -22,3 +22,20 @@ python tests/local/lab.py stop            # removes only this lab's labelled con
   rollback compatibility of session revocation and the `JWT_SECRET` rotation recovery; see docs/operations.md.
 - Lab state lives in `%TEMP%/cloudbase-isolated-lab/` (state, API results, browser screenshots).
 - `deploy_verify.py`, `setup_faults.py` (needs `--email`), `actions_ui.mjs`, `settings_ui.mjs`, `walk_ui.mjs`: real application on simulated Portainer, GitHub and registry. Not production evidence, and rollback checks use JARs, not published images.
+
+## Email test failures
+
+Run `node --test tests/local/readiness.test.mjs` for the restart readiness fault cases.
+Run `node tests/local/verify_email.mjs` only once per fresh email-enabled lab, with no other suite using it.
+The restart probe requires health `UP`, bounds each request (including its body), and fails the suite on
+deadline expiry. It does not retry auth mutations. Login and resend checks observe their POST responses;
+the cooldown check still requires a 429, disabled UI, then a single successful resend after 61 seconds.
+The original navigation deadlines and all security assertions remain in place.
+
+Retain the process exit code and the complete result, including failures, outside temporary lab folders.
+Failure traces contain auth paths, statuses and response dates; cooldown diagnostics compare host wall time,
+monotonic elapsed time and the container clock. Never retain request bodies, auth headers or mail files.
+Host standby or clock adjustments can disrupt these real-time checks: correlate OS events with the failure,
+and do not call a later green run a diagnosis. A clock skew sample taken only after failure cannot prove that
+the clocks stayed synchronized throughout the run. Likewise, a post-restart 502 does not explain an earlier
+cooldown or login failure without its own request evidence.

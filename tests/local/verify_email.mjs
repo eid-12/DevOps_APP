@@ -5,24 +5,33 @@ import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { waitForApi } from './readiness.mjs';
 
 const lab = JSON.parse(readFileSync(join(tmpdir(), 'cloudbase-isolated-lab', 'state.json'), 'utf8'));
 const WEB = lab.web, PASSWORD = 'Local-Qa-Only!2026';
 const results = [];
-const check = (n, ok, d = '') => { results.push(!!ok); console.log(`${ok ? 'PASS' : 'FAIL'} ${n}${ok || !d ? '' : ' — ' + d}`); };
+const check = (n, ok, d = '') => { results.push(!!ok); console.log(`${ok ? 'PASS' : 'FAIL'} ${n}${ok || !d ? '' : ' — ' + d}`); if (!ok) { console.log('TRACE', trace.slice(-10).join(' || ')); console.log('SKEW ms', skew()); } };
 const code = e => execFileSync('docker', ['exec', lab.prefix + '-api', 'cat', '/tmp/lab-mail/' + e], { encoding: 'utf8' }).trim();
 const sql = q => execFileSync('docker', ['exec', lab.prefix + '-db', 'psql', '-U', 'cloudbase', '-d', 'cloudbase', '-Atc', q], { encoding: 'utf8' }).trim();
 const post = async (p, b) => { const r = await fetch(lab.api + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b) }); return [r.status, await r.json().catch(() => ({}))]; };
 const verified = e => sql(`select email_verified from users where email='${e}'`) === 't';
 
 const browser = await chromium.launch({ channel: 'msedge', headless: true });
-const fresh = async () => { const c = await browser.newContext(); return c.newPage(); };
+// Sanitized trace: paths, statuses and clocks only; never bodies, query strings or auth headers.
+const trace = [];
+const skew = () => { try { const c = Date.parse(execFileSync('docker', ['exec', lab.prefix + '-api', 'date', '-u', '+%FT%T.%3NZ'], { encoding: 'utf8', timeout: 5000 }).trim()); return c - Date.now(); } catch { return 'unavailable'; } };
+const fresh = async () => { const c = await browser.newContext(); const p = await c.newPage();
+  p.on('response', r => { const u = new URL(r.url()); if (!u.pathname.startsWith('/api/auth/')) return;
+    trace.push(`${new Date().toISOString()} ${r.request().method()} ${u.pathname} ${r.status()} server-date=${r.headers()['date'] ?? 'absent'}`); });
+  return p; };
+const authResponse = (p, path) => p.waitForResponse(r => new URL(r.url()).pathname === '/api/auth/' + path && r.request().method() === 'POST', { timeout: 10000 });
 const email = p => p.getByRole('textbox', { name: 'Email' });
 const signIn = async (p, e) => {
   await p.goto(WEB + '/auth?mode=login');
   await email(p).fill(e);
   await p.getByRole('textbox', { name: 'Password' }).fill(PASSWORD);
-  await p.getByRole('button', { name: 'Sign in', exact: true }).click();
+  const [response] = await Promise.all([authResponse(p, 'login'), p.getByRole('button', { name: 'Sign in', exact: true }).click()]);
+  if (![200, 403].includes(response.status())) throw new Error(`sign-in HTTP ${response.status()}`);
 };
 const signUp = async (p, e) => {
   await p.goto(WEB + '/auth?mode=register');
@@ -92,21 +101,25 @@ try {
   check('3. expired code is refused with clear feedback', /incorrect or has expired/i.test(await feedback(c)) && !verified(e), await feedback(c));
   sql(`update users set email_verification_code = null where email='${e}'`); // resend cooldown from signup still applies
   const cooled = c.getByRole('button', { name: /Resend code/ });
-  await cooled.click();
-  await c.waitForTimeout(300);
-  check('resend cooldown is shown', /wait \d+ seconds/i.test(await feedback(c)) && await cooled.isDisabled(), await feedback(c));
+  const [cooldownResponse] = await Promise.all([authResponse(c, 'resend-verification'), cooled.click()]);
+  await until(c, /wait \d+ seconds/);
+  check('resend cooldown is shown', cooldownResponse.status() === 429 && /wait \d+ seconds/i.test(await feedback(c)) && await cooled.isDisabled(), await feedback(c));
+  const cooldownStart = { wall: Date.now(), monotonic: performance.now(), skew: skew() };
   await c.waitForTimeout(61000);
-  await cooled.click();
+  console.log('COOLDOWN', JSON.stringify({ wallMs: Date.now() - cooldownStart.wall, monotonicMs: Math.round(performance.now() - cooldownStart.monotonic), skewBeforeMs: cooldownStart.skew, skewAfterMs: skew() }));
+  const [resendResponse] = await Promise.all([authResponse(c, 'resend-verification'), cooled.click()]);
   await c.waitForFunction(() => /new code/i.test(document.querySelector('.auth-form .pill')?.textContent ?? ''), null, { timeout: 8000 }).catch(() => {});
-  check('resend reports success', /new code/i.test(await feedback(c)), await feedback(c));
+  check('resend reports success', resendResponse.status() === 200 && /new code/i.test(await feedback(c)), await feedback(c));
   await enter(c, code(e));
   await c.waitForURL(/dashboard/, { timeout: 10000 }).catch(() => {});
   check('verified after resend and signed in directly', verified(e) && /dashboard/.test(c.url()), c.url());
 
   // 5: attempt lockout (survives in the database) and resend cap
   // The 5-sends-per-network cap is real and in memory: restart the lab API so this section starts clean.
-  execFileSync('docker', ['restart', lab.prefix + '-api']);
-  for (let i = 0; i < 90; i++) { if (await fetch(lab.api + '/actuator/health').then(r => r.ok, () => false)) break; await new Promise(r => setTimeout(r, 1000)); }
+  execFileSync('docker', ['restart', lab.prefix + '-api'], { timeout: 30000 });
+  const t0 = Date.now();
+  await waitForApi(lab.api);
+  console.log('api restart ready after ms', Date.now() - t0);
   e = 'limits@cloudbase.test';
   const d = await fresh();
   await signUp(d, e);
