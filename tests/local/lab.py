@@ -79,7 +79,7 @@ def start(args):
             ('db', 'postgres:16-alpine', ['--memory', '256m', '--cpus', '0.5', '--network-alias', 'db',
              '--tmpfs', '/var/lib/postgresql/data:rw,size=192m', '-e', 'POSTGRES_DB=cloudbase',
              '-e', 'POSTGRES_USER=cloudbase', '-e', 'POSTGRES_PASSWORD=synthetic-local-db-only']),
-            ('mock', 'cdtest-runner2', ['--memory', '128m', '--cpus', '0.5', '--network-alias', 'mock',
+            ('mock', 'cdtest-runner2', ['--memory', '128m', '--cpus', '0.5', '--network-alias', 'mock', '--network-alias', 'app.cloudbase.test',
              '--mount', f'type=bind,source={ROOT / "tests/local/mock-infrastructure.cjs"},target=/mock.cjs,readonly',
              '--entrypoint', 'node']),
         ]:

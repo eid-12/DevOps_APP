@@ -47,9 +47,10 @@ public class ProjectController {
     @ResponseStatus(HttpStatus.CREATED)
     public ProjectEntity createProject(
             @AuthenticationPrincipal UserEntity user,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody CreateProjectRequest request
     ) {
-        return projectService.createProject(user, request);
+        return projectService.createProject(user, request, idempotencyKey);
     }
 
     @GetMapping("/{projectId}")
@@ -84,10 +85,11 @@ public class ProjectController {
     @ResponseStatus(HttpStatus.CREATED)
     public ServiceEntity addService(
             @AuthenticationPrincipal UserEntity user,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @PathVariable String projectId,
             @Valid @RequestBody CreateServiceRequest request
     ) {
-        return projectService.addService(projectId, user, request);
+        return projectService.addService(projectId, user, request, idempotencyKey);
     }
 
     @GetMapping("/services/{serviceId}")

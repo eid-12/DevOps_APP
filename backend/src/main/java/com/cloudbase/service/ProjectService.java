@@ -22,10 +22,10 @@ import java.util.Map;
 public interface ProjectService {
     List<ProjectEntity> listForUser(UserEntity user);
     ProjectEntity getProject(String projectId, UserEntity user);
-    ProjectEntity createProject(UserEntity user, CreateProjectRequest request);
+    ProjectEntity createProject(UserEntity user, CreateProjectRequest request, String idempotencyKey);
     void deleteProject(String projectId, UserEntity user);
 
-    ServiceEntity addService(String projectId, UserEntity user, CreateServiceRequest request);
+    ServiceEntity addService(String projectId, UserEntity user, CreateServiceRequest request, String idempotencyKey);
     ServiceEntity getService(String serviceId, UserEntity user);
     void deleteService(String serviceId, UserEntity user);
     ServiceEntity stopService(String serviceId, UserEntity user);

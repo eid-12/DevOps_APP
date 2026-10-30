@@ -29,6 +29,8 @@ public class StaleDeploymentCleanup {
     private final DeploymentRepository deploymentRepository;
     private final ServiceRepository serviceRepository;
     private final DeploymentEventPublisher eventPublisher;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.cloudbase.repository.IdempotencyKeyRepository idempotencyKeys;
 
     public StaleDeploymentCleanup(
             DeploymentRepository deploymentRepository,
@@ -38,6 +40,12 @@ public class StaleDeploymentCleanup {
         this.deploymentRepository = deploymentRepository;
         this.serviceRepository = serviceRepository;
         this.eventPublisher = eventPublisher;
+    }
+
+    @Scheduled(cron = "0 40 3 * * *")
+    @Transactional
+    public void forgetOldIdempotencyKeys() {
+        idempotencyKeys.deleteByCreatedAtBefore(Instant.now().minus(Duration.ofDays(7)));
     }
 
     @Scheduled(fixedDelayString = "${cloudbase.deploy.stale-cleanup-ms:120000}", initialDelayString = "30000")

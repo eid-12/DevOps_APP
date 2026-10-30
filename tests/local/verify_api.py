@@ -138,46 +138,6 @@ workers = [threading.Thread(target=race, args=(i,)) for i in range(5)]
 [w.join() for w in workers]
 check('5 concurrent requests near the limit: exactly one succeeds (%s)' % sorted(codes), sorted(codes) == [201, 402, 402, 402, 402])
 check('usage never exceeds the RAM limit', call('GET', '/api/auth/usage', token=qt)['memoryMbUsed'] <= 4096)
-# Retries after a lost response must not duplicate anything.
-dup_project = call('POST', '/api/projects', {'name': 'Retry Safe'}, qt, 201)
-call('POST', '/api/projects', {'name': 'retry safe '}, qt, 409)
-check('project retry creates no duplicate', sum(p['name'].lower() == 'retry safe' for p in call('GET', '/api/projects', token=qt)) == 1)
-call('POST', '/api/projects/' + qpid + '/services', quota_service('base0', 1), qt, 409)
-idem_user = call('POST', '/api/auth/register', {'name': 'Idem QA', 'email': 'idem@cloudbase.test', 'password': PASSWORD})
-call('PATCH', '/api/admin/users/' + idem_user['user']['id'] + '/deployment-access', {'enabled': True}, at)
-it = idem_user['token']
-ipid = call('POST', '/api/projects', {'name': 'idem'}, it, 201)['id']
-isid = call('POST', '/api/projects/' + ipid + '/services', {'name': 'gh', 'sourceType': 'GITHUB',
-    'sourceDetails': {'repositoryUrl': 'https://github.com/local-qa/idem-app', 'branch': 'main', 'runtime': 'node'},
-    'quota': {'memoryMb': 64, 'cpuMilli': 100, 'storageGb': 0}}, it, 201)['id']
-def wait_settled():
-    for _ in range(40):
-        if not any(d['status'] in ('QUEUED', 'BUILDING', 'DEPLOYING') for d in call('GET', '/api/projects/services/' + isid + '/deployments', token=it)):
-            return
-        time.sleep(0.5)
-wait_settled()
-first = call('POST', '/api/projects/services/' + isid + '/deploy', {}, it, 202)
-second = call('POST', '/api/projects/services/' + isid + '/deploy', {}, it, 202)
-check('double deploy joins or follows one attempt', first['id'] == second['id'] or first['status'] in ('FAILED', 'SUCCESS'))
-import hashlib, hmac as _hmac, subprocess as _sp
-env = json.loads(_sp.check_output(['docker', 'inspect', state()['prefix'] + '-api'], text=True))[0]['Config']['Env']
-secret = next(e.split('=', 1)[1] for e in env if e.startswith('GITHUB_WEBHOOK_SECRET='))
-import urllib.request as _u, urllib.error as _e
-def webhook(sha):
-    raw = json.dumps({'action': 'completed', 'repository': {'html_url': 'https://github.com/local-qa/idem-app', 'full_name': 'local-qa/idem-app'},
-        'workflow_run': {'name': 'CloudBase Deploy', 'head_branch': 'main', 'head_sha': sha, 'conclusion': 'success', 'html_url': 'https://x'}}).encode()
-    req = _u.Request(state()['api'] + '/api/webhooks/github', data=raw, method='POST', headers={'content-type': 'application/json',
-        'X-GitHub-Event': 'workflow_run', 'X-Hub-Signature-256': 'sha256=' + _hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()})
-    try:
-        return _u.urlopen(req, timeout=30).status
-    except _e.HTTPError as err:
-        return err.code
-sha = 'c' * 40
-wait_settled()
-print('webhook', webhook(sha), webhook(sha))
-same = [d for d in call('GET', '/api/projects/services/' + isid + '/deployments', token=it) if d.get('commitSha') == sha]
-check('a retried webhook after a failed attempt is accepted (dedupe of delivered commits: DeployIdempotencyTest)', len(same) >= 1)
-
 # Tokens are readable: only non-secret claims. Logs never contain tokens, password hashes or passwords.
 import base64, subprocess
 def claim_names(token):

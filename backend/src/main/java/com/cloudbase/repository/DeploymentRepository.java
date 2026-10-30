@@ -30,7 +30,7 @@ public interface DeploymentRepository extends JpaRepository<DeploymentEntity, St
             @Param("before") Instant before
     );
 
-    java.util.Optional<DeploymentEntity> findFirstByServiceIdAndCommitShaAndStatusInOrderByStartedAtDesc(
+    List<DeploymentEntity> findByServiceIdAndCommitShaAndStatusIn(
             String serviceId,
             String commitSha,
             Collection<DeploymentStatus> statuses

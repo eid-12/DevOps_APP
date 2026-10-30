@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import { map } from 'rxjs/operators';
+import { map, tap } from 'rxjs/operators';
 import { environment } from '../../environments/environment';
 import {
   Deployment,
@@ -131,10 +131,24 @@ export class InfrastructureApiService {
     return this.http.delete<void>(`${this.base}/projects/services/${serviceId}`);
   }
 
+  /** Pending create keys: resubmitting the same form after a lost response reuses its key. */
+  private readonly createKeys = new Map<string, string>();
+
+  private retrySafe(scope: string, payload: unknown) {
+    const id = scope + JSON.stringify(payload);
+    const key = this.createKeys.get(id) ?? crypto.randomUUID();
+    this.createKeys.set(id, key);
+    return { headers: { 'Idempotency-Key': key } };
+  }
+
+  private settled(scope: string, payload: unknown) {
+    this.createKeys.delete(scope + JSON.stringify(payload));
+  }
+
   addService(projectId: string, payload: unknown): Observable<Service> {
     return this.http
-      .post<BackendService>(`${this.base}/projects/${projectId}/services`, payload)
-      .pipe(map(mapService));
+      .post<BackendService>(`${this.base}/projects/${projectId}/services`, payload, this.retrySafe(projectId, payload))
+      .pipe(tap(() => this.settled(projectId, payload)), map(mapService));
   }
 
   listProjects(): Observable<Project[]> {
@@ -154,8 +168,8 @@ export class InfrastructureApiService {
       .post<BackendProject>(`${this.base}/projects`, {
         name: payload.name,
         description: payload.description ?? ''
-      })
-      .pipe(map(mapProject));
+      }, this.retrySafe('project', payload))
+      .pipe(tap(() => this.settled('project', payload)), map(mapProject));
   }
 
   deleteProject(projectId: string): Observable<void> {

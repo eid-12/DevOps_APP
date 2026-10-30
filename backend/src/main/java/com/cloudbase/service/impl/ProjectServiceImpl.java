@@ -34,6 +34,7 @@ import com.cloudbase.service.CiBootstrapService;
 import com.cloudbase.service.ComposeInputValidator;
 import com.cloudbase.service.ContainerRuntimeService;
 import com.cloudbase.service.DeploymentOrchestrator;
+import com.cloudbase.entity.IdempotencyKeyEntity;
 import com.cloudbase.service.PlanQuotaService;
 import com.cloudbase.service.ProjectService;
 import com.cloudbase.service.ServiceMetricsService;
@@ -54,13 +55,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
 @Transactional
 public class ProjectServiceImpl implements ProjectService {
 
-    private static final int DEPLOY_RETRY_WINDOW_SECONDS = 15;
     private static final List<com.cloudbase.model.DeploymentStatus> IN_FLIGHT = List.of(
             com.cloudbase.model.DeploymentStatus.QUEUED, com.cloudbase.model.DeploymentStatus.BUILDING,
             com.cloudbase.model.DeploymentStatus.DEPLOYING);
@@ -79,6 +80,8 @@ public class ProjectServiceImpl implements ProjectService {
     private final ContainerRuntimeService containerRuntime;
     private final ServiceMetricsService serviceMetricsService;
     private final PlanQuotaService planQuotaService;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.cloudbase.repository.IdempotencyKeyRepository idempotencyKeys;
     private final UserRepository userRepository;
     private final VanitySubdomainService vanitySubdomainService;
 
@@ -127,17 +130,16 @@ public class ProjectServiceImpl implements ProjectService {
     }
 
     @Override
-    public ProjectEntity createProject(UserEntity user, CreateProjectRequest request) {
+    public ProjectEntity createProject(UserEntity user, CreateProjectRequest request, String idempotencyKey) {
         requireDeploymentEnabled(user);
         planQuotaService.assertNotAlreadyOver(user);
         planQuotaService.assertCanCreateProject(user);
 
-        // A retry after a lost response (502, timeout) must not create a second project.
         lockOwner(user.getId());
-        String name = request.name() == null ? "" : request.name().trim();
-        if (projectRepository.findByOwnerId(user.getId()).stream().anyMatch(p -> name.equalsIgnoreCase(p.getName()))) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "A project named \"" + name + "\" already exists. Open it instead of creating it again.");
+        Optional<ProjectEntity> replay = findReplay(user.getId(), idempotencyKey, "project", request.name(),
+                projectRepository::findById);
+        if (replay.isPresent()) {
+            return replay.get();
         }
 
         ProjectEntity project = ProjectEntity.builder()
@@ -149,7 +151,43 @@ public class ProjectServiceImpl implements ProjectService {
                 .status(ProjectStatus.ACTIVE)
                 .build();
 
-        return projectRepository.save(project);
+        ProjectEntity saved = projectRepository.save(project);
+        rememberKey(user.getId(), idempotencyKey, "project", request.name(), saved.getId());
+        return saved;
+    }
+
+    /** The original resource when this key was already applied; a key reused for other input is refused. */
+    private <T> Optional<T> findReplay(String ownerId, String key, String type, String input,
+                                       java.util.function.Function<String, Optional<T>> load) {
+        if (key == null) {
+            return Optional.empty();
+        }
+        if (!key.matches("[A-Za-z0-9-]{8,64}")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid Idempotency-Key");
+        }
+        var stored = idempotencyKeys.findById(new IdempotencyKeyEntity.Key(ownerId, key));
+        if (stored.isEmpty()) {
+            return Optional.empty();
+        }
+        if (!stored.get().getResourceType().equals(type) || !stored.get().getRequestHash().equals(requestHash(input))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "This Idempotency-Key was used for a different request");
+        }
+        Optional<T> resource = load.apply(stored.get().getResourceId());
+        if (resource.isEmpty()) {
+            idempotencyKeys.delete(stored.get()); // deleted since: a new create is legitimate
+            idempotencyKeys.flush();
+        }
+        return resource;
+    }
+
+    private void rememberKey(String ownerId, String key, String type, String input, String resourceId) {
+        if (key != null) {
+            idempotencyKeys.save(new IdempotencyKeyEntity(ownerId, key, requestHash(input), type, resourceId, Instant.now()));
+        }
+    }
+
+    private static String requestHash(String input) {
+        return org.springframework.util.DigestUtils.md5DigestAsHex(String.valueOf(input).getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
     @Override
@@ -185,16 +223,15 @@ public class ProjectServiceImpl implements ProjectService {
     }
 
     @Override
-    public ServiceEntity addService(String projectId, UserEntity user, CreateServiceRequest request) {
+    public ServiceEntity addService(String projectId, UserEntity user, CreateServiceRequest request, String idempotencyKey) {
         requireDeploymentEnabled(user);
         ProjectEntity project = getProject(projectId, user);
 
-        // A retry after a lost response must not create a second service, stack and route.
         lockOwner(project.getOwnerId());
-        String serviceName = request.name() == null ? "" : request.name().trim();
-        if (serviceRepository.findByProject_Id(projectId).stream().anyMatch(s -> serviceName.equalsIgnoreCase(s.getName()))) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "A service named \"" + serviceName + "\" already exists in this project. Open it instead of creating it again.");
+        Optional<ServiceEntity> replay = findReplay(project.getOwnerId(), idempotencyKey, "service",
+                projectId + "/" + request.name(), serviceRepository::findById);
+        if (replay.isPresent()) {
+            return replay.get();
         }
 
         int memoryMb = request.quota() != null ? request.quota().memoryMb() : 512;
@@ -266,6 +303,7 @@ public class ProjectServiceImpl implements ProjectService {
         }
 
         ServiceEntity saved = serviceRepository.save(service);
+        rememberKey(project.getOwnerId(), idempotencyKey, "service", projectId + "/" + request.name(), saved.getId());
 
         // B2: inject Dockerfile + Actions workflow + webhook for GitHub services
         if (saved.getSourceType() == com.cloudbase.model.ServiceSourceType.GITHUB) {
@@ -403,11 +441,14 @@ public class ProjectServiceImpl implements ProjectService {
         if (request != null && request.imageTag() != null && !request.imageTag().isBlank()) {
             ComposeInputValidator.requireImageTag(request.imageTag().trim());
         }
-        // A double click or a retried request joins the deploy that just started.
+        // A double click or retry with the same input joins the running attempt, however old it is
+        // (StaleDeploymentCleanup ends stuck ones). A different commit or tag still supersedes it.
         lockOwner(service.getProject().getOwnerId());
-        Instant recent = Instant.now().minusSeconds(DEPLOY_RETRY_WINDOW_SECONDS);
+        String tag = request == null ? null : request.imageTag();
+        String commit = request == null ? null : request.commitSha();
         var inFlight = deploymentRepository.findByServiceIdAndStatusInAndFinishedAtIsNull(serviceId, IN_FLIGHT).stream()
-                .filter(d -> d.getStartedAt() != null && d.getStartedAt().isAfter(recent))
+                .filter(ProjectServiceImpl::isRealAttempt)
+                .filter(d -> java.util.Objects.equals(d.getImageTag(), tag) && java.util.Objects.equals(d.getCommitSha(), commit))
                 .findFirst();
         if (inFlight.isPresent()) {
             return inFlight.get();
@@ -452,8 +493,10 @@ public class ProjectServiceImpl implements ProjectService {
         // GitHub redelivers webhooks: one commit deploys once unless the earlier attempt failed.
         lockOwner(ownerId);
         if (request != null && request.commitSha() != null) {
-            var existing = deploymentRepository.findFirstByServiceIdAndCommitShaAndStatusInOrderByStartedAtDesc(
-                    serviceId, request.commitSha(), DELIVERED_OR_RUNNING);
+            var existing = deploymentRepository.findByServiceIdAndCommitShaAndStatusIn(
+                    serviceId, request.commitSha(), DELIVERED_OR_RUNNING).stream()
+                    .filter(ProjectServiceImpl::isRealAttempt)
+                    .findFirst();
             if (existing.isPresent()) {
                 return existing.get();
             }
@@ -1063,6 +1106,11 @@ public class ProjectServiceImpl implements ProjectService {
             }
         });
         return saved;
+    }
+
+    /** Workflow progress rows only mirror GitHub; a real attempt has a compose file and reached the deploy path. */
+    private static boolean isRealAttempt(DeploymentEntity d) {
+        return d.getComposeSnapshot() != null;
     }
 
     private void lockOwner(String ownerId) {

@@ -54,14 +54,34 @@ class DeployIdempotencyTest {
         owner.setDeploymentEnabled(true);
         ServiceEntity service = ServiceEntity.builder().id("s1")
                 .project(ProjectEntity.builder().id("p").ownerId("u1").name("p").build()).build();
-        DeploymentEntity existing = DeploymentEntity.builder().id("d1").build();
+        DeploymentEntity existing = DeploymentEntity.builder().id("d1").composeSnapshot("services: {}").build();
         when(services.findById("s1")).thenReturn(Optional.of(service));
         when(users.findById("u1")).thenReturn(Optional.of(owner));
         when(users.lockById("u1")).thenReturn(Optional.of(owner));
-        when(deployments.findFirstByServiceIdAndCommitShaAndStatusInOrderByStartedAtDesc(eq("s1"), eq("abc"), any()))
-                .thenReturn(Optional.of(existing));
+        when(deployments.findByServiceIdAndCommitShaAndStatusIn(eq("s1"), eq("abc"), any()))
+                .thenReturn(java.util.List.of(existing));
 
         assertSame(existing, impl().deployAsSystem("s1", "github-workflow", new DeployServiceRequest("abc", "abc")));
         verify(orchestrator, never()).startDeploy(any(), anyString(), any(), any());
+    }
+
+    /** in_progress events store a mirror row with the commit; it must not count as delivered. */
+    @Test
+    void aWorkflowProgressRowDoesNotSwallowTheRealDeploy() throws Exception {
+        UserEntity owner = new UserEntity();
+        owner.setId("u1");
+        owner.setAccountStatus(AccountStatus.ACTIVE);
+        owner.setEmailVerified(true);
+        owner.setDeploymentEnabled(true);
+        ServiceEntity service = ServiceEntity.builder().id("s1")
+                .project(ProjectEntity.builder().id("p").ownerId("u1").name("p").build()).build();
+        when(services.findById("s1")).thenReturn(Optional.of(service));
+        when(users.findById("u1")).thenReturn(Optional.of(owner));
+        when(users.lockById("u1")).thenReturn(Optional.of(owner));
+        when(deployments.findByServiceIdAndCommitShaAndStatusIn(eq("s1"), eq("abc"), any()))
+                .thenReturn(java.util.List.of(DeploymentEntity.builder().id("mirror").build()));
+
+        impl().deployAsSystem("s1", "github-workflow", new DeployServiceRequest("abc", "abc"));
+        verify(orchestrator).startDeploy(any(), anyString(), any(), any());
     }
 }
