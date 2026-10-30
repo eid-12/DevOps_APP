@@ -48,6 +48,8 @@ function passwordMatchValidator(passwordKey: string, confirmKey: string): Valida
   };
 }
 
+const PENDING_VERIFY_KEY = 'cloudbase.pendingVerificationEmail';
+
 @Component({
   selector: 'app-auth-page',
   standalone: true,
@@ -102,7 +104,7 @@ function passwordMatchValidator(passwordKey: string, confirmKey: string): Valida
                   formControlName="email"
                   autocomplete="email"
                   placeholder="you@company.com"
-                  [readonly]="mode() === 'verify'"
+                  [readonly]="mode() === 'verify' && emailLocked()"
                 />
                 @if (showError('email')) {
                   <small class="auth-error">{{ fieldError('email') }}</small>
@@ -220,6 +222,7 @@ function passwordMatchValidator(passwordKey: string, confirmKey: string): Valida
             @if (feedback()) {
               <div
                 class="pill"
+                role="status"
                 [class.pill-emerald]="feedback()!.kind === 'success'"
                 [class.pill-red]="feedback()!.kind === 'error'"
               >
@@ -255,12 +258,15 @@ function passwordMatchValidator(passwordKey: string, confirmKey: string): Valida
             @if (mode() === 'login') {
               New here?
               <button type="button" class="auth-link" (click)="setMode('register')">Create account</button>
+              <br />
+              Have a code?
+              <button type="button" class="auth-link" (click)="openVerify()">Verify email</button>
             } @else if (mode() === 'register') {
               Already have access?
               <button type="button" class="auth-link" (click)="setMode('login')">Sign in</button>
             } @else if (mode() === 'verify') {
-              Wrong email?
-              <button type="button" class="auth-link" (click)="setMode('register')">Register again</button>
+              Finished here?
+              <button type="button" class="auth-link" (click)="backToSignIn()">Back to sign in</button>
             } @else {
               Remembered it?
               <button type="button" class="auth-link" (click)="setMode('login')">Back to sign in</button>
@@ -295,6 +301,8 @@ export class AuthPageComponent implements OnInit {
   readonly showConfirmPassword = signal(false);
   /** Seconds left before another verification / reset email can be requested. */
   readonly emailCooldown = signal(0);
+  /** The verify screen is for a known account: show its email read-only. */
+  readonly emailLocked = signal(false);
 
   private emailCooldownTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -382,8 +390,11 @@ export class AuthPageComponent implements OnInit {
         return;
       }
       if (requested === 'verify') {
-        const email = params.get('email');
-        if (email) this.form.patchValue({ email });
+        const email = params.get('email') || this.readPendingEmail();
+        if (email) {
+          this.form.patchValue({ email });
+          this.emailLocked.set(true);
+        }
         this.applyMode('verify', false);
         return;
       }
@@ -418,6 +429,49 @@ export class AuthPageComponent implements OnInit {
 
   setMode(mode: AuthMode): void {
     this.applyMode(mode, true);
+  }
+
+  /** Returning without the password: the code alone completes verification. */
+  openVerify(): void {
+    const email = this.readPendingEmail();
+    if (email) this.form.patchValue({ email });
+    this.emailLocked.set(!!email);
+    this.applyMode('verify', true);
+  }
+
+  backToSignIn(): void {
+    this.clearPendingEmail();
+    this.emailLocked.set(false);
+    this.applyMode('login', true);
+  }
+
+  /** The email only, never the password or code; it survives refresh and closing the browser. */
+  private openVerifyFor(email: string, feedback: { kind: 'success' | 'error'; text: string }): void {
+    try {
+      localStorage.setItem(PENDING_VERIFY_KEY, email);
+    } catch {
+      /* storage blocked: the URL state and signing in again still work */
+    }
+    this.form.patchValue({ code: '' });
+    this.emailLocked.set(true);
+    this.applyMode('verify', true);
+    this.feedback.set(feedback);
+  }
+
+  private readPendingEmail(): string {
+    try {
+      return localStorage.getItem(PENDING_VERIFY_KEY) ?? '';
+    } catch {
+      return '';
+    }
+  }
+
+  private clearPendingEmail(): void {
+    try {
+      localStorage.removeItem(PENDING_VERIFY_KEY);
+    } catch {
+      /* nothing stored */
+    }
   }
 
   toggleShowPassword(): void {
@@ -557,10 +611,21 @@ export class AuthPageComponent implements OnInit {
         )
         .subscribe({
           next: (res) => {
-            this.feedback.set({ kind: 'success', text: res.message });
-            this.applyMode('login', true);
+            this.clearPendingEmail();
+            this.emailLocked.set(false);
+            this.form.patchValue({ code: '' });
+            if (password) {
+              // Same visit: the password from the sign-in attempt is still in memory, so finish signing in.
+              this.signInAfterVerification(email, password, res.message);
+            } else {
+              this.applyMode('login', true);
+              this.feedback.set({ kind: 'success', text: res.message });
+            }
           },
-          error: (err) => this.feedback.set({ kind: 'error', text: this.readError(err) })
+          error: (err) => {
+            this.feedback.set({ kind: 'error', text: this.readError(err) });
+            this.applyCooldownFromError(err);
+          }
         });
       return;
     }
@@ -588,23 +653,53 @@ export class AuthPageComponent implements OnInit {
                   : '/dashboard';
             window.setTimeout(() => this.router.navigateByUrl(target), 400);
           } else if (this.mode() === 'register') {
-            this.form.patchValue({ code: '' });
-            this.applyMode('verify', true);
+            this.openVerifyFor(email, { kind: 'success', text: response.message });
             this.startEmailCooldown(60);
           } else {
             this.applyMode('login', true);
           }
         },
-        error: (err) => this.feedback.set({ kind: 'error', text: this.readError(err) })
+        error: (err) => {
+          if (this.mode() === 'login' && err?.status === 403 && /email not verified/i.test(this.readError(err))) {
+            this.openVerifyFor(email, {
+              kind: 'error',
+              text: 'This email is not verified yet. Enter the 6-digit code from your inbox, or resend it. Codes expire after 15 minutes.'
+            });
+            return;
+          }
+          this.feedback.set({ kind: 'error', text: this.readError(err) });
+        }
+      });
+  }
+
+  private signInAfterVerification(email: string, password: string, message: string): void {
+    this.loading.set(true);
+    this.auth
+      .login({ email, password })
+      .pipe(
+        takeUntilDestroyed(this.destroyRef),
+        finalize(() => this.loading.set(false))
+      )
+      .subscribe({
+        next: (response) => {
+          this.feedback.set({ kind: 'success', text: message });
+          window.setTimeout(() => this.router.navigateByUrl(response.user.role === 'ADMIN' ? '/admin' : '/dashboard'), 400);
+        },
+        error: () => {
+          this.applyMode('login', true);
+          this.feedback.set({ kind: 'success', text: message });
+        }
       });
   }
 
   private applyMode(mode: AuthMode, navigate: boolean): void {
+    const changed = mode !== this.mode();
     this.mode.set(mode);
     this.submitted.set(false);
     this.showPassword.set(false);
     this.showConfirmPassword.set(false);
-    if (mode !== 'verify') {
+    // The URL update re-enters here with the same mode; that must keep the message just shown.
+    if (mode !== 'verify' && changed) {
       this.feedback.set(null);
     }
     this.syncValidators(mode);
@@ -613,9 +708,6 @@ export class AuthPageComponent implements OnInit {
       const queryParams: Record<string, string> = { mode };
       if (mode === 'reset' && this.resetToken()) {
         queryParams['token'] = this.resetToken();
-      }
-      if (mode === 'verify' && this.form.controls.email.value) {
-        queryParams['email'] = this.form.controls.email.value;
       }
       this.router.navigate([], {
         relativeTo: this.route,
@@ -685,7 +777,7 @@ export class AuthPageComponent implements OnInit {
 
   private applyCooldownFromError(error: unknown): void {
     const text = this.readError(error);
-    const match = text.match(/wait\s+(\d+)\s+seconds/i);
+    const match = text.match(/(?:wait|in)\s+(\d+)\s+seconds/i);
     if (match) {
       this.startEmailCooldown(Number(match[1]));
     }

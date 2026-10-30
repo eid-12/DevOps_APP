@@ -163,9 +163,6 @@ public class ResendEmailService implements EmailService {
 
     @Override
     public void sendEmailVerificationCode(String toEmail, String name, String code) {
-        if (!isEnabled()) {
-            log.info("Email verification code for {} ({}): {}", toEmail, name, code);
-        }
         String body = """
                 <p style="margin:0 0 12px;font-size:16px;color:#0f172a">Hi %s,</p>
                 <p style="margin:0 0 20px;font-size:15px;color:#334155;line-height:1.6">

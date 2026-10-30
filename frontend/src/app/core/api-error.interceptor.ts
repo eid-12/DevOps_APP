@@ -19,7 +19,11 @@ const SILENT_URL_PARTS = [
   '/exec',
   '/terminal',
   '/public/app-config',
-  '/public/platform-status'
+  '/public/platform-status',
+  // The auth page shows these itself, next to the form.
+  '/auth/login',
+  '/auth/verify-email',
+  '/auth/resend-verification'
 ];
 
 function shouldSilence(url: string): boolean {

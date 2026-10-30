@@ -112,12 +112,18 @@ def start(args):
         if args.jwt_expiration_ms:
             env['JWT_EXPIRATION_MS'] = str(int(args.jwt_expiration_ms))
         envargs = [v for k, val in env.items() for v in ('-e', k + '=' + val)]
-        docker('run', *common, '--name', name, '--network-alias', 'api', '--memory', '640m', '--cpus', '1',
+        # --email adds tests/local/labmail (compiled by the caller) beside the JAR; the JAR itself is unchanged.
+        java_args = ['-jar', '/app.jar']
+        mail_mount = []
+        if args.email:
+            java_args = ['-cp', '/app.jar', '-Dloader.path=/labmail', 'org.springframework.boot.loader.launch.PropertiesLauncher']
+            mail_mount = ['--mount', f'type=bind,source={Path(args.email).resolve()},target=/labmail,readonly']
+        docker('run', *common, '--name', name, '--network-alias', 'api', '--memory', '640m', '--cpus', '1', *mail_mount,
                '--mount', f'type=bind,source={jar},target=/app.jar,readonly',
                *envargs, '--entrypoint', 'java',
                # The JDK image adds jcmd, used by ws_verify.mjs to count retained session objects.
                'eclipse-temurin:17-jdk-alpine' if args.jdk else 'eclipse-temurin:17-jre-alpine',
-               '-Xmx384m', '-jar', '/app.jar')
+               '-Xmx384m', *java_args)
         gateway = prefix + '-gateway'
         s['containers'].append(gateway)
         save(s)
@@ -138,7 +144,8 @@ def start(args):
                 pass
             time.sleep(1)
         else:
-            raise RuntimeError('Isolated API did not become healthy; inspect its synthetic-only container log')
+            print(subprocess.run(['docker', 'logs', '--tail', '400', name], capture_output=True, text=True, errors='replace').stdout[-40000:])
+            raise RuntimeError('Isolated API did not become healthy')
         print(json.dumps({'api': s['api'], 'web': s['web'], 'state': str(STATE_FILE), 'outbound': 'disabled'}))
     except BaseException:
         stop()
@@ -166,5 +173,6 @@ if __name__ == '__main__':
     parser.add_argument('--frontend')
     parser.add_argument('--jwt-expiration-ms', type=int)
     parser.add_argument('--jdk', action='store_true')
+    parser.add_argument('--email', help='directory with compiled labmail classes')
     args = parser.parse_args()
     {'start': lambda: start(args), 'stop': stop}[args.command]()

@@ -42,6 +42,8 @@ import java.util.UUID;
 @Transactional
 public class AuthServiceImpl implements AuthService {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AuthServiceImpl.class);
+
     private static final List<String> STEP1_SCOPES = List.of("read:user", "repo", "user:email", "workflow");
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private static final int CODE_TTL_MINUTES = 15;
@@ -165,7 +167,7 @@ public class AuthServiceImpl implements AuthService {
         }
 
         userRepository.save(user);
-        emailService.sendEmailVerificationCode(user.getEmail(), user.getName(), code);
+        sendVerificationCode(user, code);
         return new AuthResponse(
                 null,
                 toModel(user),
@@ -173,35 +175,32 @@ public class AuthServiceImpl implements AuthService {
         );
     }
 
+    // noRollbackFor: destroying the code on lockout must survive the 429.
     @Override
+    @org.springframework.transaction.annotation.Transactional(noRollbackFor = ResponseStatusException.class)
     public MessageResponse verifyEmail(String email, String code) {
         emailRateLimiter.checkVerifyAllowed(email);
 
-        UserEntity user = findUserByEmail(email)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid email or code"));
-
-        if (user.isEmailVerified()) {
-            return new MessageResponse("Email already verified. You can sign in - deployment stays locked until an admin enables it.");
-        }
-
-        if (user.getEmailVerificationCode() == null
-                || user.getEmailVerificationExpiresAt() == null
-                || Instant.now().isAfter(user.getEmailVerificationExpiresAt())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Code expired. Request a new verification code.");
-        }
-
-        if (!user.getEmailVerificationCode().equals(code.trim())) {
-            boolean locked = emailRateLimiter.recordVerifyFailure(email);
-            if (locked) {
-                user.setEmailVerificationCode(null);
-                user.setEmailVerificationExpiresAt(null);
-                userRepository.save(user);
-                throw new ResponseStatusException(
-                        HttpStatus.TOO_MANY_REQUESTS,
-                        "Too many wrong codes. Request a new verification code."
-                );
+        // Unknown, verified, expired and wrong all answer alike, so this endpoint does not reveal accounts.
+        UserEntity user = findUserByEmail(email).orElse(null);
+        boolean pending = user != null && !user.isEmailVerified()
+                && user.getEmailVerificationCode() != null
+                && user.getEmailVerificationExpiresAt() != null
+                && Instant.now().isBefore(user.getEmailVerificationExpiresAt());
+        if (!pending || code == null || !java.security.MessageDigest.isEqual(
+                user.getEmailVerificationCode().getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                code.trim().getBytes(java.nio.charset.StandardCharsets.UTF_8))) {
+            if (emailRateLimiter.recordVerifyFailure(email)) {
+                if (user != null && !user.isEmailVerified()) {
+                    user.setEmailVerificationCode(null);
+                    user.setEmailVerificationExpiresAt(null);
+                    userRepository.save(user);
+                }
+                throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+                        "Too many wrong codes. Request a new verification code.");
             }
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid verification code");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "That code is incorrect or has expired. Check it or request a new code. If this email is already verified, sign in.");
         }
 
         emailRateLimiter.clearVerifyFailures(email);
@@ -213,8 +212,13 @@ public class AuthServiceImpl implements AuthService {
         user.setDeploymentEnabled(false);
         userRepository.save(user);
 
-        emailService.sendRegistrationPending(user.getEmail(), user.getName());
-        emailService.notifyAdminNewRegistration(user.getName(), user.getEmail());
+        // Courtesy emails must not undo a verification that already succeeded.
+        try {
+            emailService.sendRegistrationPending(user.getEmail(), user.getName());
+            emailService.notifyAdminNewRegistration(user.getName(), user.getEmail());
+        } catch (RuntimeException e) {
+            log.warn("Post-verification email failed for user {}", user.getId());
+        }
 
         return new MessageResponse("Email verified. You can sign in now. Deployment stays disabled until an admin enables it.");
     }
@@ -227,11 +231,11 @@ public class AuthServiceImpl implements AuthService {
                     "Email delivery is not configured. Ask an administrator to verify your account."
             );
         }
-        UserEntity user = findUserByEmail(email)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "If the account exists, a code will be sent."));
-
-        if (user.isEmailVerified()) {
-            return new MessageResponse("Email already verified.");
+        String generic = "If this account still needs verification, a new code was sent. Check your inbox and spam folder.";
+        UserEntity user = findUserByEmail(email).orElse(null);
+        if (user == null || user.isEmailVerified()) {
+            emailRateLimiter.noteUnknownInbox(EmailRateLimiter.Action.VERIFICATION, email);
+            return new MessageResponse(generic);
         }
 
         emailRateLimiter.acquireSend(EmailRateLimiter.Action.VERIFICATION, user.getEmail());
@@ -239,9 +243,19 @@ public class AuthServiceImpl implements AuthService {
         user.setEmailVerificationCode(code);
         user.setEmailVerificationExpiresAt(Instant.now().plus(CODE_TTL_MINUTES, ChronoUnit.MINUTES));
         userRepository.save(user);
-        emailService.sendEmailVerificationCode(user.getEmail(), user.getName(), code);
+        sendVerificationCode(user, code);
         emailRateLimiter.clearVerifyFailures(user.getEmail());
-        return new MessageResponse("A new verification code was sent to your email.");
+        return new MessageResponse(generic);
+    }
+
+    /** Provider failure becomes a clear 503; the caller's transaction rolls back, so an earlier code stays valid. */
+    private void sendVerificationCode(UserEntity user, String code) {
+        try {
+            emailService.sendEmailVerificationCode(user.getEmail(), user.getName(), code);
+        } catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "We could not send the email right now. Please try again in a minute.");
+        }
     }
 
     @Override
