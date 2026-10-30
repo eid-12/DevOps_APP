@@ -30,6 +30,12 @@ public interface DeploymentRepository extends JpaRepository<DeploymentEntity, St
             @Param("before") Instant before
     );
 
+    java.util.Optional<DeploymentEntity> findFirstByServiceIdAndCommitShaAndStatusInOrderByStartedAtDesc(
+            String serviceId,
+            String commitSha,
+            Collection<DeploymentStatus> statuses
+    );
+
     void deleteByServiceId(String serviceId);
 
     void deleteByProjectId(String projectId);

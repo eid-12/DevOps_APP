@@ -3,6 +3,7 @@
  * Hides status codes, enum names, and internal container ids.
  */
 export function friendlyApiMessage(err: unknown, fallback = 'Something went wrong'): string {
+  if (isConnectionFailure(err)) return CONNECTION_LOST;
   const raw = extractRaw(err);
   if (!raw) return fallback;
 
@@ -35,6 +36,17 @@ export function friendlyApiMessage(err: unknown, fallback = 'Something went wron
   }
 
   return text.slice(0, 200);
+}
+
+const CONNECTION_LOST =
+  'CloudBase could not be reached. If you were saving a change it may still have applied, so refresh before trying again.';
+
+/** No API answer (network, gateway or Cloudflare page): the outcome of the request is unknown. */
+function isConnectionFailure(err: unknown): boolean {
+  const e = err as { status?: number; error?: unknown } | null;
+  if (typeof e?.status !== 'number') return false;
+  if (e.status === 0 || e.status === 502 || e.status === 504 || (e.status >= 520 && e.status <= 530)) return true;
+  return e.status === 503 && (typeof e.error === 'string' || !e.error);
 }
 
 function extractRaw(err: unknown): string {

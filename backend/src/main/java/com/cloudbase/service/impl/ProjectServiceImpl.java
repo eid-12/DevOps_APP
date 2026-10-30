@@ -60,6 +60,14 @@ import java.util.UUID;
 @Transactional
 public class ProjectServiceImpl implements ProjectService {
 
+    private static final int DEPLOY_RETRY_WINDOW_SECONDS = 15;
+    private static final List<com.cloudbase.model.DeploymentStatus> IN_FLIGHT = List.of(
+            com.cloudbase.model.DeploymentStatus.QUEUED, com.cloudbase.model.DeploymentStatus.BUILDING,
+            com.cloudbase.model.DeploymentStatus.DEPLOYING);
+    private static final List<com.cloudbase.model.DeploymentStatus> DELIVERED_OR_RUNNING = List.of(
+            com.cloudbase.model.DeploymentStatus.QUEUED, com.cloudbase.model.DeploymentStatus.BUILDING,
+            com.cloudbase.model.DeploymentStatus.DEPLOYING, com.cloudbase.model.DeploymentStatus.SUCCESS);
+
     private static final Logger log = LoggerFactory.getLogger(ProjectServiceImpl.class);
 
     private final ProjectRepository projectRepository;
@@ -124,6 +132,14 @@ public class ProjectServiceImpl implements ProjectService {
         planQuotaService.assertNotAlreadyOver(user);
         planQuotaService.assertCanCreateProject(user);
 
+        // A retry after a lost response (502, timeout) must not create a second project.
+        lockOwner(user.getId());
+        String name = request.name() == null ? "" : request.name().trim();
+        if (projectRepository.findByOwnerId(user.getId()).stream().anyMatch(p -> name.equalsIgnoreCase(p.getName()))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "A project named \"" + name + "\" already exists. Open it instead of creating it again.");
+        }
+
         ProjectEntity project = ProjectEntity.builder()
                 .id("proj-" + UUID.randomUUID().toString().substring(0, 8))
                 .ownerId(user.getId())
@@ -172,6 +188,14 @@ public class ProjectServiceImpl implements ProjectService {
     public ServiceEntity addService(String projectId, UserEntity user, CreateServiceRequest request) {
         requireDeploymentEnabled(user);
         ProjectEntity project = getProject(projectId, user);
+
+        // A retry after a lost response must not create a second service, stack and route.
+        lockOwner(project.getOwnerId());
+        String serviceName = request.name() == null ? "" : request.name().trim();
+        if (serviceRepository.findByProject_Id(projectId).stream().anyMatch(s -> serviceName.equalsIgnoreCase(s.getName()))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "A service named \"" + serviceName + "\" already exists in this project. Open it instead of creating it again.");
+        }
 
         int memoryMb = request.quota() != null ? request.quota().memoryMb() : 512;
         int cpuMilli = request.quota() != null ? request.quota().cpuMilli() : 500;
@@ -379,6 +403,15 @@ public class ProjectServiceImpl implements ProjectService {
         if (request != null && request.imageTag() != null && !request.imageTag().isBlank()) {
             ComposeInputValidator.requireImageTag(request.imageTag().trim());
         }
+        // A double click or a retried request joins the deploy that just started.
+        lockOwner(service.getProject().getOwnerId());
+        Instant recent = Instant.now().minusSeconds(DEPLOY_RETRY_WINDOW_SECONDS);
+        var inFlight = deploymentRepository.findByServiceIdAndStatusInAndFinishedAtIsNull(serviceId, IN_FLIGHT).stream()
+                .filter(d -> d.getStartedAt() != null && d.getStartedAt().isAfter(recent))
+                .findFirst();
+        if (inFlight.isPresent()) {
+            return inFlight.get();
+        }
         return orchestrator.startDeploy(service, user.getEmail(), request, null);
     }
 
@@ -416,6 +449,15 @@ public class ProjectServiceImpl implements ProjectService {
         // Webhooks must not bypass lockouts — same rules as interactive deploy
         requireDeploymentEnabled(owner);
         planQuotaService.assertCanDeploy(owner);
+        // GitHub redelivers webhooks: one commit deploys once unless the earlier attempt failed.
+        lockOwner(ownerId);
+        if (request != null && request.commitSha() != null) {
+            var existing = deploymentRepository.findFirstByServiceIdAndCommitShaAndStatusInOrderByStartedAtDesc(
+                    serviceId, request.commitSha(), DELIVERED_OR_RUNNING);
+            if (existing.isPresent()) {
+                return existing.get();
+            }
+        }
         return orchestrator.startDeploy(service, triggeredBy, request, null);
     }
 
@@ -1021,6 +1063,11 @@ public class ProjectServiceImpl implements ProjectService {
             }
         });
         return saved;
+    }
+
+    private void lockOwner(String ownerId) {
+        userRepository.lockById(ownerId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Owner not found"));
     }
 
     private UserEntity serviceOwner(ServiceEntity service) {

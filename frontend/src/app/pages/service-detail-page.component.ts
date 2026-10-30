@@ -55,6 +55,8 @@ interface MetricSample {
   memPct: number;
 }
 
+const ROLLBACK_WATCH_ATTEMPTS = 100; // 3 s apart: five minutes
+
 @Component({
   selector: 'app-service-detail-page',
   standalone: true,
@@ -1231,6 +1233,7 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
   termCmd = '';
   private termHistory: string[] = [];
   private liveTimer: ReturnType<typeof setInterval> | null = null;
+  private rollbackWatchTimer: ReturnType<typeof setTimeout> | null = null;
   private shouldScrollTerm = false;
   private shouldScrollLogs = false;
   projectId = '';
@@ -1250,6 +1253,7 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
   }
 
   ngOnDestroy() {
+    if (this.rollbackWatchTimer) clearTimeout(this.rollbackWatchTimer);
     this.stopLiveLogs();
     this.clearDeployPolls();
     this.stopMetricsPoll();
@@ -1421,6 +1425,37 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
     row.value = row.value ? `${row.value}${template}` : template;
     this.markVarsDirty();
     this.refPickerOpen.set(false);
+  }
+
+  /** Reports what the deployment actually did; started is not the same as finished. */
+  private watchRollback(deploymentId: string, attempt = 0) {
+    this.projectService.getDeployments(this.serviceId).subscribe({
+      next: deps => {
+        this.deployments.set(deps);
+        const status = deps.find(d => d.id === deploymentId)?.status;
+        if (status === 'SUCCESS' || status === 'FAILED' || status === 'CANCELLED') {
+          this.projectService.getService(this.projectId, this.serviceId).subscribe({
+            next: ({ service }) => this.applyService(service),
+            error: () => undefined
+          });
+          this.busy.set(false);
+          this.message.set(status === 'SUCCESS' ? 'Rollback complete' : `Rollback ${status.toLowerCase()}. See the deployment log.`);
+          this.messageTone.set(status === 'SUCCESS' ? 'ok' : 'error');
+          return;
+        }
+        this.continueRollbackWatch(deploymentId, attempt);
+      },
+      error: () => this.continueRollbackWatch(deploymentId, attempt)
+    });
+  }
+
+  private continueRollbackWatch(deploymentId: string, attempt: number) {
+    if (attempt >= ROLLBACK_WATCH_ATTEMPTS) {
+      this.busy.set(false);
+      this.message.set('Rollback is still running. Check the Deployments tab for its result.');
+      return;
+    }
+    this.rollbackWatchTimer = setTimeout(() => this.watchRollback(deploymentId, attempt + 1), 3000);
   }
 
   loadDeployments() {
@@ -1615,7 +1650,7 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
     if (!this.canManage() || this.rollbackBusy()) return;
     this.rollbackBusy.set(true);
     this.projectService.rollback(this.serviceId, deploymentId).subscribe({
-      next: () => {
+      next: deployment => {
         this.rollbackTarget.set(null);
         this.rollbackBusy.set(false);
         this.busy.set(true);
@@ -1623,20 +1658,7 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
         this.setTab('deployments');
         this.message.set('Rollback started');
         this.messageTone.set('ok');
-        this.loadDeployments();
-        const poll = setInterval(() => this.loadDeployments(), 500);
-        setTimeout(() => {
-          clearInterval(poll);
-          this.projectService.getService(this.projectId, this.serviceId).subscribe({
-            next: ({ service }) => {
-              this.applyService(service);
-              this.loadDeployments();
-              this.busy.set(false);
-              this.message.set('Rollback complete');
-            },
-            error: () => this.busy.set(false)
-          });
-        }, 2000);
+        this.watchRollback(deployment.id);
       },
       error: e => {
         this.rollbackBusy.set(false);

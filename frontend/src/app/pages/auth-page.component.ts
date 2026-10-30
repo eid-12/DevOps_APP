@@ -48,6 +48,8 @@ function passwordMatchValidator(passwordKey: string, confirmKey: string): Valida
   };
 }
 
+import { friendlyApiMessage } from '../core/friendly-error';
+
 const PENDING_VERIFY_KEY = 'cloudbase.pendingVerificationEmail';
 
 @Component({
@@ -789,7 +791,8 @@ export class AuthPageComponent implements OnInit {
       error?: { message?: string; error?: string } | string;
       message?: string;
     };
-    if (typeof err?.error === 'string' && err.error.trim()) return err.error;
+    if (typeof err?.error === 'string' && err.error.trim()) return friendlyApiMessage(err, 'Request failed');
+    if (err?.status === 0) return friendlyApiMessage(err, 'Request failed');
     if (err?.error && typeof err.error === 'object') {
       if (err.error.message) return err.error.message;
       if (err.error.error) return err.error.error;
