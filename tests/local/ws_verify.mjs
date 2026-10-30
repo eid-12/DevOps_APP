@@ -148,17 +148,31 @@ check('reactivated owner receives events again on a new session', !!(await resto
 restored.disconnect();
 
 // 4. token expiry and reconnect (logout is client-side: a JWT stays valid until it expires)
-// No settle here on purpose: events of the previous deploy may arrive before expiry, which is legitimate.
+await settle(svc.id, ownerToken);
 ownerToken = await login(users['ws-owner'].email);
 const tokenExp = JSON.parse(Buffer.from(ownerToken.split('.')[1], 'base64url')).exp * 1000; // the server's expiry
-const expiresAt = tokenExp;
 const expiring = await Stomp.open(ownerToken);
 expiring.subscribe(topic);
-await sleep(Math.max(0, expiresAt - Date.now()) + 2000);
-const pre = expiring.messages(topic);
-check(`events before expiry were delivered before it (${pre.length})`, pre.every(f => f.at < tokenExp));
-await deploy(svc.id, await login('admin@cloudbase.test')); // the earlier admin token expired as well
-check('expired-token session gets ERROR instead of the event', !!(await expiring.waitFor(f => f.command === 'ERROR', 60000)) && expiring.messages(topic).every(f => f.at < tokenExp));
+await sleep(500);
+await deploy(svc.id, ownerToken);
+const authorized = await expiring.waitFor(f => f.command === 'MESSAGE' && f.headers.destination === topic, 20000);
+check('session receives an authorized event before expiry (the filter is not vacuous)', !!authorized && authorized.at < tokenExp);
+await settle(svc.id, ownerToken);
+const preExpiry = expiring.messages(topic).length;
+check('all earlier events arrived before the server expiry', expiring.messages(topic).every(f => f.at < tokenExp));
+await sleep(Math.max(0, tokenExp - Date.now()) + 2000);
+// A control session proves events really are published after expiry.
+const freshAdmin = await login('admin@cloudbase.test');
+const control = await Stomp.open(freshAdmin);
+control.subscribe(topic);
+await sleep(500);
+await deploy(svc.id, freshAdmin);
+check('control session receives the post-expiry event', !!(await control.waitFor(f => f.command === 'MESSAGE' && f.headers.destination === topic, 20000)));
+check('expired session gets ERROR on that event', !!(await expiring.waitFor(f => f.command === 'ERROR', 20000)));
+await sleep(500);
+check('expired session is closed', expiring.closed);
+check('expired session received nothing after expiry', expiring.messages(topic).length === preExpiry && expiring.messages(topic).every(f => f.at < tokenExp));
+control.disconnect();
 const expiredRetry = await Stomp.open(ownerToken);
 check('reconnect with the expired token is refused', expiredRetry.frames.some(f => f.command === 'ERROR'));
 ownerToken = await login(users['ws-owner'].email);

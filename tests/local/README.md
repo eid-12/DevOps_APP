@@ -21,3 +21,4 @@ python tests/local/lab.py stop            # removes only this lab's labelled con
 - `rollback_check.py --old-jar <jar> --new-jar <jar>` (lab started with the new jar and default token lifetime) proves
   rollback compatibility of session revocation and the `JWT_SECRET` rotation recovery; see docs/operations.md.
 - Lab state lives in `%TEMP%/cloudbase-isolated-lab/` (state, API results, browser screenshots).
+- `deploy_verify.py`, `setup_faults.py` (needs `--email`), `actions_ui.mjs`, `settings_ui.mjs`, `walk_ui.mjs`: real application on simulated Portainer, GitHub and registry. Not production evidence, and rollback checks use JARs, not published images.
