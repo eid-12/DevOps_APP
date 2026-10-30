@@ -1,6 +1,6 @@
 package com.cloudbase.service.impl;
 
-import com.cloudbase.dto.DeployServiceRequest;
+import com.cloudbase.dto.ProjectDtos.DeployServiceRequest;
 import com.cloudbase.entity.DeploymentEntity;
 import com.cloudbase.entity.ProjectEntity;
 import com.cloudbase.entity.ServiceEntity;
