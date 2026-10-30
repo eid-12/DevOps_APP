@@ -84,17 +84,18 @@ CHANGED="$(diff "$WORK/previous.yml" "$WORK/next.yml" | grep -c '^>' || true)"
 [[ "$CHANGED" -le 2 ]] || fail "unexpected stack file changes (${CHANGED} lines)"
 
 # --- rollback target: never a backend that would revive revoked sessions ------------------------------------
-# A release that enforces session revocation may revoke tokens (password change/reset). Rolling back to a
-# backend that ignores "sv" would accept them again, so the rollback backend must enforce it too: built from
-# SESSION_REVOCATION_SINCE or later, or the dedicated ROLLBACK_COMPAT_SHA build. Fails closed.
+# Rolling back to a backend without session revocation would accept revoked tokens again, and one without atomic
+# password reset/change would reopen those races. The target must have both: built from ROLLBACK_SAFE_SINCE or
+# later, or the dedicated ROLLBACK_COMPAT_SHA build. Anything else, or an unanswered check, refuses the deploy
+# before production changes.
 REVOCATION_FILE="$(dirname "$0")/session-revocation.env"
 SINCE=""; COMPAT_SHA=""
 if [[ -f "$REVOCATION_FILE" ]]; then
-  SINCE="$(sed -nE 's/^SESSION_REVOCATION_SINCE=([0-9a-f]{40})$/\1/p' "$REVOCATION_FILE")"
+  SINCE="$(sed -nE 's/^ROLLBACK_SAFE_SINCE=([0-9a-f]{40})$/\1/p' "$REVOCATION_FILE")"
   COMPAT_SHA="$(sed -nE 's/^ROLLBACK_COMPAT_SHA=([0-9a-f]{40})$/\1/p' "$REVOCATION_FILE")"
 fi
 image_sha() { sed -nE 's/.*:([0-9a-f]{40})(@.*)?$/\1/p' <<<"$1"; }
-enforces_revocation() {  # $1 = commit of a backend build
+safe_rollback_backend() {  # $1 = commit of a backend build
   [[ -n "$1" && -n "$SINCE" ]] || return 1
   [[ "$1" == "$SINCE" || ( -n "$COMPAT_SHA" && "$1" == "$COMPAT_SHA" ) ]] && return 0
   [[ -n "${GITHUB_TOKEN:-}" ]] || return 1
@@ -104,17 +105,17 @@ enforces_revocation() {  # $1 = commit of a backend build
   [[ "$status" == ahead || "$status" == identical ]]
 }
 ROLLBACK_BACKEND="$PREV_BACKEND"
-if [[ -n "$SINCE" ]] && enforces_revocation "$DEPLOY_SHA" && ! enforces_revocation "$(image_sha "$PREV_BACKEND")"; then
+if [[ -n "$SINCE" ]] && safe_rollback_backend "$DEPLOY_SHA" && ! safe_rollback_backend "$(image_sha "$PREV_BACKEND")"; then
   if [[ -n "${ROLLBACK_BACKEND_IMAGE:-}" && "$ROLLBACK_BACKEND_IMAGE" == *@sha256:* \
         && -n "$COMPAT_SHA" && "$(image_sha "$ROLLBACK_BACKEND_IMAGE")" == "$COMPAT_SHA" ]]; then
     ROLLBACK_BACKEND="$ROLLBACK_BACKEND_IMAGE"
     log "rollback target: ${ROLLBACK_BACKEND##*/} (previous ${PREV_BACKEND##*/} ignores session revocation)"
   else
-    ROLLBACK_BACKEND=""
-    log "::warning::no rollback backend that enforces session revocation; a failed rollout will NOT be rolled back automatically"
+    fail "REFUSED before any change: previous backend ${PREV_BACKEND##*/} is not a safe rollback target and no pinned \
+rollback build was supplied; rolling back could reactivate revoked sessions. See docs/operations.md (Session revocation and rollback)."
   fi
 fi
-pin backend "${ROLLBACK_BACKEND:-$PREV_BACKEND}" < "$WORK/previous.yml" > "$WORK/rollback.yml"
+pin backend "$ROLLBACK_BACKEND" < "$WORK/previous.yml" > "$WORK/rollback.yml"
 
 update_stack() {  # $1 = compose file to apply
   jq -n --rawfile f "$1" --slurpfile s "$WORK/stack.json" \
@@ -236,10 +237,6 @@ if [[ "$(field "$BE" 1)" == "$PREV_BACKEND" && "$(field "$FE" 1)" == "$PREV_FRON
 fi
 
 reconcile_state
-if [[ -z "$ROLLBACK_BACKEND" ]]; then
-  fail "NOT ROLLED BACK: ${DEPLOY_SHA:0:7} is unhealthy, but the previous backend ${PREV_BACKEND##*/} ignores session revocation \
-and no rollback build was supplied. Restoring it would reactivate revoked sessions. See docs/operations.md (Session revocation and rollback)."
-fi
 echo "::error::rolling back to ${ROLLBACK_BACKEND##*/} / ${PREV_FRONTEND##*/}"
 if update_stack "$WORK/rollback.yml" && wait_healthy "$ROLLBACK_BACKEND" "$PREV_FRONTEND" ""; then
   [[ "$ROLLBACK_BACKEND" == "$PREV_BACKEND" ]] && fail "rolled back to previous images (${PREV_BACKEND##*/})"

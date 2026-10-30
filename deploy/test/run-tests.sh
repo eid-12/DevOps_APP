@@ -144,23 +144,27 @@ check "rollback update uses the rollback build" '[[ "$(puts | jq -r ".[1].backen
 check "reports the rollback target" 'grep -q "rolled back to cloudbase-backend:${COMPAT_SHA}" "$OUT"'
 common_checks
 
-echo "17. previous backend ignores session revocation, no rollback build -> no automatic rollback"
+echo "17. previous backend is unsafe, no rollback build -> deploy refused before any change"
 PREV_REVOCATION=diverged start_mock broken ahead; run_deploy 45
 check "exits non-zero" '[[ $RC -ne 0 ]]'
-check "no rollback update was sent" '[[ "$(puts | jq length)" == 1 ]]'
-check "says why" 'grep -q "NOT ROLLED BACK" "$OUT" && grep -q "reactivate revoked sessions" "$OUT"'
+check "refused before any stack update" '[[ "$(puts | jq length)" == 0 ]]'
+check "says why" 'grep -q "REFUSED before any change" "$OUT" && grep -q "reactivate revoked sessions" "$OUT"'
 
 echo "18. a rollback image that is not the pinned revocation build is refused"
 PREV_REVOCATION=diverged start_mock broken ahead; ROLLBACK_IMAGE="minipcer/cloudbase-backend:${COMPAT_SHA}" run_deploy 45
-check "unpinned image: no rollback update" '[[ $RC -ne 0 && "$(puts | jq length)" == 1 ]] && grep -q "NOT ROLLED BACK" "$OUT"'
+check "unpinned image: refused" '[[ $RC -ne 0 && "$(puts | jq length)" == 0 ]] && grep -q "REFUSED before any change" "$OUT"'
 PREV_REVOCATION=diverged start_mock broken ahead
 ROLLBACK_IMAGE="minipcer/cloudbase-backend:$(printf 'd%.0s' {1..40})@sha256:$(printf '5%.0s' {1..64})" run_deploy 45
-check "other commit: no rollback update" '[[ $RC -ne 0 && "$(puts | jq length)" == 1 ]] && grep -q "NOT ROLLED BACK" "$OUT"'
+check "other commit: refused" '[[ $RC -ne 0 && "$(puts | jq length)" == 0 ]] && grep -q "REFUSED before any change" "$OUT"'
 
 echo "19. previous backend enforces session revocation -> plain rollback to it, rollback build unused"
 start_mock broken ahead; ROLLBACK_IMAGE="$COMPAT_IMAGE" run_deploy 45
 check "second update restores the previous backend" '[[ "$(puts | jq -r ".[1].backend")" == cloudbase-backend:$(printf "a%.0s" {1..40})@sha256:* ]]'
 common_checks
+
+echo "19b. revocation without atomic reset (older than the floor) is not a safe target"
+PREV_REVOCATION=behind start_mock broken ahead; ROLLBACK_IMAGE="$COMPAT_IMAGE" run_deploy 45
+check "uses the rollback build, not the previous backend" '[[ "$(puts | jq -r ".[1].backend")" == "cloudbase-backend:${COMPAT_SHA}@"* ]]'
 
 echo "20. the pipeline wires the rollback build into the deploy step"
 WF=.github/workflows/ci-cd.yml
@@ -169,7 +173,8 @@ check "publish builds the backend from that commit and exports its digest" \
   'grep -q "context: rollback-build/backend" "$WF" && grep -q "rollback_digest: \${{ steps.rollback_backend.outputs.digest }}" "$WF"'
 check "deploy passes it pinned by digest as ROLLBACK_BACKEND_IMAGE" \
   'grep -q "ROLLBACK_BACKEND_IMAGE: .*cloudbase-backend:{1}@{2}.*rollback_sha.*rollback_digest" "$WF"'
-check "the committed rollback commit enforces revocation according to the gate" '[[ -n "$COMPAT_SHA" ]]'
+check "the floor is set and the rollback commit is kept" '[[ -n "$COMPAT_SHA" ]] && grep -qE "^ROLLBACK_SAFE_SINCE=[0-9a-f]{40}$" deploy/session-revocation.env'
+check "publish verifies the pushed rollback image before deploy" 'grep -q "name: Verify rollback image" "$WF"'
 
 if (( failures )); then echo "${failures} check(s) failed"; exit 1; fi
 echo "all deploy script scenarios passed"

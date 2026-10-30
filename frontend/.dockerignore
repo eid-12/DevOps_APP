@@ -4,3 +4,5 @@ dist
 out-tsc
 src/environments/environment.ts
 *.md
+.env
+.env.*

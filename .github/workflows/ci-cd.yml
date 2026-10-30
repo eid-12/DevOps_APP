@@ -169,6 +169,19 @@ jobs:
           labels: |
             org.opencontainers.image.revision=${{ steps.rollback.outputs.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+      - name: Verify rollback image
+        if: steps.rollback.outputs.sha != ''
+        env:
+          ROLLBACK_SHA: ${{ steps.rollback.outputs.sha }}
+          ROLLBACK_DIGEST: ${{ steps.rollback_backend.outputs.digest }}
+        run: |
+          revision="$(docker buildx imagetools inspect "${IMAGE_NAMESPACE}/cloudbase-backend@${ROLLBACK_DIGEST}" --format '{{json .Image}}' \
+            | jq -r '.config.Labels["org.opencontainers.image.revision"]')"
+          if [ "$revision" != "$ROLLBACK_SHA" ]; then
+            echo "::error::rollback image revision '$revision' does not match $ROLLBACK_SHA; production was not changed"
+            exit 1
+          fi
+          echo "- rollback backend: \`$ROLLBACK_SHA@$ROLLBACK_DIGEST\`" >> "$GITHUB_STEP_SUMMARY"
       - name: Record pinned image references
         run: |
           be="${IMAGE_NAMESPACE}/cloudbase-backend:${GITHUB_SHA}@${{ steps.backend.outputs.digest }}"
@@ -227,7 +240,7 @@ jobs:
           HEALTH_API_URL: https://api.cloudbase.website
           HEALTH_WEB_URL: https://www.cloudbase.website
           GITHUB_TOKEN: ${{ github.token }}
-          # Empty when no rollback build is configured; the script then refuses an unsafe automatic rollback.
+          # Empty when no rollback build is configured; the script then refuses to deploy over an unsafe backend.
           ROLLBACK_BACKEND_IMAGE: ${{ needs.publish.outputs.rollback_digest && format('{0}/cloudbase-backend:{1}@{2}', env.IMAGE_NAMESPACE, needs.publish.outputs.rollback_sha, needs.publish.outputs.rollback_digest) || '' }}
         run: bash deploy/portainer-deploy.sh
       - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0

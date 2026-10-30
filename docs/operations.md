@@ -69,25 +69,25 @@ Automatic rollback covers a failed rollout. To return to an earlier good release
 #### Session revocation and rollback
 
 Since migration `V19`, session tokens and reset links carry the user's `session_version` (`sv`); a password change
-or reset increments it and earlier tokens are refused. A backend from before `SESSION_REVOCATION_SINCE`
-(`deploy/session-revocation.env`) ignores `sv`: it starts fine on the migrated schema but **accepts again any token a
-password change or reset had revoked, until it expires (2 h by default)**. So no rollback may target such a backend.
+or reset increments it and earlier tokens are refused. Reset and change are also atomic (row lock, exactly one winner).
+A safe rollback backend needs both. Older backends ignore `sv` and **accept revoked tokens again until they expire**;
+`7311725` has `sv` but not atomic reset/change, so it is not safe either. The floor is `ROLLBACK_SAFE_SINCE`
+(`85e0b37`) in `deploy/session-revocation.env`.
 
-**Automatic rollback (pipeline).** The deploy script picks the rollback backend:
+**Automatic rollback (pipeline).** Before changing production the deploy script picks the rollback backend:
 
-| Deployed (previous) backend | Rollback backend |
+| Deployed (previous) backend | Result |
 |---|---|
-| built from `SESSION_REVOCATION_SINCE` or later | the previous backend (normal rollback) |
-| older, and CI published the rollback build | `cloudbase-backend:<ROLLBACK_COMPAT_SHA>@<digest>` with the previous frontend |
-| older, no rollback build | **none**: the run fails with `NOT ROLLED BACK` and production keeps the new release |
+| `ROLLBACK_SAFE_SINCE` or a descendant | deploy; roll back to the previous backend if needed |
+| older, CI supplied the verified rollback build | deploy; roll back to `cloudbase-backend:<ROLLBACK_COMPAT_SHA>@<digest>` with the previous frontend |
+| older, no valid rollback build, or the check cannot be answered | `REFUSED before any change`; production is untouched |
 
-The rollback build is branch `rollback/1b885e9-sv`: `1b885e9` plus only the session-version checks (same `V19`
-file, same `sv` claim, row-locked password change/reset). CI builds and pushes it in the publish job from
-`ROLLBACK_COMPAT_SHA` and passes it pinned by digest as `ROLLBACK_BACKEND_IMAGE`; the script accepts no other image
-for that role. Covered by `deploy/test/run-tests.sh` scenarios 16-19 and `tests/local/rollback_check.py --expect-safe`.
-No secret is rotated in any of these paths.
+The rollback build is branch `rollback/1b885e9-sv`: `1b885e9` plus only session-version checks and row-locked
+password change/reset (same `V19` file and `sv` claim). The publish job builds it from `ROLLBACK_COMPAT_SHA`, verifies
+the pushed digest's revision label, and passes it as `ROLLBACK_BACKEND_IMAGE`. Covered by `deploy/test/run-tests.sh`
+scenarios 16-20, `tests/local/rollback_check.py --expect-safe` and `tests/local/race_verify.py`.
 
-**Manual rollback** to a release older than `SESSION_REVOCATION_SINCE`:
+**Manual rollback** to a release older than `ROLLBACK_SAFE_SINCE`:
 
 1. Use the rollback build instead of the old backend: Portainer → Stacks → cloudbase-platform → Editor, set the
    backend `image:` to `<namespace>/cloudbase-backend:<ROLLBACK_COMPAT_SHA>@<digest>` (digest from the publish job
@@ -99,8 +99,9 @@ Only if the rollback build is unavailable and the old backend must run anyway: r
 update (every session ends, revoked ones included). That is a production secret rotation and needs the owner's
 approval first. The plain old image without either step must not be used.
 
-When production runs `SESSION_REVOCATION_SINCE` or later, remove `ROLLBACK_COMPAT_SHA` from
-`deploy/session-revocation.env`; every later rollback target then enforces `sv` itself.
+Keep `ROLLBACK_COMPAT_SHA` and its image until a verified replacement exists: a production release at or after
+`ROLLBACK_SAFE_SINCE` that passed the deploy health checks, with `tests/local/rollback_check.py --expect-safe` and
+`race_verify.py` passing against that exact build. Running such a commit is not sufficient on its own.
 
 The first deploy of the `sv` release signs every user out once (earlier tokens have no `sv`); approved by the owner.
 
