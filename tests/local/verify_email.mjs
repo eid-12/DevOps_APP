@@ -35,6 +35,7 @@ const signUp = async (p, e) => {
 };
 const onVerify = p => p.locator('#auth-code').waitFor({ timeout: 8000 }).then(() => true, () => false);
 const feedback = p => p.locator('.auth-form .pill').innerText({ timeout: 8000 }).catch(() => '');
+const until = (p, re) => p.waitForFunction(src => new RegExp(src, 'i').test(document.querySelector('.auth-form .pill')?.textContent ?? ''), re.source, { timeout: 8000 }).catch(() => {});
 const enter = async (p, c) => { await p.locator('#auth-code').fill(c); await p.getByRole('button', { name: 'Verify email' }).click(); };
 
 try {
@@ -66,6 +67,7 @@ try {
 
   // 5: wrong code, then correct code; after refresh the password is gone, so sign-in is the next step
   await enter(b, '000000');
+  await until(b, /incorrect or has expired/);
   check('5. wrong code gives clear feedback', /incorrect or has expired/i.test(await feedback(b)), await feedback(b));
   await enter(b, code(e));
   await b.waitForURL(/mode=login/, { timeout: 10000 }).catch(() => {});
@@ -86,6 +88,7 @@ try {
   await signIn(c, e);
   await onVerify(c);
   await enter(c, old);
+  await until(c, /incorrect or has expired/);
   check('3. expired code is refused with clear feedback', /incorrect or has expired/i.test(await feedback(c)) && !verified(e), await feedback(c));
   sql(`update users set email_verification_code = null where email='${e}'`); // resend cooldown from signup still applies
   const cooled = c.getByRole('button', { name: /Resend code/ });
@@ -109,6 +112,7 @@ try {
   await signUp(d, e);
   for (let i = 0; i < 4; i++) await post('/api/auth/verify-email', { email: e, code: '000000' });
   await enter(d, '000000');
+  await until(d, /too many wrong codes/);
   check('fifth wrong code locks attempts', /too many wrong codes/i.test(await feedback(d)), await feedback(d));
   check('the code is destroyed on lockout', sql(`select email_verification_code is null from users where email='${e}'`) === 't');
   const right = code(e);
