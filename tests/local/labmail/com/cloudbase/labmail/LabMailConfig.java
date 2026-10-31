@@ -50,8 +50,20 @@ public class LabMailConfig {
             if (m.getName().equals("sendEmailVerificationCode")) {
                 String to = (String) a[0];
                 if (to.startsWith("undeliverable")) throw new IllegalStateException("Failed to send email: lab provider down");
+                if (Files.deleteIfExists(Path.of("/tmp/lab-mail-fail-next"))) {
+                    throw new IllegalStateException("Failed to send email: lab injected delivery failure");
+                }
                 Files.createDirectories(Path.of("/tmp/lab-mail"));
                 Files.writeString(Path.of("/tmp/lab-mail", to), (String) a[2]);
+                // Controlled overlap for verification/resend regression; isolated lab only.
+                if (to.startsWith("race") && Files.exists(Path.of("/tmp/lab-mail-pause"))) {
+                    Files.writeString(Path.of("/tmp/lab-mail-entered"), "ready");
+                    long deadline = System.nanoTime() + java.time.Duration.ofSeconds(20).toNanos();
+                    while (Files.exists(Path.of("/tmp/lab-mail-pause"))) {
+                        if (System.nanoTime() >= deadline) throw new IllegalStateException("lab mail pause deadline");
+                        Thread.sleep(20);
+                    }
+                }
             }
             if (m.getName().equals("sendRegistrationPending") && ((String) a[0]).startsWith("welcomefail")) {
                 throw new IllegalStateException("Failed to send email: lab provider down");

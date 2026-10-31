@@ -19,6 +19,15 @@ public interface UserRepository extends JpaRepository<UserEntity, String> {
 
     List<UserEntity> findAllByEmailIgnoreCase(String email);
 
+    /** Serialize code replacement and verification before either reads mutable verification state. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from UserEntity u where u.email = :email")
+    Optional<UserEntity> lockByEmail(@Param("email") String email);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from UserEntity u where lower(u.email) = lower(:email) order by u.id")
+    List<UserEntity> lockAllByEmailIgnoreCase(@Param("email") String email);
+
     boolean existsByRole(UserRole role);
 
     @Query("select u from UserEntity u where lower(u.vanitySlug) = lower(:slug)")

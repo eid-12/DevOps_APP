@@ -17,7 +17,8 @@ import {
   Validators
 } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { finalize } from 'rxjs/operators';
+import { EMPTY } from 'rxjs';
+import { catchError, finalize, switchMap, tap } from 'rxjs/operators';
 import { AuthService } from '../core/auth.service';
 import { AppConfigService } from '../core/app-config.service';
 import { isSafeReturnUrl } from '../core/auth.guard';
@@ -608,22 +609,32 @@ export class AuthPageComponent implements OnInit {
       this.auth
         .verifyEmail(email, code.trim())
         .pipe(
-          takeUntilDestroyed(this.destroyRef),
-          finalize(() => this.loading.set(false))
-        )
-        .subscribe({
-          next: (res) => {
+          switchMap(res => {
             this.clearPendingEmail();
             this.emailLocked.set(false);
             this.form.patchValue({ code: '' });
             if (password) {
-              // Same visit: the password from the sign-in attempt is still in memory, so finish signing in.
-              this.signInAfterVerification(email, password, res.message);
-            } else {
-              this.applyMode('login', true);
-              this.feedback.set({ kind: 'success', text: res.message });
+              // One subscription owns loading until verification AND automatic sign-in finish.
+              return this.auth.login({ email, password }).pipe(
+                tap(response => {
+                  this.feedback.set({ kind: 'success', text: res.message });
+                  window.setTimeout(() => this.router.navigateByUrl(response.user.role === 'ADMIN' ? '/admin' : '/dashboard'), 400);
+                }),
+                catchError(() => {
+                  this.applyMode('login', true);
+                  this.feedback.set({ kind: 'success', text: res.message });
+                  return EMPTY;
+                })
+              );
             }
-          },
+            this.applyMode('login', true);
+            this.feedback.set({ kind: 'success', text: res.message });
+            return EMPTY;
+          }),
+          takeUntilDestroyed(this.destroyRef),
+          finalize(() => this.loading.set(false))
+        )
+        .subscribe({
           error: (err) => {
             this.feedback.set({ kind: 'error', text: this.readError(err) });
             this.applyCooldownFromError(err);
@@ -670,26 +681,6 @@ export class AuthPageComponent implements OnInit {
             return;
           }
           this.feedback.set({ kind: 'error', text: this.readError(err) });
-        }
-      });
-  }
-
-  private signInAfterVerification(email: string, password: string, message: string): void {
-    this.loading.set(true);
-    this.auth
-      .login({ email, password })
-      .pipe(
-        takeUntilDestroyed(this.destroyRef),
-        finalize(() => this.loading.set(false))
-      )
-      .subscribe({
-        next: (response) => {
-          this.feedback.set({ kind: 'success', text: message });
-          window.setTimeout(() => this.router.navigateByUrl(response.user.role === 'ADMIN' ? '/admin' : '/dashboard'), 400);
-        },
-        error: () => {
-          this.applyMode('login', true);
-          this.feedback.set({ kind: 'success', text: message });
         }
       });
   }

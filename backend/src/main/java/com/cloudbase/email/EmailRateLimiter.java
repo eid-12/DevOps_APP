@@ -72,7 +72,7 @@ public class EmailRateLimiter {
             if (emailBucket != null && emailBucket.lastSentAt != null) {
                 Instant cooldownEnds = emailBucket.lastSentAt.plus(COOLDOWN);
                 if (now.isBefore(cooldownEnds)) {
-                    long wait = Math.max(1, Duration.between(now, cooldownEnds).getSeconds());
+                    long wait = secondsRemaining(now, cooldownEnds);
                     throw tooMany("Please wait " + wait + " seconds before requesting another email.");
                 }
             }
@@ -98,7 +98,7 @@ public class EmailRateLimiter {
             if (emailBucket != null && emailBucket.lastSentAt != null) {
                 Instant cooldownEnds = emailBucket.lastSentAt.plus(COOLDOWN);
                 if (now.isBefore(cooldownEnds)) {
-                    long wait = Math.max(1, Duration.between(now, cooldownEnds).getSeconds());
+                    long wait = secondsRemaining(now, cooldownEnds);
                     throw tooMany("Please wait " + wait + " seconds before requesting another email.");
                 }
             }
@@ -166,6 +166,12 @@ public class EmailRateLimiter {
 
     private static ResponseStatusException tooMany(String message) {
         return new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, message);
+    }
+
+    /** Never tell the browser to retry before the enforced boundary. */
+    private static long secondsRemaining(Instant now, Instant end) {
+        Duration remaining = Duration.between(now, end);
+        return Math.max(1, remaining.getSeconds() + (remaining.getNano() == 0 ? 0 : 1));
     }
 
     private static String key(Action action, String email) {

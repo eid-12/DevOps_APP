@@ -39,3 +39,14 @@ Host standby or clock adjustments can disrupt these real-time checks: correlate 
 and do not call a later green run a diagnosis. A clock skew sample taken only after failure cannot prove that
 the clocks stayed synchronized throughout the run. Likewise, a post-restart 502 does not explain an earlier
 cooldown or login failure without its own request evidence.
+
+`node tests/local/email_concurrency.mjs` needs its own fresh `--email` lab with the current compiled
+`labmail` fixture. It holds a real login response to check that verification remains busy, and pauses the
+synthetic mail provider to overlap resend with verification. It observes PostgreSQL lock waiting and
+checks that resend cannot undo a successful verification. It also injects a failed resend, checks that
+the previous code survives and is consumed only once, and verifies that a supported synthetic admin
+suspension cannot be lifted by email verification. No production credentials or mail provider are used.
+
+The cooldown boundary unit tests cover rounded-up advertised waits and a controlled backward clock
+step. The latter reproduces a wall-clock timing mechanism; it does not establish the cause of earlier
+untraced failures. Keep that distinction when reporting the new concurrency fixes or successful runs.

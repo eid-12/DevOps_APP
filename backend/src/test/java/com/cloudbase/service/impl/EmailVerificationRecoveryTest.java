@@ -51,7 +51,7 @@ class EmailVerificationRecoveryTest {
         u.setAccountStatus(AccountStatus.PENDING_ACTIVATION);
         u.setEmailVerificationCode("123456");
         u.setEmailVerificationExpiresAt(expires);
-        when(users.findAllByEmailIgnoreCase(anyString())).thenReturn(List.of(u));
+        when(users.lockAllByEmailIgnoreCase(anyString())).thenReturn(List.of(u));
         when(email.isEnabled()).thenReturn(true);
         return u;
     }
@@ -62,7 +62,7 @@ class EmailVerificationRecoveryTest {
 
     @Test
     void unknownExpiredAndWrongCodesAnswerAlike() {
-        when(users.findAllByEmailIgnoreCase(anyString())).thenReturn(List.of());
+        when(users.lockAllByEmailIgnoreCase(anyString())).thenReturn(List.of());
         String unknown = refusal("nobody@cloudbase.test", "123456");
         pending(Instant.now().minusSeconds(1));
         assertEquals(unknown, refusal("qa@cloudbase.test", "123456"));
@@ -73,7 +73,7 @@ class EmailVerificationRecoveryTest {
     @Test
     void resendAnswersAlikeForUnknownAndPendingAccounts() {
         when(email.isEnabled()).thenReturn(true);
-        when(users.findAllByEmailIgnoreCase(anyString())).thenReturn(List.of());
+        when(users.lockAllByEmailIgnoreCase(anyString())).thenReturn(List.of());
         AuthDtos.MessageResponse unknown = auth.resendVerificationCode("nobody@cloudbase.test");
         pending(Instant.now());
         assertEquals(unknown.message(), auth.resendVerificationCode("qa@cloudbase.test").message());
@@ -85,6 +85,15 @@ class EmailVerificationRecoveryTest {
         doThrow(new IllegalStateException("provider down")).when(email).sendEmailVerificationCode(any(), any(), any());
         ResponseStatusException e = assertThrows(ResponseStatusException.class, () -> auth.resendVerificationCode("qa@cloudbase.test"));
         assertEquals(HttpStatus.SERVICE_UNAVAILABLE, e.getStatusCode());
+    }
+
+    @Test
+    void verificationDoesNotLiftAnAdministrativeSuspension() {
+        UserEntity u = pending(Instant.now().plusSeconds(60));
+        u.setAccountStatus(AccountStatus.SUSPENDED);
+        auth.verifyEmail("qa@cloudbase.test", "123456");
+        assertTrue(u.isEmailVerified());
+        assertEquals(AccountStatus.SUSPENDED, u.getAccountStatus());
     }
 
     @Test

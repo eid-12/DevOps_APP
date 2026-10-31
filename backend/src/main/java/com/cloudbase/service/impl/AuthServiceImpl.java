@@ -179,10 +179,10 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @org.springframework.transaction.annotation.Transactional(noRollbackFor = ResponseStatusException.class)
     public MessageResponse verifyEmail(String email, String code) {
+        UserEntity user = findUserByEmail(email, true).orElse(null);
         emailRateLimiter.checkVerifyAllowed(email);
 
         // Unknown, verified, expired and wrong all answer alike, so this endpoint does not reveal accounts.
-        UserEntity user = findUserByEmail(email).orElse(null);
         boolean pending = user != null && !user.isEmailVerified()
                 && user.getEmailVerificationCode() != null
                 && user.getEmailVerificationExpiresAt() != null
@@ -207,8 +207,10 @@ public class AuthServiceImpl implements AuthService {
         user.setEmailVerified(true);
         user.setEmailVerificationCode(null);
         user.setEmailVerificationExpiresAt(null);
-        // Can sign in immediately; admin must still enable deployment.
-        user.setAccountStatus(AccountStatus.ACTIVE);
+        // Verification activates a pending account, never overrides an administrative suspension.
+        if (user.getAccountStatus() == AccountStatus.PENDING_ACTIVATION) {
+            user.setAccountStatus(AccountStatus.ACTIVE);
+        }
         user.setDeploymentEnabled(false);
         userRepository.save(user);
 
@@ -232,7 +234,7 @@ public class AuthServiceImpl implements AuthService {
             );
         }
         String generic = "If this account still needs verification, a new code was sent. Check your inbox and spam folder.";
-        UserEntity user = findUserByEmail(email).orElse(null);
+        UserEntity user = findUserByEmail(email, true).orElse(null);
         if (user == null || user.isEmailVerified()) {
             emailRateLimiter.noteUnknownInbox(EmailRateLimiter.Action.VERIFICATION, email);
             return new MessageResponse(generic);
@@ -569,12 +571,17 @@ public class AuthServiceImpl implements AuthService {
      * pre-existing case-variant duplicates.
      */
     private Optional<UserEntity> findUserByEmail(String rawEmail) {
+        return findUserByEmail(rawEmail, false);
+    }
+
+    private Optional<UserEntity> findUserByEmail(String rawEmail, boolean forUpdate) {
         String trimmed = rawEmail == null ? "" : rawEmail.trim();
-        Optional<UserEntity> exact = userRepository.findByEmail(trimmed);
+        Optional<UserEntity> exact = forUpdate ? userRepository.lockByEmail(trimmed) : userRepository.findByEmail(trimmed);
         if (exact.isPresent()) {
             return exact;
         }
-        List<UserEntity> matches = userRepository.findAllByEmailIgnoreCase(trimmed);
+        List<UserEntity> matches = forUpdate ? userRepository.lockAllByEmailIgnoreCase(trimmed)
+                : userRepository.findAllByEmailIgnoreCase(trimmed);
         return matches.size() == 1 ? Optional.of(matches.get(0)) : Optional.empty();
     }
 
