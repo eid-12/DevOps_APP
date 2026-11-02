@@ -12,6 +12,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { finalize } from 'rxjs';
 import { AuthService } from '../core/auth.service';
 import { friendlyApiMessage } from '../core/friendly-error';
 import { ProjectService } from '../core/project.service';
@@ -1157,6 +1158,8 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
   readonly rollbackTarget = signal<Deployment | null>(null);
   readonly rollbackBusy = signal(false);
   readonly busy = signal(false);
+  /** Deployments with a cancel request in flight (a second click would report "already finished"). */
+  private readonly cancelling = new Set<string>();
   readonly saving = signal(false);
   readonly deleteTarget = signal<Service | null>(null);
   readonly deleting = signal(false);
@@ -2452,7 +2455,7 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
   }
 
   stop() {
-    if (!this.canManage()) return;
+    if (!this.canManage() || this.busy()) return;
     this.busy.set(true);
     this.clearDeployPolls();
     this.projectService.stopService(this.serviceId).subscribe({
@@ -2473,7 +2476,7 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
   }
 
   restart() {
-    if (!this.canManage()) return;
+    if (!this.canManage() || this.busy()) return;
     this.busy.set(true);
     this.projectService.restartService(this.serviceId).subscribe({
       next: svc => {
@@ -2537,7 +2540,7 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
 
   saveIdentity() {
     const svc = this.service();
-    if (!svc || !this.canManage() || !this.nameDraft.trim()) return;
+    if (!svc || !this.canManage() || !this.nameDraft.trim() || this.saving()) return;
 
     let sourceDetails = svc.sourceDetails;
     if (svc.sourceType === 'GITHUB') {
@@ -2593,8 +2596,11 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
   }
 
   cancelDeploy(deploymentId: string) {
-    if (!this.canManage()) return;
-    this.projectService.cancelDeployment(deploymentId, this.serviceId).subscribe({
+    if (!this.canManage() || this.cancelling.has(deploymentId)) return;
+    this.cancelling.add(deploymentId);
+    this.projectService.cancelDeployment(deploymentId, this.serviceId)
+      .pipe(finalize(() => this.cancelling.delete(deploymentId)))
+      .subscribe({
       next: () => {
         this.loadDeployments();
         this.projectService.getService(this.projectId, this.serviceId).subscribe({
@@ -2611,7 +2617,7 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
   }
 
   saveVars() {
-    if (!this.canManage()) return;
+    if (!this.canManage() || this.saving()) return;
     this.saving.set(true);
     this.projectService.updateEnvVars(this.serviceId, this.envDraft).subscribe({
       next: svc => {
@@ -2783,7 +2789,7 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
   }
 
   saveDomain() {
-    if (!this.canManage()) return;
+    if (!this.canManage() || this.saving()) return;
     if (this.service()?.sourceType === 'DATABASE') return;
     if (this.domainSaveBlocked()) return;
     this.saving.set(true);
@@ -2814,7 +2820,7 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
   readonly publicUrl = publicUrl;
 
   saveSettings() {
-    if (!this.canManage()) return;
+    if (!this.canManage() || this.saving()) return;
     this.saving.set(true);
     const volume = this.useVolume
       ? { mountPath: this.volumePath || '/data', sizeGb: this.volumeSize || 1 }

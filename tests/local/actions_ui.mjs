@@ -109,6 +109,23 @@ await u.waitForTimeout(1500);
 const running = (await api('GET', `/api/projects/services/${sv.id}/deployments`, undefined, a.token))[1];
 check('double click starts at most one extra deploy', running.filter(d => ['QUEUED', 'BUILDING', 'DEPLOYING'].includes(d.status)).length <= 1, hits);
 
+// Cancelling a running deploy: a double click sends one request and never ends on "already finished"
+const mockExec = (...c) => execFileSync('docker', ['exec', lab.prefix + '-mock', ...c]);
+for (let i = 0; i < 40 && (await api('GET', `/api/projects/services/${sv.id}/deployments`, undefined, a.token))[1]
+  .some(d => ['QUEUED', 'BUILDING', 'DEPLOYING'].includes(d.status)); i++) await u.waitForTimeout(500);
+mockExec('touch', '/tmp/slow-deploy');
+await api('POST', `/api/projects/services/${sv.id}/deploy`, { imageTag: '1.27-alpine' }, a.token);
+await u.goto(`${WEB}/projects/${pa.id}/services/${sv.id}`); await u.waitForLoadState('domcontentloaded');
+await u.getByRole('button', { name: 'Deployments', exact: true }).first().click(); await u.waitForTimeout(800);
+let cancels = 0;
+await u.route('**/cancel', r => { cancels++; r.continue(); });
+await u.getByRole('button', { name: 'Cancel', exact: true }).first().dblclick();
+await u.waitForTimeout(2500);
+const afterCancel = await u.locator('body').innerText();
+check('double-clicked cancel sends one request and reports success only', cancels === 1 && /Deployment cancelled/.test(afterCancel)
+  && !/already finished/i.test(afterCancel), JSON.stringify({ cancels, error: afterCancel.match(/.{0,40}already finished.{0,20}/i)?.[0] }));
+mockExec('rm', '-f', '/tmp/slow-deploy');
+
 // Older history stays reachable in the UI
 execFileSync('docker', ['exec', lab.prefix + '-db', 'psql', '-U', 'cloudbase', '-d', 'cloudbase', '-c',
   `insert into deployments (id, service_id, project_id, status, started_at, finished_at) select 'old-'||g, '${sv.id}', '${pa.id}', 'SUCCESS', now() - (g||' minutes')::interval, now() from generate_series(1,120) g`]);

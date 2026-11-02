@@ -787,7 +787,7 @@ export class ProjectDetailPageComponent implements OnInit {
 
   saveSharedVar() {
     const p = this.project();
-    if (!p || !this.canManage()) return;
+    if (!p || !this.canManage() || this.sharedSaving()) return;
     this.sharedSaving.set(true);
     this.sharedError.set('');
     this.projectService.upsertSharedVariable(p.id, {
@@ -813,7 +813,7 @@ export class ProjectDetailPageComponent implements OnInit {
 
   deleteSharedVar(v: SharedVariable) {
     const p = this.project();
-    if (!p || !this.canManage()) return;
+    if (!p || !this.canManage() || this.sharedSaving()) return;
     if (!confirm(`Delete shared variable ${v.key}?`)) return;
     this.sharedSaving.set(true);
     this.projectService.deleteSharedVariable(p.id, v.id).subscribe({
@@ -866,7 +866,7 @@ export class ProjectDetailPageComponent implements OnInit {
 
   saveSettings() {
     const p = this.project();
-    if (!p || !this.settingsName.trim()) return;
+    if (!p || !this.settingsName.trim() || this.savingSettings()) return;
     this.savingSettings.set(true);
     this.settingsError.set('');
     this.projectService.update(p.id, {
