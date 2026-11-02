@@ -19,6 +19,9 @@ const admin = (await api('POST', '/api/auth/login', { email: 'admin@cloudbase.te
 const u = await reg('settings'), other = await reg('stranger');
 for (const x of [u, other]) await api('PATCH', `/api/admin/users/${x.user.id}/deployment-access`, { enabled: true }, admin);
 const [, project] = await api('POST', '/api/projects', { name: 'settings' }, u.token);
+// Synthetic GitHub connection (same statement as lab.connect_github) so GitHub services pass the push-access check.
+execFileSync('docker', ['exec', lab.prefix + '-db', 'psql', '-U', 'cloudbase', '-d', 'cloudbase', '-c',
+  "update users set github_access_token='synthetic-token', github_username='local-qa', github_scopes='repo read:packages' where role='USER' and github_access_token is null"]);
 const mkGh = async n => (await api('POST', `/api/projects/${project.id}/services`, { name: n, sourceType: 'GITHUB', sourceDetails: { repositoryUrl: 'https://github.com/local-qa/' + n, branch: 'main', runtime: 'node' }, quota: { memoryMb: 128, cpuMilli: 100, storageGb: 0 } }, u.token))[1];
 const gh = await mkGh('gh-settings');
 const victim = await mkGh('to-delete');

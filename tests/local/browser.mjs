@@ -5,6 +5,7 @@ import { chromium } from 'playwright';
 import { readFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 const STATE_DIR = join(tmpdir(), 'cloudbase-isolated-lab');
 const lab = JSON.parse(readFileSync(join(STATE_DIR, 'state.json'), 'utf8'));
@@ -106,6 +107,9 @@ try {
 
   // 4. GitHub service settings save (the request must not carry CloudBase-managed fields)
   step = 'github settings save';
+  // Synthetic GitHub connection (same statement as lab.connect_github) so the service passes the push-access check.
+  execFileSync('docker', ['exec', lab.prefix + '-db', 'psql', '-U', 'cloudbase', '-d', 'cloudbase', '-c',
+    "update users set github_access_token='synthetic-token', github_username='local-qa', github_scopes='repo read:packages' where role='USER' and github_access_token is null"]);
   const gh = await api('POST', `/api/projects/${project.id}/services`, { name: 'gh-ui', sourceType: 'GITHUB',
     sourceDetails: { repositoryUrl: 'https://github.com/local-qa/browser-app', branch: 'main', runtime: 'node' },
     quota: { memoryMb: 128, cpuMilli: 100, storageGb: 0 } }, token, 201);

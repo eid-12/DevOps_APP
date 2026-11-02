@@ -34,9 +34,18 @@ public class GitHubRepoClient {
             new ParameterizedTypeReference<>() {};
 
     private final WebClient webClient;
+    private final String apiBase;
 
     public GitHubRepoClient(WebClient.Builder webClientBuilder) {
+        this(webClientBuilder, "https://api.github.com");
+    }
+
+    /** {@code github.api-url} lets an isolated lab answer GitHub API calls with a stand-in. */
+    @org.springframework.beans.factory.annotation.Autowired
+    public GitHubRepoClient(WebClient.Builder webClientBuilder,
+                            @org.springframework.beans.factory.annotation.Value("${github.api-url:https://api.github.com}") String apiBase) {
         this.webClient = webClientBuilder.build();
+        this.apiBase = apiBase.replaceAll("/+$", "");
     }
 
     public record OwnerRepo(String owner, String repo) {}
@@ -64,6 +73,30 @@ public class GitHubRepoClient {
             throw GitHubOAuthException.badRequest("bad_repo", "Could not parse owner/repo from URL");
         }
         return new OwnerRepo(parts[0], parts[1]);
+    }
+
+    /**
+     * Whether the token's user may push to the repository, as GitHub reports it in {@code permissions.push}
+     * (owners, admins, maintainers and write collaborators). A repository the user cannot see (404) or whose
+     * permissions are withheld counts as no. Other API failures propagate so they are not mistaken for "no".
+     */
+    @SuppressWarnings("unchecked")
+    public boolean canPush(String accessToken, String owner, String repo) {
+        try {
+            Map<String, Object> body = webClient.get()
+                    .uri(apiBase + "/repos/{owner}/{repo}", owner, repo)
+                    .headers(h -> auth(h, accessToken))
+                    .retrieve()
+                    .bodyToMono(MAP)
+                    .block();
+            return body != null && body.get("permissions") instanceof Map<?, ?> p
+                    && Boolean.TRUE.equals(((Map<String, Object>) p).get("push"));
+        } catch (WebClientResponseException.NotFound | WebClientResponseException.Forbidden e) {
+            return false;
+        } catch (WebClientResponseException e) {
+            throw GitHubOAuthException.badGateway("github_repo_error",
+                    "Could not check access to " + owner + "/" + repo + " (HTTP " + e.getStatusCode().value() + ")");
+        }
     }
 
     public Optional<String> getFileSha(String accessToken, String owner, String repo, String path) {
@@ -183,7 +216,7 @@ public class GitHubRepoClient {
         List<Map<String, Object>> hooks;
         try {
             hooks = webClient.get()
-                    .uri("https://api.github.com/repos/{owner}/{repo}/hooks", owner, repo)
+                    .uri(apiBase + "/repos/{owner}/{repo}/hooks", owner, repo)
                     .headers(h -> auth(h, accessToken))
                     .retrieve()
                     .bodyToMono(LIST_MAP)
@@ -222,7 +255,7 @@ public class GitHubRepoClient {
 
         try {
             webClient.post()
-                    .uri("https://api.github.com/repos/{owner}/{repo}/hooks", owner, repo)
+                    .uri(apiBase + "/repos/{owner}/{repo}/hooks", owner, repo)
                     .headers(h -> auth(h, accessToken))
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(body)
@@ -258,7 +291,7 @@ public class GitHubRepoClient {
         Map<String, Object> body = Map.of("ref", branch);
         try {
             webClient.post()
-                    .uri("https://api.github.com/repos/{owner}/{repo}/actions/workflows/{file}/dispatches",
+                    .uri(apiBase + "/repos/{owner}/{repo}/actions/workflows/{file}/dispatches",
                             owner, repo, workflowFile)
                     .headers(h -> auth(h, accessToken))
                     .contentType(MediaType.APPLICATION_JSON)
@@ -291,8 +324,8 @@ public class GitHubRepoClient {
     }
 
     /** Build Contents API URI without encoding {@code /} as {@code %2F} (GitHub 404s that). */
-    private static URI contentsUri(String owner, String repo, String path) {
-        StringBuilder sb = new StringBuilder("https://api.github.com/repos/");
+    private URI contentsUri(String owner, String repo, String path) {
+        StringBuilder sb = new StringBuilder(apiBase + "/repos/");
         sb.append(enc(owner)).append('/').append(enc(repo)).append("/contents/");
         String[] parts = path == null ? new String[0] : path.split("/");
         boolean first = true;

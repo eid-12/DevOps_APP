@@ -42,6 +42,7 @@ class CiBootstrapNoPlatformSecretsTest {
         when(settings.get(PlatformSettingsService.GITHUB_WEBHOOK_SECRET)).thenReturn("webhook-secret");
         when(repoClient.putTextFile(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyBoolean()))
                 .thenReturn(true);
+        when(repoClient.canPush("tenant-oauth-token", "Tenant", "My-App")).thenReturn(true);
 
         UserEntity owner = new UserEntity();
         owner.setId("u-1");
@@ -64,6 +65,7 @@ class CiBootstrapNoPlatformSecretsTest {
         GitHubRepoClient repoClient = mock(GitHubRepoClient.class);
         bootstrap(repoClient, source());
 
+        verify(repoClient).canPush("tenant-oauth-token", "Tenant", "My-App");
         verify(repoClient, atLeast(0)).fileExists(anyString(), anyString(), anyString(), anyString());
         verify(repoClient, atLeast(1)).putTextFile(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyBoolean());
         verify(repoClient).ensureWebhook(anyString(), anyString(), anyString(), anyString(), anyString(), anyList());

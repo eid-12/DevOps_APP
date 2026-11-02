@@ -8,6 +8,7 @@ import com.cloudbase.repository.ServiceRepository;
 import com.cloudbase.service.DeploymentOrchestrator;
 import com.cloudbase.service.PlatformSettingsService;
 import com.cloudbase.service.ProjectService;
+import com.cloudbase.service.impl.CiBootstrapServiceImpl;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -115,6 +116,8 @@ public class WebhookController {
                 .filter(s -> {
                     Map<String, Object> src = s.getSourceDetails();
                     if (src == null) return false;
+                    // Only services whose owner was verified to have push access to this repository.
+                    if (!Boolean.TRUE.equals(src.get(CiBootstrapServiceImpl.REPO_ACCESS_VERIFIED))) return false;
                     return normalizeRepo(String.valueOf(src.getOrDefault("repositoryUrl", "")))
                             .equals(normalizeRepo(repoUrl));
                 })

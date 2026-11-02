@@ -40,6 +40,15 @@ def save(value):
     os.replace(tmp, STATE_FILE)
 
 
+# Synthetic GitHub connection for lab users, so GitHub services pass the push-access check (the mock answers it).
+CONNECT_GITHUB_SQL = ("update users set github_access_token='synthetic-token', github_username='local-qa', "
+                      "github_scopes='repo read:packages' where role='USER' and github_access_token is null")
+
+
+def connect_github():
+    docker('exec', state()['prefix'] + '-db', 'psql', '-U', 'cloudbase', '-d', 'cloudbase', '-c', CONNECT_GITHUB_SQL)
+
+
 def request(method, path, data=None, token=None):
     s = state()
     headers = {'Content-Type': 'application/json'}
@@ -109,6 +118,7 @@ def start(args):
             'CLOUDBASE_BASE_DOMAIN': 'cloudbase.test', 'CLOUDBASE_PUBLIC_API_URL': 'http://localhost',
             'CLOUDBASE_WATCHTOWER_ENABLED': 'false', 'CLOUDBASE_VOLUME_ROOT': '/tmp/cloudbase-test',
             'CLOUDBASE_CORS_ALLOWED_ORIGINS': 'http://127.0.0.1',
+            'GITHUB_API_URL': 'http://mock:9000/github',
         }
         if args.jwt_expiration_ms:
             env['JWT_EXPIRATION_MS'] = str(int(args.jwt_expiration_ms))

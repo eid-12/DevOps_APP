@@ -3,7 +3,7 @@ import json
 import sys
 import threading
 import time
-from lab import request, state, save, PASSWORD, ADMIN, STATE_DIR
+from lab import request, state, save, connect_github, PASSWORD, ADMIN, STATE_DIR
 
 checks = []
 
@@ -38,6 +38,7 @@ for role in ['owner', 'other', 'browser']:
     call('POST', '/api/projects', {'name': 'blocked'}, registered['token'], expected=403)
     call('PATCH', '/api/admin/users/' + registered['user']['id'] + '/deployment-access', {'enabled': True}, at)
 ot, bt = users['owner']['token'], users['other']['token']
+connect_github()
 admin_health = call('GET', '/actuator/health', token=at)
 check('admin health includes component details', 'components' in admin_health and 'db' in admin_health['components'])
 check('non-admin health hides component details', set(call('GET', '/actuator/health', token=ot)) == {'status'})

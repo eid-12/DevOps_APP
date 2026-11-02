@@ -11,8 +11,10 @@ import com.cloudbase.service.PlatformSettingsService;
 import com.cloudbase.service.StartCommandValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.HashMap;
 import java.util.List;
@@ -99,6 +101,16 @@ public class CiBootstrapServiceImpl implements CiBootstrapService {
         String message;
 
         try {
+            // Nothing is written to a repository, and no webhook deploy reaches this service, unless the owner's
+            // GitHub account may push to it. Write collaborators qualify, so shared repositories keep working.
+            boolean authorized = repoClient.canPush(token, or.owner(), or.repo());
+            src.put(REPO_ACCESS_VERIFIED, authorized);
+            if (!authorized) {
+                src.put("ciBootstrapped", false);
+                src.put("ciMessage", unauthorizedRepoMessage(or));
+                log.warn("CI bootstrap refused service={}: no push access to {}/{}", service.getId(), or.owner(), or.repo());
+                return src;
+            }
             if (!repoClient.fileExists(token, or.owner(), or.repo(), "Dockerfile")) {
                 dockerfileCreated = repoClient.putTextFile(
                         token, or.owner(), or.repo(), "Dockerfile",
@@ -157,6 +169,26 @@ public class CiBootstrapServiceImpl implements CiBootstrapService {
         }
 
         return src;
+    }
+
+    @Override
+    public void assertCanPush(UserEntity owner, String repositoryUrl) {
+        OwnerRepo or = GitHubRepoClient.parseOwnerRepo(repositoryUrl);
+        String token = owner.getGithubAccessToken();
+        if (!StringUtils.hasText(token)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Connect GitHub on Account before adding a GitHub service.");
+        }
+        if (!repoClient.canPush(token, or.owner(), or.repo())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, unauthorizedRepoMessage(or));
+        }
+    }
+
+    /** Source-details flag set only by the platform; webhook deploys require it. Managed ({@code ci*}) key. */
+    public static final String REPO_ACCESS_VERIFIED = "ciRepoAccessVerified";
+
+    public static String unauthorizedRepoMessage(OwnerRepo or) {
+        return "Your connected GitHub account cannot push to " + or.owner() + "/" + or.repo()
+                + ". Pick a repository you own or have write access to, or ask its owner to add you as a collaborator.";
     }
 
     private static String sanitize(String name) {

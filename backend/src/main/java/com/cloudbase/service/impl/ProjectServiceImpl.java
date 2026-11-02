@@ -275,7 +275,11 @@ public class ProjectServiceImpl implements ProjectService {
         Map<String, Object> details = request.sourceDetails() != null
                 ? new HashMap<>(request.sourceDetails())
                 : new HashMap<>();
-        if (request.sourceType() == ServiceSourceType.GITHUB) rejectManagedGitHubFields(details);
+        if (request.sourceType() == ServiceSourceType.GITHUB) {
+            rejectManagedGitHubFields(details);
+            // Refuse before anything is stored or provisioned: no service may bind a repository its owner cannot push to.
+            ciBootstrapService.assertCanPush(serviceOwner(project), String.valueOf(details.getOrDefault("repositoryUrl", "")));
+        }
         validateImageDetails(details);
 
         ServiceEntity service = ServiceEntity.builder()
@@ -1102,6 +1106,14 @@ public class ProjectServiceImpl implements ProjectService {
                     && githubCiFieldsChanged(previousDetails, details)) {
                 refreshCi = true;
             }
+            String previousRepo = previousDetails == null ? "" : String.valueOf(previousDetails.getOrDefault("repositoryUrl", ""));
+            if (service.getSourceType() == ServiceSourceType.GITHUB
+                    && !previousRepo.equals(String.valueOf(details.getOrDefault("repositoryUrl", "")))) {
+                // A new repository needs its own authority check; the old verification never carries over.
+                ciBootstrapService.assertCanPush(serviceOwner(service), String.valueOf(details.getOrDefault("repositoryUrl", "")));
+                details.remove(CiBootstrapServiceImpl.REPO_ACCESS_VERIFIED);
+                service.setSourceDetails(details);
+            }
         }
         if (request.runtime() != null && !request.runtime().isBlank()) {
             Map<String, Object> details = service.getSourceDetails() != null
@@ -1186,7 +1198,11 @@ public class ProjectServiceImpl implements ProjectService {
     }
 
     private UserEntity serviceOwner(ServiceEntity service) {
-        return userRepository.findById(service.getProject().getOwnerId())
+        return serviceOwner(service.getProject());
+    }
+
+    private UserEntity serviceOwner(ProjectEntity project) {
+        return userRepository.findById(project.getOwnerId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Service owner not found"));
     }
 

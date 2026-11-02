@@ -15,4 +15,7 @@ public interface CiBootstrapService {
      * Returns details map to persist on the service.
      */
     Map<String, Object> bootstrapGitHubService(UserEntity owner, ServiceEntity service);
+
+    /** 403 unless the owner's connected GitHub account may push to the repository (owner or collaborator). */
+    void assertCanPush(UserEntity owner, String repositoryUrl);
 }

@@ -11,7 +11,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
-from lab import request, state, PASSWORD, ADMIN
+from lab import request, state, connect_github, PASSWORD, ADMIN
 
 results = []
 
@@ -91,19 +91,23 @@ check('deployment reaches SUCCESS through the real logic', d[0]['status'] == 'SU
 check('service is RUNNING', request('GET', '/api/projects/services/' + sid, token=t)[1]['status'] == 'RUNNING')
 check('one simulated stack exists', len(stacks()) == 1, stacks())
 
-# Network isolation: tenant apps share an ingress network with the proxy only, never the platform network
+# Network isolation: each project has its own network (the proxy joins it for apps); never the platform network
+pnet = 'project-' + pid
 nets = lambda: json.loads(mock('node', '-e', "fetch('http://127.0.0.1:9000/_networks').then(r=>r.text()).then(console.log)"))
-check('ingress network was created with the proxy on it', 'nginx-proxy' in nets().get('cloudbase-tenants', []), nets())
+check('project network was created with the proxy on it', nets().get(pnet) == ['nginx-proxy'], nets())
 snapshot = sql(f"select compose_snapshot from deployments where service_id='{sid}' and status='SUCCESS' limit 1")
-check('app stack joins the tenant ingress network, not the platform network',
-      '- cloudbase-tenants' in snapshot and '- cloudbase\n' not in snapshot + '\n' and 'no-new-privileges:true' in snapshot, snapshot[-300:])
+check('app stack joins only its project network, not the platform network',
+      f'- {pnet}' in snapshot and f'name: {pnet}' in snapshot and '- cloudbase\n' not in snapshot + '\n'
+      and 'no-new-privileges:true' in snapshot, snapshot[-300:])
 dbs = post(f'/api/projects/{pid}/services', {'name': 'store', 'sourceType': 'DATABASE', 'sourceDetails': {'dbType': 'POSTGRESQL'},
            'quota': {'memoryMb': 128, 'cpuMilli': 100, 'storageGb': 1}}, t, str(uuid.uuid4()))
 if dbs[0] == 201:
     dd = settle(dbs[1]['id'])
     dsnap = sql(f"select compose_snapshot from deployments where service_id='{dbs[1]['id']}' order by started_at desc limit 1")
-    check('database stack stays on its project network only', dd[0]['status'] == 'SUCCESS' and 'external' not in dsnap
-          and 'cloudbase-tenants' not in dsnap, (dd[0]['status'], dsnap[-300:]))
+    only_project = f'networks:\n  {pnet}:\n    external: true\n    name: {pnet}'
+    check('database stack joins the same project network only', dd[0]['status'] == 'SUCCESS'
+          and f'    networks:\n    - {pnet}\n' in dsnap.replace('      - ', '    - ') and dsnap.rstrip().endswith(only_project)
+          and nets().get(pnet) == ['nginx-proxy'], (dd[0]['status'], dsnap[-300:], nets()))
 else:
     check('database service created', False, dbs)
 
@@ -120,6 +124,25 @@ check('a different tag is a new deployment, not merged', q[1]['id'] != x[1]['id'
 mock('rm', '-f', '/tmp/slow-deploy')
 settle(sid)
 
+# Repository binding: only repositories the owner's GitHub account can push to (owner or write collaborator)
+gh_body = lambda url: {'name': 'gh-' + uuid.uuid4().hex[:4], 'sourceType': 'GITHUB', 'sourceDetails': {'repositoryUrl': url,
+                       'branch': 'main', 'runtime': 'node'}, 'quota': {'memoryMb': 64, 'cpuMilli': 100, 'storageGb': 0}}
+services_before = int(sql(f"select count(*) from services where project_id='{pid}'"))
+code = post(f'/api/projects/{pid}/services', gh_body('https://github.com/local-qa/deploy-app'), t, str(uuid.uuid4()))[0]
+check('a GitHub service needs a connected GitHub account', code == 403, code)
+connect_github()
+for url, label in [('https://github.com/victim-org/payments', 'read-only public'), ('https://github.com/private/secret-app', 'invisible private')]:
+    code, resp = post(f'/api/projects/{pid}/services', gh_body(url), t, str(uuid.uuid4()))
+    check(f'a {label} repository of someone else is refused before anything is stored', code == 403
+          and 'cannot push' in str(resp), (code, str(resp)[:160]))
+check('refused repositories left no service row', int(sql(f"select count(*) from services where project_id='{pid}'")) == services_before)
+shared = post(f'/api/projects/{pid}/services', gh_body('https://github.com/shared-team/app'), t, str(uuid.uuid4()))
+check('a repository shared with write access is accepted', shared[0] == 201, shared)
+if shared[0] == 201:
+    settle(shared[1]['id'])
+    check('the shared repository is recorded as verified', sql(
+        f"select source_details->>'ciRepoAccessVerified' from services where id='{shared[1]['id']}'") == 'true')
+
 # Webhook: progress row, then completed, then redelivery; one real deploy per commit
 gh = post(f'/api/projects/{pid}/services', {'name': 'gh', 'sourceType': 'GITHUB',
           'sourceDetails': {'repositoryUrl': 'https://github.com/local-qa/deploy-app', 'branch': 'main', 'runtime': 'node'},
@@ -131,7 +154,6 @@ if gh[0] == 201:
     # No GitHub in the lab: give the service an existing image so the real webhook path can deploy it.
     sql(f"""update services set source_details = source_details || '{{"ciWorkflowCreated":true,"ciBootstrapped":true}}'::jsonb where id='{gid}'""")
     sql(f"""update services set custom_domain='app.cloudbase.test' where id='{gid}'""")
-    sql(f"""update users set github_username='local-qa', github_access_token='synthetic-token', github_scopes='repo read:packages' where id='{reg['user']['id']}'""")
 
     def hook(action, sha, conclusion):
         raw = json.dumps({'action': action, 'repository': {'html_url': 'https://github.com/local-qa/deploy-app', 'full_name': 'local-qa/deploy-app'},
@@ -170,17 +192,36 @@ if gh[0] == 201:
     settle(gid)
     real = [x for x in deps(gid) if x.get('commitSha') == sha and x.get('imageTag') and x['status'] != 'CANCELLED']
     check('dedupe survives an application restart', len(real) == 1, real)
+    # A service bound to the same repository without verified push access never receives webhook deploys.
+    sql(f"""update services set source_details = source_details - 'ciRepoAccessVerified' where id='{gid}'""")
+    unverified_sha = 'b' * 40
+    print('unverified hook', hook('completed', unverified_sha, 'success'))
+    time.sleep(3)
+    check('a webhook does not deploy a service whose repository access is unverified',
+          not [x for x in deps(gid) if x.get('commitSha') == unverified_sha], deps(gid)[:2])
 
-# A platform container on the ingress network must stop deploys rather than expose it to tenants
-before = len(stacks())
-mock('node', '-e', "fetch('http://127.0.0.1:9000/_networks/cloudbase-tenants/cloudbase-postgres',{method:'POST'}).then(r=>r.text())")
-bad = post(f'/api/projects/services/{sid}/deploy', {'imageTag': 'stable-alpine'}, t)
-fd = settle(sid)
-blocked = next((x for x in fd if x['id'] == (bad[1] or {}).get('id')), {})
-check('deploy refuses an ingress network holding a platform container', blocked.get('status') == 'FAILED'
-      and 'cloudbase-postgres' in (blocked.get('errorMessage') or ''),
-      (bad[0], blocked.get('status'), blocked.get('stage'), blocked.get('errorMessage'), (blocked.get('logs') or '')[-400:]))
-check('no stack was created for the refused deploy', len(stacks()) == before, (before, len(stacks())))
+# A platform container on the project network must stop deploys before any workload call, visibly and every time
+before = stacks()
+mock('node', '-e', f"fetch('http://127.0.0.1:9000/_networks/{pnet}/cloudbase-postgres',{{method:'POST'}}).then(r=>r.text())")
+call_mark = len(mock('cat', '/tmp/calls.log').splitlines())
+for attempt in ('first', 'retry'):
+    started = time.time()
+    bad = post(f'/api/projects/services/{sid}/deploy', {'imageTag': 'stable-alpine-' + attempt}, t)
+    blocked, timeline = {}, []
+    while time.time() - started < 40:
+        blocked = next((x for x in deps(sid) if x['id'] == (bad[1] or {}).get('id')), {})
+        if not timeline or timeline[-1][1:] != (blocked.get('status'), blocked.get('stage')):
+            timeline.append((round(time.time() - started, 1), blocked.get('status'), blocked.get('stage')))
+        if blocked.get('status') in ('FAILED', 'SUCCESS', 'CANCELLED'):
+            break
+        time.sleep(0.25)
+    check(f'{attempt} deploy into an unsafe project network fails within 35 s and names the container',
+          blocked.get('status') == 'FAILED' and timeline[-1][0] <= 35 and 'cloudbase-postgres' in (blocked.get('errorMessage') or ''),
+          (bad[0], timeline, blocked.get('errorMessage'), (blocked.get('logs') or '')[-400:]))
+workload_calls = [c for c in mock('cat', '/tmp/calls.log').splitlines()[call_mark:]
+                  if '"POST"' in c and '/stacks' in c or '"PUT"' in c and '/stacks/' in c or '/images/create' in c]
+check('refused deploys made no stack or image call', workload_calls == [], workload_calls)
+check('refused deploys left no new or changed stack', stacks() == before, (len(before), len(stacks())))
 
 # Deletion with a partial external failure
 mock('touch', '/tmp/fail-delete')

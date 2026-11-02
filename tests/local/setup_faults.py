@@ -9,7 +9,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
-from lab import request, state, PASSWORD, ADMIN
+from lab import request, state, connect_github, PASSWORD, ADMIN
 
 results = []
 s = state()
@@ -66,6 +66,7 @@ code = dk('exec', api_c, 'cat', '/tmp/lab-mail/' + email).stdout.strip()
 request('POST', '/api/auth/verify-email', {'email': email, 'code': code})
 request('PATCH', '/api/admin/users/' + reg['user']['id'] + '/deployment-access', {'enabled': True}, at)
 t = request('POST', '/api/auth/login', {'email': email, 'password': PASSWORD})[1]['token']
+connect_github()
 pid = post('/api/projects', {'name': 'faults'}, t, uuid.uuid4().hex)[1]['id']
 body = lambda n: {'name': n, 'sourceType': 'GITHUB', 'sourceDetails': {'repositoryUrl': 'https://github.com/local-qa/f-' + n, 'branch': 'main', 'runtime': 'node'},
                   'quota': {'memoryMb': 64, 'cpuMilli': 100, 'storageGb': 0}}
