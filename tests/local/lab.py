@@ -8,6 +8,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import socket
 import subprocess
 import sys
 import tempfile
@@ -111,6 +112,12 @@ def start(args):
         }
         if args.jwt_expiration_ms:
             env['JWT_EXPIRATION_MS'] = str(int(args.jwt_expiration_ms))
+        if args.nginx:
+            # nginx forwards the browser Origin, as in production, so the API must allow the nginx origin.
+            with socket.socket() as probe:
+                probe.bind(('127.0.0.1', 0))
+                web_port = probe.getsockname()[1]
+            env['CLOUDBASE_CORS_ALLOWED_ORIGINS'] += f',http://127.0.0.1:{web_port}'
         envargs = [v for k, val in env.items() for v in ('-e', k + '=' + val)]
         # --email adds tests/local/labmail (compiled by the caller) beside the JAR; the JAR itself is unchanged.
         java_args = ['-jar', '/app.jar']
@@ -118,7 +125,7 @@ def start(args):
         if args.email:
             java_args = ['-cp', '/app.jar', '-Dloader.path=/labmail', 'org.springframework.boot.loader.launch.PropertiesLauncher']
             mail_mount = ['--mount', f'type=bind,source={Path(args.email).resolve()},target=/labmail,readonly']
-        docker('run', *common, '--name', name, '--network-alias', 'api', '--memory', '640m', '--cpus', '1', *mail_mount,
+        docker('run', *common, '--name', name, '--network-alias', 'api', '--network-alias', 'cloudbase-backend', '--memory', '640m', '--cpus', '1', *mail_mount,
                '--mount', f'type=bind,source={jar},target=/app.jar,readonly',
                *envargs, '--entrypoint', 'java',
                # The JDK image adds jcmd, used by ws_verify.mjs to count retained session objects.
@@ -136,6 +143,30 @@ def start(args):
         port = docker('port', gateway, '8080').rsplit(':', 1)[1]
         s['api'] = s['web'] = 'http://127.0.0.1:' + port
         save(s)
+        if args.nginx:
+            # The production frontend image config: its security headers, caching and /api proxy.
+            web = prefix + '-nginx'
+            s['containers'].append(web)
+            save(s)
+            # Lab-only report-uri: every browser suite's CSP violation lands in the nginx access log.
+            headers = (ROOT / 'frontend/security-headers.conf').read_text()
+            reporting = headers.replace("frame-ancestors 'none'\"", "frame-ancestors 'none'; report-uri /csp-report\"")
+            if reporting == headers:
+                raise RuntimeError('CSP frame-ancestors directive not found')
+            snippet = STATE_DIR / 'security-headers.conf'
+            snippet.write_text(reporting)
+            docker('run', '--detach', '--name', web, '--label', 'cloudbase.local-test=' + prefix,
+                   '--memory', '64m', '--cpus', '0.5', '-p', f'127.0.0.1:{web_port}:3000',
+                   '--mount', f'type=bind,source={frontend},target=/usr/share/nginx/html,readonly',
+                   '--mount', f'type=bind,source={ROOT / "frontend/nginx.conf"},target=/etc/nginx/conf.d/default.conf,readonly',
+                   '--mount', f'type=bind,source={snippet},target=/etc/nginx/snippets/security-headers.conf,readonly',
+                   # nginx stays the main process (its access log is the container log, read by the CSP gate)
+                   # but starts only once the cloudbase-backend upstream resolves on the lab network.
+                   '--entrypoint', 'sh', 'nginx:1.27-alpine', '-c',
+                   'until getent hosts cloudbase-backend >/dev/null; do sleep 0.2; done; exec nginx -g "daemon off;"')
+            docker('network', 'connect', prefix, web)
+            s['web'] = 'http://127.0.0.1:' + docker('port', web, '3000').rsplit(':', 1)[1]
+            save(s)
         for _ in range(90):
             try:
                 if request('GET', '/actuator/health')[0] == 200:
@@ -174,5 +205,6 @@ if __name__ == '__main__':
     parser.add_argument('--jwt-expiration-ms', type=int)
     parser.add_argument('--jdk', action='store_true')
     parser.add_argument('--email', help='directory with compiled labmail classes')
+    parser.add_argument('--nginx', action='store_true', help='serve the frontend through the production nginx config')
     args = parser.parse_args()
     {'start': lambda: start(args), 'stop': stop}[args.command]()

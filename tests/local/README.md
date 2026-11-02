@@ -16,6 +16,10 @@ python tests/local/lab.py stop            # removes only this lab's labelled con
 
 - `--jdk` runs the API on a JDK image so `ws_verify.mjs` can count retained sessions with `jcmd`.
 - `--jwt-expiration-ms` shortens tokens so the expiry checks finish quickly.
+- `--nginx` serves the frontend through `frontend/nginx.conf` and its security headers on `nginx:1.27-alpine`, so browser
+  suites run under the production CSP. The lab copy of the CSP adds `report-uri /csp-report`: after each suite, any
+  `/csp-report` line in `docker logs <prefix>-nginx` is a violation. `node tests/local/headers_check.mjs` checks the
+  headers, `index.html` no-store, one-year caching limited to content-hashed files, and dotfile 404s.
 - `verify_api.py` needs a fresh lab and must run before `browser.mjs` (it creates the fixtures). `ws_verify.mjs` also
   registers fixed accounts, so run it once per lab. `browser.mjs` resets its fixture and can be re-run.
 - `rollback_check.py --old-jar <jar> --new-jar <jar>` (lab started with the new jar and default token lifetime) proves
