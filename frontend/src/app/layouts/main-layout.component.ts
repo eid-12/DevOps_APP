@@ -128,8 +128,8 @@ export class MainLayoutComponent {
   readonly menuOpen = signal(false);
 
   readonly contactEmail = 'eid.rawwaf@gmail.com';
-  readonly contactPhone = '+966 56 962 9218';
-  readonly contactPhoneHref = '+966569629218';
+  readonly contactPhone = '0531957455';
+  readonly contactPhoneHref = '+966531957455';
   readonly linkedInUrl = 'https://www.linkedin.com/in/eid-rawaf-alrashidi-09b260256';
 
   constructor() {

@@ -9,4 +9,5 @@ RUN node node_modules/@angular/cli/bin/ng.js build --configuration production
 FROM nginx:1.27-alpine
 COPY --from=build /app/dist/cloudbase-frontend/browser /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY security-headers.conf /etc/nginx/snippets/security-headers.conf
 EXPOSE 3000
