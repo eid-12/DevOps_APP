@@ -13,9 +13,20 @@ http.createServer((req, res) => {
   req.on('data', c => (raw += c));
   req.on('end', () => {
     const path = new URL(req.url, 'http://mock').pathname;
+    // Every external call, for tests that must prove what did (not) reach the infrastructure.
+    if (!path.startsWith('/_')) fs.appendFileSync('/tmp/calls.log', JSON.stringify({ t: Date.now(), m: req.method, path }) + '\n');
     let code = 200, body = {};
     const send = () => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(code === 204 ? undefined : JSON.stringify(body)); };
     const net = path.match(/\/docker\/networks\/([^/]+)(\/connect)?$/);
+    // GitHub repository permissions: the lab user may push to local-qa/* and shared-team/* (write collaborator);
+    // any other owner's repository is visible read-only, and owner "private" is not visible at all.
+    const gh = path.match(/^\/github\/repos\/([^/]+)\/([^/]+)$/);
+    if (gh && req.method === 'GET') {
+      const [, owner, repo] = gh;
+      if (!req.headers.authorization || owner === 'private') { code = 404; body = { message: 'Not Found' }; }
+      else body = { full_name: `${owner}/${repo}`, permissions: { admin: owner === 'local-qa', push: owner === 'local-qa' || owner === 'shared-team', pull: true } };
+      return send();
+    }
     if (path === '/_stacks') body = [...stacks.values()];
     else if (path === '/_networks') body = Object.fromEntries([...networks].map(([n, m]) => [n, [...m]]));
     // Test hook: POST /_networks/<name>/<container> puts any container (e.g. a platform one) on a network.

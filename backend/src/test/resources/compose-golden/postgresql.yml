@@ -23,4 +23,5 @@ services:
       - project-proj-1
 networks:
   project-proj-1:
-    driver: bridge
+    external: true
+    name: project-proj-1

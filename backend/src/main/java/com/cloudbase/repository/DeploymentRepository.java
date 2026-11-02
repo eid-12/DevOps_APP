@@ -40,6 +40,14 @@ public interface DeploymentRepository extends JpaRepository<DeploymentEntity, St
             Collection<DeploymentStatus> statuses
     );
 
+    /**
+     * Row lock for read-modify-write of one deployment. Stage updates and the final outcome run on different
+     * threads; without it a late stage write could overwrite FAILED/SUCCESS and leave the deploy "running".
+     */
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select d from DeploymentEntity d where d.id = :id")
+    java.util.Optional<DeploymentEntity> findByIdForUpdate(@Param("id") String id);
+
     void deleteByServiceId(String serviceId);
 
     void deleteByProjectId(String projectId);

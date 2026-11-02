@@ -564,14 +564,19 @@ public class PortainerClient {
                 .then();
     }
 
+    /** Upper bound for preparing a project network, so a stalled Portainer call fails the deploy visibly. */
+    static final java.time.Duration NETWORK_PREPARE_TIMEOUT = java.time.Duration.ofSeconds(30);
+    java.time.Duration networkPrepareTimeout = NETWORK_PREPARE_TIMEOUT;
+
     /**
-     * Make sure the tenant ingress network exists, holds the reverse proxy, and holds nothing else except
-     * tenant containers ({@code cb-*}). Tenant apps join this network instead of the platform network, so they
-     * cannot reach the platform database, Portainer or unrelated workloads. Fails closed on any other member.
+     * Make sure a project's network exists and holds nothing except that project's tenant containers
+     * ({@code cb-*}) and the reverse proxy. Apps and databases of one project share it; other projects, the
+     * platform database, the API and Portainer are never on it. With {@code connectProxy}, the proxy is joined so
+     * it can route to the project's apps. Fails closed on any other member and within a bounded time.
      */
-    public Mono<Void> ensureTenantIngressNetwork(String networkName, String ingressContainer) {
+    public Mono<Void> ensureProjectNetwork(String networkName, String ingressContainer, boolean connectProxy) {
         if (networkName == null || networkName.isBlank() || ingressContainer == null || ingressContainer.isBlank()) {
-            return Mono.error(new IllegalStateException("Tenant ingress network is not configured"));
+            return Mono.error(new IllegalStateException("Project network is not configured"));
         }
         Mono<Map<String, Object>> inspect = webClient.get()
                 .uri("/api/endpoints/{eid}/docker/networks/{name}", endpointId, networkName)
@@ -585,7 +590,7 @@ public class PortainerClient {
                 .uri("/api/endpoints/{eid}/docker/networks/create", endpointId)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(Map.of("Name", networkName, "Driver", "bridge", "CheckDuplicate", true,
-                        "Labels", Map.of("cloudbase.role", "tenant-ingress")))
+                        "Labels", Map.of("cloudbase.role", "project-network")))
                 .retrieve()
                 .bodyToMono(MAP_TYPE)
                 .then(inspect);
@@ -596,10 +601,10 @@ public class PortainerClient {
                             .filter(m -> !m.equals(ingressContainer) && !m.startsWith("cb-"))
                             .toList();
                     if (!foreign.isEmpty()) {
-                        return Mono.error(new IllegalStateException("Tenant network " + networkName
+                        return Mono.error(new IllegalStateException("Project network " + networkName
                                 + " also holds non-tenant containers " + foreign + "; refusing to deploy into it"));
                     }
-                    if (members.contains(ingressContainer)) {
+                    if (!connectProxy || members.contains(ingressContainer)) {
                         return Mono.empty();
                     }
                     return webClient.post()
@@ -610,8 +615,10 @@ public class PortainerClient {
                             .toBodilessEntity()
                             .then();
                 })
-                .doOnSuccess(v -> log.info("Tenant ingress network {} ready", networkName))
-                .doOnError(e -> log.warn("Tenant ingress network {} not ready: {}", networkName, e.getMessage()));
+                .timeout(networkPrepareTimeout, Mono.error(new IllegalStateException(
+                        "Timed out preparing project network " + networkName + "; nothing was deployed")))
+                .doOnSuccess(v -> log.info("Project network {} ready", networkName))
+                .doOnError(e -> log.warn("Project network {} not ready: {}", networkName, e.getMessage()));
     }
 
     @SuppressWarnings("unchecked")
@@ -626,10 +633,11 @@ public class PortainerClient {
     }
 
     /**
-     * Remove a Docker network by name (e.g. project-{projectId}).
+     * Remove a Docker network by name (e.g. project-{projectId}), first detaching {@code detachContainer}
+     * (the reverse proxy) since Docker refuses to remove a network with endpoints.
      * Missing network is OK; API failures propagate.
      */
-    public Mono<Void> removeNetworkByName(String networkName) {
+    public Mono<Void> removeNetworkByName(String networkName, String detachContainer) {
         if (networkName == null || networkName.isBlank()) {
             return Mono.empty();
         }
@@ -650,7 +658,14 @@ public class PortainerClient {
                     if (id == null) {
                         return Mono.empty();
                     }
-                    return webClient.delete()
+                    Mono<Void> detach = detachContainer == null || detachContainer.isBlank() ? Mono.empty()
+                            : webClient.post()
+                                    .uri("/api/endpoints/{eid}/docker/networks/{nid}/disconnect", endpointId, id)
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .bodyValue(Map.of("Container", detachContainer, "Force", true))
+                                    // Not attached (or already gone) is fine; the removal reports real failures.
+                                    .exchangeToMono(resp -> resp.releaseBody());
+                    return detach.then(webClient.delete()
                             .uri("/api/endpoints/{eid}/docker/networks/{nid}", endpointId, id)
                             .exchangeToMono(resp -> {
                                 int code = resp.statusCode().value();
@@ -660,7 +675,7 @@ public class PortainerClient {
                                 return resp.bodyToMono(String.class).defaultIfEmpty("").flatMap(body ->
                                         Mono.error(new IllegalStateException(
                                                 "Portainer network remove HTTP " + code + ": " + body)));
-                            });
+                            }));
                 })
                 .doOnSuccess(v -> log.info("Removed Docker network {}", networkName))
                 .doOnError(e -> log.warn("Remove network {} failed: {}", networkName, e.getMessage()));

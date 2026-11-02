@@ -24,7 +24,7 @@ class ComposeGeneratorInjectionTest {
 
     private static final String BREAKOUT = "\n    privileged: true\n    volumes:\n      - /:/host";
 
-    private final ComposeGenerator generator = new ComposeGenerator(mock(PlatformSettingsService.class), false, "cloudbase-tenants", "nginx-proxy");
+    private final ComposeGenerator generator = new ComposeGenerator(mock(PlatformSettingsService.class), false, "nginx-proxy");
 
     private ServiceEntity dockerService(String image, Map<String, Object> env) {
         Map<String, Object> src = new HashMap<>();

@@ -28,32 +28,24 @@ public class ComposeGenerator {
 
     private final PlatformSettingsService settings;
     private final boolean watchtowerEnabled;
-    private final String tenantNetwork;
     private final String ingressContainer;
 
     public ComposeGenerator(
             PlatformSettingsService settings,
             @Value("${cloudbase.watchtower.enabled:true}") boolean watchtowerEnabled,
-            @Value("${cloudbase.tenant.network:cloudbase-tenants}") String tenantNetwork,
             @Value("${cloudbase.ingress.container:nginx-proxy}") String ingressContainer
     ) {
         this.settings = settings;
         this.watchtowerEnabled = watchtowerEnabled;
-        this.tenantNetwork = StringUtils.hasText(tenantNetwork) ? tenantNetwork : "cloudbase-tenants";
         this.ingressContainer = StringUtils.hasText(ingressContainer) ? ingressContainer : "nginx-proxy";
     }
 
-    /** Reverse proxy container that must share the ingress network to route to tenant apps. */
+    /**
+     * Reverse proxy container joined to a project's network so it can route to that project's apps. Tenant
+     * containers never join the platform network or another project's network.
+     */
     public String ingressContainer() {
         return ingressContainer;
-    }
-
-    /**
-     * Ingress network shared only with the reverse proxy and other tenant apps (never the platform network,
-     * which holds the platform database and Portainer). Kept out of the admin-editable settings on purpose.
-     */
-    public String tenantNetwork() {
-        return tenantNetwork;
     }
 
     private String volumeRoot() {
@@ -201,7 +193,7 @@ public class ComposeGenerator {
         // Always persist data so a restart / Watchtower recreate keeps files.
         app.put("volumes", List.of(volumePath + ":" + mountPath));
         app.put("security_opt", List.of("no-new-privileges:true"));
-        app.put("networks", List.of(projectNetworkName(service.getProject().getId()), tenantNetwork));
+        app.put("networks", List.of(projectNetworkName(service.getProject().getId())));
         return stack(sanitizeName(service.getName()), app, service);
     }
 
@@ -257,7 +249,7 @@ public class ComposeGenerator {
         db.put("security_opt", List.of("no-new-privileges:true"));
         db.put("deploy", Map.of("resources", Map.of("limits", orderedMap(
                 "memory", service.getQuotaMemoryMb() + "M", "pids", PIDS_LIMIT))));
-        // Databases are reached only by apps in the same project; they never join the ingress network.
+        // Databases are reached only by apps in the same project.
         db.put("networks", List.of(projectNetworkName(service.getProject().getId())));
         // Still ship Watchtower so stopped app siblings in same scope can revive;
         // DB itself stays disabled via enable=false.
@@ -272,11 +264,13 @@ public class ComposeGenerator {
             services.put("watchtower", watchtower(service));
         }
         Map<String, Object> networks = new LinkedHashMap<>();
-        // Per-project network is created with the stack; the ingress network is prepared before deploy.
-        networks.put(projectNetworkName(service.getProject().getId()), Map.of("driver", "bridge"));
-        if (service.getSourceType() != ServiceSourceType.DATABASE) {
-            networks.put(tenantNetwork, Map.of("external", true));
-        }
+        // One network per project, shared by that project's stacks and created by the platform before deploy
+        // (a stack-local network would be prefixed per stack, splitting an app from its database).
+        String projectNetwork = projectNetworkName(service.getProject().getId());
+        Map<String, Object> external = new LinkedHashMap<>();
+        external.put("external", true);
+        external.put("name", projectNetwork);
+        networks.put(projectNetwork, external);
         Map<String, Object> root = new LinkedHashMap<>();
         root.put("services", services);
         root.put("networks", networks);

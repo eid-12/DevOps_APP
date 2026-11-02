@@ -27,7 +27,6 @@ services:
       - no-new-privileges:true
     networks:
       - project-proj-1
-      - cloudbase-tenants
   watchtower:
     image: nickfedor/watchtower:1.21.0
     container_name: cb-wt-svc-dock1
@@ -52,6 +51,5 @@ services:
           pids: '512'
 networks:
   project-proj-1:
-    driver: bridge
-  cloudbase-tenants:
     external: true
+    name: project-proj-1

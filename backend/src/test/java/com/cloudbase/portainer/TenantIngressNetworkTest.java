@@ -19,8 +19,22 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-/** The ingress network is created and joined by the proxy, and a network holding platform containers is refused. */
+/**
+ * A project network is created and (for apps) joined by the proxy; a network holding platform containers is
+ * refused; a stalled Portainer fails the preparation within its bound instead of leaving a deploy running.
+ */
 class TenantIngressNetworkTest {
+
+    @Test
+    void aStalledPortainerFailsWithinTheBound() {
+        PortainerClient c = client(call -> null);
+        c.networkPrepareTimeout = java.time.Duration.ofMillis(300);
+        long started = System.nanoTime();
+        IllegalStateException e = assertThrows(IllegalStateException.class,
+                () -> c.ensureProjectNetwork("project-p1", "nginx-proxy", true).block(java.time.Duration.ofSeconds(5)));
+        assertTrue(e.getMessage().contains("Timed out") && e.getMessage().contains("nothing was deployed"), e.getMessage());
+        assertTrue(System.nanoTime() - started < 3_000_000_000L);
+    }
 
     private final List<String> calls = new ArrayList<>();
 
@@ -32,7 +46,8 @@ class TenantIngressNetworkTest {
         WebClient.Builder builder = WebClient.builder().exchangeFunction(req -> {
             String call = req.method() + " " + req.url().getPath();
             calls.add(call);
-            return Mono.just(responder.apply(call));
+            ClientResponse response = responder.apply(call);
+            return response == null ? Mono.never() : Mono.just(response);
         });
         return new PortainerClient(settings, builder);
     }
@@ -46,39 +61,46 @@ class TenantIngressNetworkTest {
         for (int i = 0; i < members.length; i++) {
             c.append(i == 0 ? "" : ",").append("\"id").append(i).append("\":{\"Name\":\"").append(members[i]).append("\"}");
         }
-        return "{\"Name\":\"cloudbase-tenants\",\"Containers\":{" + c + "}}";
+        return "{\"Name\":\"project-p1\",\"Containers\":{" + c + "}}";
     }
 
     @Test
     void createsTheNetworkAndConnectsTheProxyWhenMissing() {
         boolean[] created = {false};
         PortainerClient c = client(call -> switch (call) {
-            case "GET /api/endpoints/3/docker/networks/cloudbase-tenants" ->
+            case "GET /api/endpoints/3/docker/networks/project-p1" ->
                     created[0] ? json(network()) : ClientResponse.create(HttpStatus.NOT_FOUND).build();
             case "POST /api/endpoints/3/docker/networks/create" -> { created[0] = true; yield json("{\"Id\":\"n1\"}"); }
-            case "POST /api/endpoints/3/docker/networks/cloudbase-tenants/connect" -> json("{}");
+            case "POST /api/endpoints/3/docker/networks/project-p1/connect" -> json("{}");
             default -> ClientResponse.create(HttpStatus.INTERNAL_SERVER_ERROR).build();
         });
-        c.ensureTenantIngressNetwork("cloudbase-tenants", "nginx-proxy").block();
+        c.ensureProjectNetwork("project-p1", "nginx-proxy", true).block();
         assertEquals(List.of(
-                "GET /api/endpoints/3/docker/networks/cloudbase-tenants",
+                "GET /api/endpoints/3/docker/networks/project-p1",
                 "POST /api/endpoints/3/docker/networks/create",
-                "GET /api/endpoints/3/docker/networks/cloudbase-tenants",
-                "POST /api/endpoints/3/docker/networks/cloudbase-tenants/connect"), calls);
+                "GET /api/endpoints/3/docker/networks/project-p1",
+                "POST /api/endpoints/3/docker/networks/project-p1/connect"), calls);
     }
 
     @Test
     void readyNetworkNeedsNoChanges() {
         PortainerClient c = client(call -> json(network("nginx-proxy", "cb-svc-a", "cb-wt-svc-a")));
-        c.ensureTenantIngressNetwork("cloudbase-tenants", "nginx-proxy").block();
-        assertEquals(List.of("GET /api/endpoints/3/docker/networks/cloudbase-tenants"), calls);
+        c.ensureProjectNetwork("project-p1", "nginx-proxy", true).block();
+        assertEquals(List.of("GET /api/endpoints/3/docker/networks/project-p1"), calls);
+    }
+
+    @Test
+    void databaseDeploysDoNotJoinTheProxy() {
+        PortainerClient c = client(call -> json(network("cb-svc-db")));
+        c.ensureProjectNetwork("project-p1", "nginx-proxy", false).block();
+        assertEquals(List.of("GET /api/endpoints/3/docker/networks/project-p1"), calls);
     }
 
     @Test
     void refusesANetworkThatAlsoHoldsPlatformContainers() {
         PortainerClient c = client(call -> json(network("nginx-proxy", "cloudbase-postgres", "portainer", "cb-svc-a")));
         IllegalStateException e = assertThrows(IllegalStateException.class,
-                () -> c.ensureTenantIngressNetwork("cloudbase-tenants", "nginx-proxy").block());
+                () -> c.ensureProjectNetwork("project-p1", "nginx-proxy", true).block());
         assertTrue(e.getMessage().contains("cloudbase-postgres") && e.getMessage().contains("portainer"), e.getMessage());
         assertEquals(1, calls.size(), "nothing is connected to a refused network");
     }

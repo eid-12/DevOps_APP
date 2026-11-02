@@ -208,15 +208,16 @@ public class DeploymentOrchestrator {
         serviceRepository.save(service);
         eventPublisher.publishServiceStatusUpdate(service);
 
-        // Apps join the isolated ingress network; databases stay on their project network only.
-        Mono<Void> ingress = service.getSourceType() == ServiceSourceType.DATABASE
-                ? Mono.empty()
-                : portainerClient.ensureTenantIngressNetwork(
-                        composeGenerator.tenantNetwork(), composeGenerator.ingressContainer());
-        ingress.then(Mono.defer(() -> portainerClient.upsertStack(stackName, compose, env, existingStackId, pullImage)))
+        // The project network is prepared (and checked) before any workload is created; the proxy joins it
+        // only for apps, which it must route to.
+        Mono<Void> network = portainerClient.ensureProjectNetwork(
+                composeGenerator.projectNetworkName(service.getProject().getId()),
+                composeGenerator.ingressContainer(),
+                service.getSourceType() != ServiceSourceType.DATABASE);
+        // Logged before subscribing: a fast failure on another thread must not be followed by this stage line.
+        appendStage(deploymentId, DeploymentStatus.DEPLOYING, "deploying", "Portainer API call started");
+        network.then(Mono.defer(() -> portainerClient.upsertStack(stackName, compose, env, existingStackId, pullImage)))
                 .onErrorMap(this::friendlyPortainerError)
-                .doOnSubscribe(s -> appendStage(deploymentId, DeploymentStatus.DEPLOYING, "deploying",
-                        "Portainer API call started"))
                 .flatMap(result -> {
                     appendStage(deploymentId, DeploymentStatus.DEPLOYING, "deploying",
                             "Stack accepted. Waiting for the container to become running…");
@@ -318,7 +319,7 @@ public class DeploymentOrchestrator {
 
     private void appendStage(String deploymentId, DeploymentStatus status, String stage, String message) {
         transactionTemplate.executeWithoutResult(tx ->
-                deploymentRepository.findById(deploymentId).ifPresent(d -> {
+                deploymentRepository.findByIdForUpdate(deploymentId).ifPresent(d -> {
                     if (d.getStatus() == DeploymentStatus.CANCELLED
                             || d.getStatus() == DeploymentStatus.SUCCESS
                             || d.getStatus() == DeploymentStatus.FAILED) {
@@ -903,7 +904,7 @@ public class DeploymentOrchestrator {
         }
 
         try {
-            portainerClient.removeNetworkByName(networkName)
+            portainerClient.removeNetworkByName(networkName, composeGenerator.ingressContainer())
                     .onErrorResume(e -> {
                         log.warn("Project network remove failed for {}: {}", networkName, e.getMessage());
                         return Mono.empty();
@@ -967,7 +968,7 @@ public class DeploymentOrchestrator {
 
     private void onStackSuccess(String serviceId, String deploymentId, Map<String, Object> result) {
         transactionTemplate.executeWithoutResult(status -> {
-            DeploymentEntity existing = deploymentRepository.findById(deploymentId).orElse(null);
+            DeploymentEntity existing = deploymentRepository.findByIdForUpdate(deploymentId).orElse(null);
             if (existing != null && existing.getStatus() == DeploymentStatus.CANCELLED) {
                 log.info("Ignoring success for cancelled deployment {}", deploymentId);
                 return;
@@ -1014,7 +1015,7 @@ public class DeploymentOrchestrator {
 
     private void onStackFailure(String serviceId, String deploymentId, Throwable error) {
         transactionTemplate.executeWithoutResult(status -> {
-            DeploymentEntity existing = deploymentRepository.findById(deploymentId).orElse(null);
+            DeploymentEntity existing = deploymentRepository.findByIdForUpdate(deploymentId).orElse(null);
             if (existing != null && existing.getStatus() == DeploymentStatus.CANCELLED) {
                 log.info("Ignoring failure for cancelled deployment {}", deploymentId);
                 return;
