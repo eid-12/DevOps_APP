@@ -114,15 +114,25 @@ The first deploy of the `sv` release signs every user out once (earlier tokens h
 
 Frontend cache: `index.html` is `Cache-Control: no-store` so a stale SPA chunk is less likely after a roll.
 
+## Repository authority
+
+A GitHub service can be created for, or switched to, a repository only if the owner's connected GitHub account has
+push access to it (GitHub `permissions.push`: owners, admins, maintainers and write collaborators). Otherwise the
+request is refused with 403 before anything is stored or written to GitHub. CI provisioning re-checks it and records
+`ciRepoAccessVerified`; `workflow_run` webhooks deploy only services with that flag. GitHub services created before
+this check carry no flag and receive no webhook deploys until their CI is re-synced (Settings, or
+`POST /api/projects/services/{id}/github/sync-ci`).
+
 ## Tenant network isolation
 
-Tenant apps never join the platform network `cloudbase` (it holds `cloudbase-postgres`, `cloudbase-backend`, Portainer
-and other workloads). Each app joins its `project-<id>` network and the ingress network `cloudbase-tenants`
-(`CLOUDBASE_TENANT_NETWORK`). Before each app deploy the API creates that network if missing and connects the reverse
-proxy container `nginx-proxy` (`CLOUDBASE_INGRESS_CONTAINER`) to it. A deploy is refused if the network holds anything
-other than the proxy and `cb-*` tenant containers, so never attach platform or unrelated containers to it.
-Tenant databases join only their project network. The admin "Docker network" setting no longer decides where tenant
-containers attach.
+Tenant containers never join the platform network `cloudbase` (it holds `cloudbase-postgres`, `cloudbase-backend`,
+Portainer and other workloads). Every app and database of a project joins only that project's network `project-<id>`.
+Before each deploy the API creates that network if missing (within 30 s, or the deploy fails before any stack call);
+for apps it also connects the reverse proxy container `nginx-proxy` (`CLOUDBASE_INGRESS_CONTAINER`). A deploy is refused
+if the network holds anything other than the proxy and `cb-*` tenant containers, so never attach platform or unrelated
+containers to it. Deleting a project detaches the proxy and removes the network. The admin "Docker network" setting no
+longer decides where tenant containers attach. The proxy's own listeners (including the NPM admin port) are reachable
+from every project network it joins; see the handoff for the measured exposure.
 
 ## Local vs live
 

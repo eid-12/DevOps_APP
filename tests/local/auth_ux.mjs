@@ -55,8 +55,12 @@ for (const [tag, viewport] of [['desk', { width: 1280, height: 800 }], ['mob', {
   const pw = p.locator('input[type=password]');
   await pw.first().fill('New-Local-Qa!2026');
   await pw.nth(1).fill('New-Local-Qa!2026');
-  await p.locator('form button[type=submit]').click();
-  await p.waitForTimeout(2000);
+  const [reply] = await Promise.all([
+    p.waitForResponse(r => r.url().includes('/api/auth/reset-password'), { timeout: 15000 }).catch(() => null),
+    p.locator('form button[type=submit]').click()
+  ]);
+  check(`${tag} dead reset link gets its API answer`, reply?.status() === 400, reply?.status());
+  await p.waitForURL(/mode=forgot/, { timeout: 5000 }).catch(() => {});
   const after = await p.locator('body').innerText();
   check(`${tag} dead reset link moves to requesting a new link`, /mode=forgot/.test(p.url()) && /get a new one/i.test(after), p.url());
   check(`${tag} dead reset link shows one message, not a toast too`, await toasts() === 0, await toasts());
