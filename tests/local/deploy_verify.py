@@ -178,7 +178,8 @@ bad = post(f'/api/projects/services/{sid}/deploy', {'imageTag': 'stable-alpine'}
 fd = settle(sid)
 blocked = next((x for x in fd if x['id'] == (bad[1] or {}).get('id')), {})
 check('deploy refuses an ingress network holding a platform container', blocked.get('status') == 'FAILED'
-      and 'cloudbase-postgres' in (blocked.get('errorMessage') or ''), (bad[0], blocked.get('status'), blocked.get('errorMessage')))
+      and 'cloudbase-postgres' in (blocked.get('errorMessage') or ''),
+      (bad[0], blocked.get('status'), blocked.get('stage'), blocked.get('errorMessage'), (blocked.get('logs') or '')[-400:]))
 check('no stack was created for the refused deploy', len(stacks()) == before, (before, len(stacks())))
 
 # Deletion with a partial external failure

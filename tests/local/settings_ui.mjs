@@ -145,7 +145,8 @@ const r = await (await browser.newContext()).newPage();
 const fill = async pw => { await r.locator('#auth-password').fill(pw); await r.locator('#auth-confirm').fill(pw); await r.getByRole('button', { name: 'Update password' }).click(); await r.waitForTimeout(1200); };
 await r.goto(`${WEB}/auth?mode=reset&token=${mint(Math.floor(Date.now() / 1000) - 60, 0)}`);
 await fill('Reset-Ui!2026a');
-check('expired link is refused', /invalid or expired/i.test(await r.locator('body').innerText()));
+const deadLink = async () => /mode=forgot/.test(r.url()) && /expired or was already used/i.test(await r.locator('body').innerText());
+check('expired link is refused and leads to requesting a new one', await deadLink(), r.url());
 await r.goto(`${WEB}/auth?mode=reset&token=${mint(Math.floor(Date.now() / 1000) + 600, 0)}`);
 await fill('weak');
 check('weak password is refused', (await api('POST', '/api/auth/login', { email: other.user.email, password: 'weak' }))[0] === 401);
@@ -154,7 +155,7 @@ check('reset succeeds and returns to sign-in', /mode=login/.test(r.url()) && (aw
 check('old session ends after reset', (await api('GET', '/api/auth/me', undefined, other.token))[0] === 401);
 await r.goto(`${WEB}/auth?mode=reset&token=${mint(Math.floor(Date.now() / 1000) + 600, 0)}`);
 await fill('Reset-Ui!2026b');
-check('the same link cannot be used twice', /invalid or expired/i.test(await r.locator('body').innerText()));
+check('the same link cannot be used twice', await deadLink(), r.url());
 await browser.close();
 console.log(`${results.filter(Boolean).length}/${results.length} settings checks passed`);
 process.exit(results.every(Boolean) ? 0 : 1);

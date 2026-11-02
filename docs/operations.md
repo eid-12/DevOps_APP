@@ -114,6 +114,16 @@ The first deploy of the `sv` release signs every user out once (earlier tokens h
 
 Frontend cache: `index.html` is `Cache-Control: no-store` so a stale SPA chunk is less likely after a roll.
 
+## Tenant network isolation
+
+Tenant apps never join the platform network `cloudbase` (it holds `cloudbase-postgres`, `cloudbase-backend`, Portainer
+and other workloads). Each app joins its `project-<id>` network and the ingress network `cloudbase-tenants`
+(`CLOUDBASE_TENANT_NETWORK`). Before each app deploy the API creates that network if missing and connects the reverse
+proxy container `nginx-proxy` (`CLOUDBASE_INGRESS_CONTAINER`) to it. A deploy is refused if the network holds anything
+other than the proxy and `cb-*` tenant containers, so never attach platform or unrelated containers to it.
+Tenant databases join only their project network. The admin "Docker network" setting no longer decides where tenant
+containers attach.
+
 ## Local vs live
 
 | | Local | Live |
