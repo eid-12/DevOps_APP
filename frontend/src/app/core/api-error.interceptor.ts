@@ -22,8 +22,11 @@ const SILENT_URL_PARTS = [
   '/public/platform-status',
   // The auth page shows these itself, next to the form.
   '/auth/login',
+  '/auth/register',
   '/auth/verify-email',
-  '/auth/resend-verification'
+  '/auth/resend-verification',
+  '/auth/forgot-password',
+  '/auth/reset-password'
 ];
 
 function shouldSilence(url: string): boolean {

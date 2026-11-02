@@ -523,7 +523,7 @@ export class AuthPageComponent implements OnInit {
 
   resendCode(): void {
     const email = this.form.controls.email.value;
-    if (!email || this.emailCooldown() > 0) return;
+    if (!email || this.emailCooldown() > 0 || this.loading()) return;
     this.loading.set(true);
     this.feedback.set(null);
     this.auth
@@ -545,6 +545,8 @@ export class AuthPageComponent implements OnInit {
   }
 
   submit(): void {
+    // A double click reaches here twice before the disabled button re-renders.
+    if (this.loading()) return;
     this.submitted.set(true);
     this.feedback.set(null);
     this.syncValidators(this.mode());
@@ -600,7 +602,16 @@ export class AuthPageComponent implements OnInit {
             this.feedback.set({ kind: 'success', text: res.message });
             this.applyMode('login', true);
           },
-          error: (err) => this.feedback.set({ kind: 'error', text: this.readError(err) })
+          error: (err) => {
+            if ((err as { status?: number })?.status === 400 && /reset token/i.test(this.readError(err))) {
+              // A used or expired link cannot be retried: go straight to requesting a new one.
+              this.resetToken.set('');
+              this.applyMode('forgot', true);
+              this.feedback.set({ kind: 'error', text: 'This reset link has expired or was already used. Enter your email to get a new one.' });
+              return;
+            }
+            this.feedback.set({ kind: 'error', text: this.readError(err) });
+          }
         });
       return;
     }
