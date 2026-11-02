@@ -15,11 +15,11 @@ services:
       resources:
         limits:
           memory: 256M
+          pids: '512'
+    security_opt:
+      - no-new-privileges:true
     networks:
       - project-proj-1
-      - cloudbase
 networks:
   project-proj-1:
     driver: bridge
-  cloudbase:
-    external: true

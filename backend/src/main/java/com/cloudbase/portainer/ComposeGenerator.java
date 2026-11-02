@@ -28,18 +28,32 @@ public class ComposeGenerator {
 
     private final PlatformSettingsService settings;
     private final boolean watchtowerEnabled;
+    private final String tenantNetwork;
+    private final String ingressContainer;
 
     public ComposeGenerator(
             PlatformSettingsService settings,
-            @Value("${cloudbase.watchtower.enabled:true}") boolean watchtowerEnabled
+            @Value("${cloudbase.watchtower.enabled:true}") boolean watchtowerEnabled,
+            @Value("${cloudbase.tenant.network:cloudbase-tenants}") String tenantNetwork,
+            @Value("${cloudbase.ingress.container:nginx-proxy}") String ingressContainer
     ) {
         this.settings = settings;
         this.watchtowerEnabled = watchtowerEnabled;
+        this.tenantNetwork = StringUtils.hasText(tenantNetwork) ? tenantNetwork : "cloudbase-tenants";
+        this.ingressContainer = StringUtils.hasText(ingressContainer) ? ingressContainer : "nginx-proxy";
     }
 
-    private String sharedNetwork() {
-        String n = settings.get(PlatformSettingsService.DOCKER_NETWORK);
-        return StringUtils.hasText(n) ? n : "cloudbase";
+    /** Reverse proxy container that must share the ingress network to route to tenant apps. */
+    public String ingressContainer() {
+        return ingressContainer;
+    }
+
+    /**
+     * Ingress network shared only with the reverse proxy and other tenant apps (never the platform network,
+     * which holds the platform database and Portainer). Kept out of the admin-editable settings on purpose.
+     */
+    public String tenantNetwork() {
+        return tenantNetwork;
     }
 
     private String volumeRoot() {
@@ -186,7 +200,8 @@ public class ComposeGenerator {
         }
         // Always persist data so a restart / Watchtower recreate keeps files.
         app.put("volumes", List.of(volumePath + ":" + mountPath));
-        app.put("networks", serviceNetworks(service.getProject().getId()));
+        app.put("security_opt", List.of("no-new-privileges:true"));
+        app.put("networks", List.of(projectNetworkName(service.getProject().getId()), tenantNetwork));
         return stack(sanitizeName(service.getName()), app, service);
     }
 
@@ -239,8 +254,11 @@ public class ComposeGenerator {
             db.put("environment", env);
         }
         db.put("volumes", List.of(volumePath + ":" + dataPath));
-        db.put("deploy", Map.of("resources", Map.of("limits", orderedMap("memory", service.getQuotaMemoryMb() + "M"))));
-        db.put("networks", serviceNetworks(service.getProject().getId()));
+        db.put("security_opt", List.of("no-new-privileges:true"));
+        db.put("deploy", Map.of("resources", Map.of("limits", orderedMap(
+                "memory", service.getQuotaMemoryMb() + "M", "pids", PIDS_LIMIT))));
+        // Databases are reached only by apps in the same project; they never join the ingress network.
+        db.put("networks", List.of(projectNetworkName(service.getProject().getId())));
         // Still ship Watchtower so stopped app siblings in same scope can revive;
         // DB itself stays disabled via enable=false.
         return stack(sanitizeName(service.getName()), db, service);
@@ -254,9 +272,11 @@ public class ComposeGenerator {
             services.put("watchtower", watchtower(service));
         }
         Map<String, Object> networks = new LinkedHashMap<>();
-        // Per-project network is created with the stack; the shared network must already exist (NPM + other stacks).
+        // Per-project network is created with the stack; the ingress network is prepared before deploy.
         networks.put(projectNetworkName(service.getProject().getId()), Map.of("driver", "bridge"));
-        networks.put(sharedNetwork(), Map.of("external", true));
+        if (service.getSourceType() != ServiceSourceType.DATABASE) {
+            networks.put(tenantNetwork, Map.of("external", true));
+        }
         Map<String, Object> root = new LinkedHashMap<>();
         root.put("services", services);
         root.put("networks", networks);
@@ -295,8 +315,11 @@ public class ComposeGenerator {
         );
     }
 
+    /** Caps process count so one tenant cannot fork-bomb the shared host. */
+    static final String PIDS_LIMIT = "512";
+
     private static Map<String, Object> limits(String memory, String cpus) {
-        return Map.of("resources", Map.of("limits", orderedMap("memory", memory, "cpus", cpus)));
+        return Map.of("resources", Map.of("limits", orderedMap("memory", memory, "cpus", cpus, "pids", PIDS_LIMIT)));
     }
 
     private static String watchtowerScope(ServiceEntity service) {
@@ -334,10 +357,6 @@ public class ComposeGenerator {
                     env.put(ComposeInputValidator.requireEnvKey(key), "${" + key + "}"));
         }
         return env;
-    }
-
-    private List<String> serviceNetworks(String projectId) {
-        return List.of(projectNetworkName(projectId), sharedNetwork());
     }
 
     private static Map<String, Object> orderedMap(String... keyValues) {

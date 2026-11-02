@@ -27,14 +27,14 @@ class ComposeGeneratorStructureTest {
 
     private static final Set<String> APP_KEYS = Set.of(
             "image", "container_name", "restart", "pull_policy", "command", "labels", "deploy",
-            "environment", "volumes", "networks");
+            "environment", "volumes", "security_opt", "networks");
 
     private static ComposeGenerator generator(boolean watchtower) {
         PlatformSettingsService settings = mock(PlatformSettingsService.class);
         when(settings.get(PlatformSettingsService.DOCKER_NETWORK)).thenReturn("cloudbase");
         when(settings.get(PlatformSettingsService.VOLUME_ROOT)).thenReturn("/var/lib/cloudbase/users");
         when(settings.get(PlatformSettingsService.DOCKERHUB_NAMESPACE)).thenReturn("minipcer");
-        return new ComposeGenerator(settings, watchtower);
+        return new ComposeGenerator(settings, watchtower, "cloudbase-tenants", "nginx-proxy");
     }
 
     private static Object parse(String yaml) {

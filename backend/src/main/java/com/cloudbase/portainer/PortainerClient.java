@@ -565,6 +565,67 @@ public class PortainerClient {
     }
 
     /**
+     * Make sure the tenant ingress network exists, holds the reverse proxy, and holds nothing else except
+     * tenant containers ({@code cb-*}). Tenant apps join this network instead of the platform network, so they
+     * cannot reach the platform database, Portainer or unrelated workloads. Fails closed on any other member.
+     */
+    public Mono<Void> ensureTenantIngressNetwork(String networkName, String ingressContainer) {
+        if (networkName == null || networkName.isBlank() || ingressContainer == null || ingressContainer.isBlank()) {
+            return Mono.error(new IllegalStateException("Tenant ingress network is not configured"));
+        }
+        Mono<Map<String, Object>> inspect = webClient.get()
+                .uri("/api/endpoints/{eid}/docker/networks/{name}", endpointId, networkName)
+                .exchangeToMono(resp -> resp.statusCode().value() == 404
+                        ? resp.releaseBody().then(Mono.<Map<String, Object>>empty())
+                        : resp.statusCode().is2xxSuccessful()
+                        ? resp.bodyToMono(MAP_TYPE)
+                        : resp.releaseBody().then(Mono.error(new IllegalStateException(
+                                "Portainer network inspect HTTP " + resp.statusCode().value()))));
+        Mono<Map<String, Object>> create = webClient.post()
+                .uri("/api/endpoints/{eid}/docker/networks/create", endpointId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of("Name", networkName, "Driver", "bridge", "CheckDuplicate", true,
+                        "Labels", Map.of("cloudbase.role", "tenant-ingress")))
+                .retrieve()
+                .bodyToMono(MAP_TYPE)
+                .then(inspect);
+        return inspect.switchIfEmpty(create)
+                .flatMap(network -> {
+                    List<String> members = networkMembers(network);
+                    List<String> foreign = members.stream()
+                            .filter(m -> !m.equals(ingressContainer) && !m.startsWith("cb-"))
+                            .toList();
+                    if (!foreign.isEmpty()) {
+                        return Mono.error(new IllegalStateException("Tenant network " + networkName
+                                + " also holds non-tenant containers " + foreign + "; refusing to deploy into it"));
+                    }
+                    if (members.contains(ingressContainer)) {
+                        return Mono.empty();
+                    }
+                    return webClient.post()
+                            .uri("/api/endpoints/{eid}/docker/networks/{name}/connect", endpointId, networkName)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .bodyValue(Map.of("Container", ingressContainer))
+                            .retrieve()
+                            .toBodilessEntity()
+                            .then();
+                })
+                .doOnSuccess(v -> log.info("Tenant ingress network {} ready", networkName))
+                .doOnError(e -> log.warn("Tenant ingress network {} not ready: {}", networkName, e.getMessage()));
+    }
+
+    @SuppressWarnings("unchecked")
+    static List<String> networkMembers(Map<String, Object> network) {
+        if (!(network.get("Containers") instanceof Map<?, ?> containers)) {
+            return List.of();
+        }
+        return containers.values().stream()
+                .filter(c -> c instanceof Map<?, ?>)
+                .map(c -> String.valueOf(((Map<String, Object>) c).get("Name")))
+                .toList();
+    }
+
+    /**
      * Remove a Docker network by name (e.g. project-{projectId}).
      * Missing network is OK; API failures propagate.
      */

@@ -6,6 +6,8 @@ const fs = require('node:fs');
 let nextId = 100;
 const stacks = new Map(); // id -> { Id, Name, containers: [names] }
 const containers = () => [...stacks.values()].flatMap(s => s.containers);
+const networks = new Map(); // name -> Set of member container names
+const networkBody = name => ({ Name: name, Containers: Object.fromEntries([...networks.get(name)].map((m, i) => ['c' + i, { Name: m }])) });
 http.createServer((req, res) => {
   let raw = '';
   req.on('data', c => (raw += c));
@@ -13,7 +15,25 @@ http.createServer((req, res) => {
     const path = new URL(req.url, 'http://mock').pathname;
     let code = 200, body = {};
     const send = () => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(code === 204 ? undefined : JSON.stringify(body)); };
+    const net = path.match(/\/docker\/networks\/([^/]+)(\/connect)?$/);
     if (path === '/_stacks') body = [...stacks.values()];
+    else if (path === '/_networks') body = Object.fromEntries([...networks].map(([n, m]) => [n, [...m]]));
+    // Test hook: POST /_networks/<name>/<container> puts any container (e.g. a platform one) on a network.
+    else if (req.method === 'POST' && path.startsWith('/_networks/')) {
+      const [, , name, member] = path.split('/');
+      if (!networks.has(name)) networks.set(name, new Set());
+      networks.get(name).add(member);
+    } else if (req.method === 'POST' && path.endsWith('/networks/create')) {
+      const name = JSON.parse(raw || '{}').Name;
+      if (networks.has(name)) { code = 409; body = { message: 'network already exists' }; }
+      else { networks.set(name, new Set()); body = { Id: name }; }
+    } else if (net && net[1] !== 'create' && req.method === 'POST' && net[2]) {
+      if (!networks.has(net[1])) { code = 404; body = { message: 'No such network' }; }
+      else networks.get(net[1]).add(JSON.parse(raw || '{}').Container);
+    } else if (net && req.method === 'GET' && !net[2]) {
+      if (networks.has(net[1])) body = networkBody(net[1]);
+      else { code = 404; body = { message: 'No such network' }; }
+    }
     else if (req.method === 'GET' && path === '/api/status') body = { Version: 'local-test-stub' };
     else if (req.method === 'GET' && path === '/api/stacks') body = [...stacks.values()].map(({ Id, Name }) => ({ Id, Name, EndpointId: 1 }));
     else if (req.method === 'GET' && /\/containers\/json$/.test(path)) body = containers().map(n => ({ Id: n, Names: ['/' + n], State: 'running', Status: 'Up', Image: 'synthetic' }));

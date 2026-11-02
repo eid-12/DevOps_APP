@@ -208,7 +208,12 @@ public class DeploymentOrchestrator {
         serviceRepository.save(service);
         eventPublisher.publishServiceStatusUpdate(service);
 
-        portainerClient.upsertStack(stackName, compose, env, existingStackId, pullImage)
+        // Apps join the isolated ingress network; databases stay on their project network only.
+        Mono<Void> ingress = service.getSourceType() == ServiceSourceType.DATABASE
+                ? Mono.empty()
+                : portainerClient.ensureTenantIngressNetwork(
+                        composeGenerator.tenantNetwork(), composeGenerator.ingressContainer());
+        ingress.then(Mono.defer(() -> portainerClient.upsertStack(stackName, compose, env, existingStackId, pullImage)))
                 .onErrorMap(this::friendlyPortainerError)
                 .doOnSubscribe(s -> appendStage(deploymentId, DeploymentStatus.DEPLOYING, "deploying",
                         "Portainer API call started"))

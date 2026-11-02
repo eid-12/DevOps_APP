@@ -12,11 +12,14 @@ services:
         limits:
           memory: 256M
           cpus: '0.25'
+          pids: '512'
     volumes:
       - /var/lib/cloudbase/users/u-owner1/proj-1/svc-gh1:/data
+    security_opt:
+      - no-new-privileges:true
     networks:
       - project-proj-1
-      - cloudbase
+      - cloudbase-tenants
   watchtower:
     image: nickfedor/watchtower:1.21.0
     container_name: cb-wt-svc-gh1
@@ -38,8 +41,9 @@ services:
         limits:
           memory: 64M
           cpus: '0.10'
+          pids: '512'
 networks:
   project-proj-1:
     driver: bridge
-  cloudbase:
+  cloudbase-tenants:
     external: true

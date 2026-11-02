@@ -15,9 +15,11 @@ services:
       resources:
         limits:
           memory: 256M
+          pids: '512'
+    security_opt:
+      - no-new-privileges:true
     networks:
       - project-proj-1
-      - cloudbase
   watchtower:
     image: nickfedor/watchtower:1.21.0
     container_name: cb-wt-svc-mongodb
@@ -39,8 +41,7 @@ services:
         limits:
           memory: 64M
           cpus: '0.10'
+          pids: '512'
 networks:
   project-proj-1:
     driver: bridge
-  cloudbase:
-    external: true

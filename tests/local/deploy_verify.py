@@ -91,6 +91,22 @@ check('deployment reaches SUCCESS through the real logic', d[0]['status'] == 'SU
 check('service is RUNNING', request('GET', '/api/projects/services/' + sid, token=t)[1]['status'] == 'RUNNING')
 check('one simulated stack exists', len(stacks()) == 1, stacks())
 
+# Network isolation: tenant apps share an ingress network with the proxy only, never the platform network
+nets = lambda: json.loads(mock('node', '-e', "fetch('http://127.0.0.1:9000/_networks').then(r=>r.text()).then(console.log)"))
+check('ingress network was created with the proxy on it', 'nginx-proxy' in nets().get('cloudbase-tenants', []), nets())
+snapshot = sql(f"select compose_snapshot from deployments where service_id='{sid}' and status='SUCCESS' limit 1")
+check('app stack joins the tenant ingress network, not the platform network',
+      '- cloudbase-tenants' in snapshot and '- cloudbase\n' not in snapshot + '\n' and 'no-new-privileges:true' in snapshot, snapshot[-300:])
+dbs = post(f'/api/projects/{pid}/services', {'name': 'store', 'sourceType': 'DATABASE', 'sourceDetails': {'dbType': 'POSTGRESQL'},
+           'quota': {'memoryMb': 128, 'cpuMilli': 100, 'storageGb': 1}}, t, str(uuid.uuid4()))
+if dbs[0] == 201:
+    dd = settle(dbs[1]['id'])
+    dsnap = sql(f"select compose_snapshot from deployments where service_id='{dbs[1]['id']}' order by started_at desc limit 1")
+    check('database stack stays on its project network only', dd[0]['status'] == 'SUCCESS' and 'external' not in dsnap
+          and 'cloudbase-tenants' not in dsnap, (dd[0]['status'], dsnap[-300:]))
+else:
+    check('database service created', False, dbs)
+
 # Deploy joining
 mock('touch', '/tmp/slow-deploy')
 x = post(f'/api/projects/services/{sid}/deploy', {'imageTag': 'alpine'}, t)
@@ -154,6 +170,16 @@ if gh[0] == 201:
     settle(gid)
     real = [x for x in deps(gid) if x.get('commitSha') == sha and x.get('imageTag') and x['status'] != 'CANCELLED']
     check('dedupe survives an application restart', len(real) == 1, real)
+
+# A platform container on the ingress network must stop deploys rather than expose it to tenants
+before = len(stacks())
+mock('node', '-e', "fetch('http://127.0.0.1:9000/_networks/cloudbase-tenants/cloudbase-postgres',{method:'POST'}).then(r=>r.text())")
+bad = post(f'/api/projects/services/{sid}/deploy', {'imageTag': 'stable-alpine'}, t)
+fd = settle(sid)
+blocked = next((x for x in fd if x['id'] == (bad[1] or {}).get('id')), {})
+check('deploy refuses an ingress network holding a platform container', blocked.get('status') == 'FAILED'
+      and 'cloudbase-postgres' in (blocked.get('errorMessage') or ''), (bad[0], blocked.get('status'), blocked.get('errorMessage')))
+check('no stack was created for the refused deploy', len(stacks()) == before, (before, len(stacks())))
 
 # Deletion with a partial external failure
 mock('touch', '/tmp/fail-delete')

@@ -17,14 +17,17 @@ services:
         limits:
           memory: 256M
           cpus: '0.25'
+          pids: '512'
     environment:
       API_URL: ${API_URL}
       SECRET_TOKEN: ${SECRET_TOKEN}
     volumes:
       - /var/lib/cloudbase/users/u-owner1/proj-1/svc-dock1:/app/data
+    security_opt:
+      - no-new-privileges:true
     networks:
       - project-proj-1
-      - cloudbase
+      - cloudbase-tenants
   watchtower:
     image: nickfedor/watchtower:1.21.0
     container_name: cb-wt-svc-dock1
@@ -46,8 +49,9 @@ services:
         limits:
           memory: 64M
           cpus: '0.10'
+          pids: '512'
 networks:
   project-proj-1:
     driver: bridge
-  cloudbase:
+  cloudbase-tenants:
     external: true
