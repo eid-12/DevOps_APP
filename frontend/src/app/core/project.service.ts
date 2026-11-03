@@ -183,6 +183,10 @@ export class ProjectService {
     return this.setCustomDomain(serviceId, subdomain);
   }
 
+  verifyCustomDomain(serviceId: string): Observable<Service> {
+    return this.api.verifyCustomDomain(serviceId);
+  }
+
   setCustomDomain(serviceId: string, domain: string): Observable<Service> {
     return this.api.setCustomDomain(serviceId, domain);
   }

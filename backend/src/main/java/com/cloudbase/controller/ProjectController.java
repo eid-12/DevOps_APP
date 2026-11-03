@@ -187,6 +187,14 @@ public class ProjectController {
         return projectService.clearVanitySubdomain(serviceId, user);
     }
 
+    @PostMapping("/services/{serviceId}/custom-domain/verify")
+    public ServiceEntity verifyCustomDomain(
+            @AuthenticationPrincipal UserEntity user,
+            @PathVariable String serviceId
+    ) {
+        return projectService.verifyCustomDomain(serviceId, user);
+    }
+
     @PutMapping("/services/{serviceId}/custom-domain")
     public ServiceEntity setCustomDomain(
             @AuthenticationPrincipal UserEntity user,

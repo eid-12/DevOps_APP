@@ -114,6 +114,21 @@ The first deploy of the `sv` release signs every user out once (earlier tokens h
 
 Frontend cache: `index.html` is `Cache-Control: no-store` so a stale SPA chunk is less likely after a roll.
 
+## Custom domain ownership
+
+Saving a custom domain only records a claim (`custom_domain_pending` plus a random token). It is not routed and does
+not block anyone: another tenant may claim the same name, and whoever proves DNS control first gets it. The owner
+publishes TXT `_cloudbase-challenge.<domain>` = `cloudbase-verify=<token>` and selects Verify
+(`POST /api/projects/services/{id}/custom-domain/verify`); only then does the domain become `custom_domain`, get an
+NPM host and an edge route. An active domain stays unique (V10 index); a claim expires after 72 hours. Until the
+new domain is verified, the previous one keeps working. DNS lookups use the system resolver unless
+`CLOUDBASE_DOMAINS_DNS_SERVER` is set (e.g. `dns://1.1.1.1`).
+
+Rollout (V23): existing active domains are marked verified (`custom_domain_verified_at`) and keep routing; they were
+accepted without proof before this release. To re-check one, clear it and claim it again. Production had no tenant
+services when inspected, so nothing is affected there. The API container needs outbound DNS (UDP/TCP 53) for TXT
+lookups; a lookup failure counts as "not proven" and leaves the claim pending.
+
 ## Repository authority
 
 A GitHub service can be created for, or switched to, a repository only if the owner's connected GitHub account has

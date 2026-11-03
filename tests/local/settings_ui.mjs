@@ -108,7 +108,18 @@ await domain.fill('not a domain'); await p.getByRole('button', { name: 'Check av
 check('invalid domain is rejected', /✗/.test(await p.locator('body').innerText()));
 await domain.fill('qa-ui.example.test'); await p.getByRole('button', { name: 'Check availability' }).click(); await p.waitForTimeout(900);
 await p.getByRole('button', { name: /Save domain|Save custom|Save$/ }).first().click(); await p.waitForTimeout(1300);
-check('custom domain persists', (await svc(gh.id)).customDomain === 'qa-ui.example.test', (await svc(gh.id)).customDomain);
+// Saving only claims the domain; it goes live once the TXT record proves ownership.
+const claimed = await svc(gh.id);
+const page = await p.locator('body').innerText();
+check('saving shows the exact TXT record and keeps the domain inactive', !claimed.customDomain && claimed.customDomainPending === 'qa-ui.example.test'
+  && page.includes('_cloudbase-challenge.qa-ui.example.test') && page.includes('cloudbase-verify=' + claimed.customDomainToken), JSON.stringify(claimed).slice(0, 160));
+await p.getByRole('button', { name: 'Verify', exact: true }).click(); await p.waitForTimeout(1500);
+check('verifying before the record exists explains what is missing', /TXT record not found yet/.test(await p.locator('body').innerText()));
+execFileSync('docker', ['exec', lab.prefix + '-mock', 'node', '-e',
+  `fetch('http://127.0.0.1:9053/_dns/_cloudbase-challenge.qa-ui.example.test/cloudbase-verify=${claimed.customDomainToken}',{method:'POST'}).then(r=>r.text())`]);
+await p.getByRole('button', { name: 'Verify', exact: true }).click(); await p.waitForTimeout(1500);
+check('custom domain persists once verified', (await svc(gh.id)).customDomain === 'qa-ui.example.test' && /is now live/.test(await p.locator('body').innerText()),
+  (await svc(gh.id)).customDomain);
 check('stranger cannot change the domain', (await api('PUT', `/api/projects/services/${gh.id}/custom-domain`, { domain: 'x.example.test' }, other.token))[0] === 403);
 
 // Environment variables

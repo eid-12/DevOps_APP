@@ -34,6 +34,7 @@ import com.cloudbase.service.CiBootstrapService;
 import com.cloudbase.service.ComposeInputValidator;
 import com.cloudbase.service.ContainerRuntimeService;
 import com.cloudbase.service.DeploymentOrchestrator;
+import com.cloudbase.service.DomainOwnershipVerifier;
 import com.cloudbase.entity.IdempotencyKeyEntity;
 import com.cloudbase.service.PlanQuotaService;
 import com.cloudbase.service.ProjectService;
@@ -94,6 +95,10 @@ public class ProjectServiceImpl implements ProjectService {
     private final UserRepository userRepository;
     private final VanitySubdomainService vanitySubdomainService;
 
+    private final DomainOwnershipVerifier domainOwnershipVerifier;
+    /** A requested custom domain must be proven within this time, or requested again. */
+    static final java.time.Duration DOMAIN_CLAIM_TTL = java.time.Duration.ofHours(72);
+
     public ProjectServiceImpl(
             ProjectRepository projectRepository,
             ServiceRepository serviceRepository,
@@ -105,8 +110,10 @@ public class ProjectServiceImpl implements ProjectService {
             ServiceMetricsService serviceMetricsService,
             PlanQuotaService planQuotaService,
             UserRepository userRepository,
-            VanitySubdomainService vanitySubdomainService
+            VanitySubdomainService vanitySubdomainService,
+            DomainOwnershipVerifier domainOwnershipVerifier
     ) {
+        this.domainOwnershipVerifier = domainOwnershipVerifier;
         this.projectRepository = projectRepository;
         this.serviceRepository = serviceRepository;
         this.deploymentRepository = deploymentRepository;
@@ -686,6 +693,8 @@ public class ProjectServiceImpl implements ProjectService {
         String raw = normalizeHostname(request.domain());
         if (raw.isBlank()) {
             service.setCustomDomain(null);
+            service.setCustomDomainVerifiedAt(null);
+            clearDomainClaim(service);
             ServiceEntity saved = serviceRepository.save(service);
             orchestrator.ensureProxyHost(saved);
             return saved;
@@ -695,20 +704,80 @@ public class ProjectServiceImpl implements ProjectService {
         if (invalid != null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, invalid);
         }
+        if (raw.equalsIgnoreCase(nullToEmpty(service.getCustomDomain()))) {
+            clearDomainClaim(service);
+            return serviceRepository.save(service);
+        }
         if (isHostnameTakenByOther(raw, serviceId)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Domain already in use");
         }
 
-        service.setCustomDomain(raw);
+        // Only a claim: nothing is routed, and other tenants may claim the same name, until DNS proves ownership.
+        // The current domain (if any) keeps working meanwhile.
+        if (!raw.equals(service.getCustomDomainPending()) || claimExpired(service)) {
+            service.setCustomDomainPending(raw);
+            service.setCustomDomainToken(java.util.HexFormat.of().formatHex(randomBytes(16)));
+            service.setCustomDomainRequestedAt(java.time.Instant.now());
+        }
+        return serviceRepository.save(service);
+    }
+
+    @Override
+    @Transactional
+    public ServiceEntity verifyCustomDomain(String serviceId, UserEntity user) {
+        requireDeploymentEnabled(user);
+        ServiceEntity service = getService(serviceId, user);
+        String pending = service.getCustomDomainPending();
+        if (pending == null || pending.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "No custom domain is waiting for verification");
+        }
+        if (claimExpired(service)) {
+            throw new ResponseStatusException(HttpStatus.GONE,
+                    "This verification request expired. Save the domain again to get a new TXT value.");
+        }
+        if (isHostnameTakenByOther(pending, serviceId)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Domain already in use");
+        }
+        if (!domainOwnershipVerifier.proves(pending, service.getCustomDomainToken())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "TXT record not found yet. Add a TXT record named "
+                    + DomainOwnershipVerifier.recordName(pending) + " with the value "
+                    + DomainOwnershipVerifier.recordValue(service.getCustomDomainToken())
+                    + ", wait for DNS to update, then verify again.");
+        }
+        service.setCustomDomain(pending);
+        service.setCustomDomainVerifiedAt(java.time.Instant.now());
+        clearDomainClaim(service);
         if (service.getContainerName() == null) {
             service.setContainerName(composeGenerator.resolveContainerName(service));
         }
         if (service.getContainerPort() == null) {
             service.setContainerPort(composeGenerator.resolveContainerPort(service));
         }
-        ServiceEntity saved = serviceRepository.save(service);
+        ServiceEntity saved;
+        try {
+            saved = serviceRepository.saveAndFlush(service);
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Domain already in use");
+        }
         orchestrator.ensureProxyHost(saved);
         return saved;
+    }
+
+    private static boolean claimExpired(ServiceEntity service) {
+        return service.getCustomDomainRequestedAt() == null
+                || service.getCustomDomainRequestedAt().plus(DOMAIN_CLAIM_TTL).isBefore(java.time.Instant.now());
+    }
+
+    private static void clearDomainClaim(ServiceEntity service) {
+        service.setCustomDomainPending(null);
+        service.setCustomDomainToken(null);
+        service.setCustomDomainRequestedAt(null);
+    }
+
+    private static byte[] randomBytes(int n) {
+        byte[] b = new byte[n];
+        new java.security.SecureRandom().nextBytes(b);
+        return b;
     }
 
     private static String normalizeHostname(String domain) {

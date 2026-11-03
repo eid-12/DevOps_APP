@@ -203,6 +203,10 @@ export interface Service {
   envPendingDeploy?: boolean;
   /** Held stopped by the platform while its network isolation could not be confirmed. */
   quarantined?: boolean;
+  /** Requested custom domain waiting for its DNS TXT proof; not routed. */
+  customDomainPending?: string;
+  customDomainToken?: string;
+  customDomainRequestedAt?: string;
   volume?: VolumeMount;
   quota: ResourceQuota;
   cpuUsage: number;

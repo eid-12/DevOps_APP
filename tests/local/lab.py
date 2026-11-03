@@ -121,6 +121,7 @@ def start(args):
             'GITHUB_API_URL': 'http://mock:9000/github',
             'CLOUDBASE_EDGE_RECONCILE_MS': '5000', 'CLOUDBASE_EDGE_RECONCILE_INITIAL_MS': '5000',
             'CLOUDBASE_ISOLATION_CHECK_MS': '5000', 'CLOUDBASE_ISOLATION_CHECK_INITIAL_MS': '5000',
+            'CLOUDBASE_DOMAINS_DNS_SERVER': 'dns://mock',
         }
         if args.jwt_expiration_ms:
             env['JWT_EXPIRATION_MS'] = str(int(args.jwt_expiration_ms))

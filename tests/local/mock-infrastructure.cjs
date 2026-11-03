@@ -163,3 +163,27 @@ http.createServer((req, res) => {
   res.writeHead(200, { 'content-type': 'text/html' });
   res.end('<!doctype html><title>Synthetic</title><h1>Synthetic application page for local tests</h1>');
 }).listen(80, '0.0.0.0');
+// DNS TXT stand-in for custom-domain ownership checks (the API is pointed here with CLOUDBASE_DOMAINS_DNS_SERVER).
+// Records are set over HTTP: POST /_dns/<name>/<value> adds a TXT value, DELETE /_dns/<name> removes the name.
+const dgram = require('node:dgram');
+const dnsRecords = new Map();
+http.createServer((req, res) => {
+  const [, , name, value] = new URL(req.url, 'http://mock').pathname.split('/');
+  const key = (name || '').toLowerCase();
+  if (req.method === 'POST') { if (!dnsRecords.has(key)) dnsRecords.set(key, []); dnsRecords.get(key).push(decodeURIComponent(value)); }
+  else if (req.method === 'DELETE') dnsRecords.delete(key);
+  res.writeHead(200, { 'content-type': 'application/json' });
+  res.end(JSON.stringify(Object.fromEntries(dnsRecords)));
+}).listen(9053, '0.0.0.0');
+const dns = dgram.createSocket('udp4');
+dns.on('message', (q, rinfo) => {
+  let i = 12; const labels = [];
+  while (q[i] !== 0) { const n = q[i++]; labels.push(q.subarray(i, i + n).toString('ascii')); i += n; }
+  const questionEnd = i + 5;
+  const values = dnsRecords.get(labels.join('.').toLowerCase()) || [];
+  const head = Buffer.from([q[0], q[1], 0x81, values.length ? 0x80 : 0x83, 0, 1, 0, values.length, 0, 0, 0, 0]);
+  const answers = values.map(v => { const t = Buffer.from(v, 'ascii');
+    return Buffer.concat([Buffer.from([0xc0, 12, 0, 16, 0, 1, 0, 0, 0, 60, 0, t.length + 1, t.length]), t]); });
+  dns.send(Buffer.concat([head, q.subarray(12, questionEnd), ...answers]), rinfo.port, rinfo.address);
+});
+dns.bind(53, '0.0.0.0');

@@ -42,6 +42,9 @@ public interface ProjectService {
     /** @deprecated Platform subdomains are opaque; use {@link #setCustomDomain}. */
     ServiceEntity setSubdomain(String serviceId, UserEntity user, SetSubdomainRequest request);
     ServiceEntity setCustomDomain(String serviceId, UserEntity user, SetCustomDomainRequest request);
+
+    /** Activate the pending custom domain once its DNS TXT challenge carries the service's token. */
+    ServiceEntity verifyCustomDomain(String serviceId, UserEntity user);
     DomainCheckResponse checkCustomDomain(String serviceId, UserEntity user, String domain);
 
     com.cloudbase.dto.ProjectDtos.VanityStatusResponse vanityStatus(String serviceId, UserEntity user);

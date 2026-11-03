@@ -855,10 +855,21 @@ const ROLLBACK_WATCH_ATTEMPTS = 100; // 3 s apart: five minutes
                 </p>
               }
               <p class="muted check-msg">
-                Point a CNAME (or ALIAS) for this hostname to <code>cloudbase.website</code>, then save.
-                Leave empty and save to remove. Use Check before saving a new hostname.
+                Point a CNAME (or ALIAS) for this hostname to <code>cloudbase.website</code>, then save and prove
+                ownership with the TXT record shown. Leave empty and save to remove.
               </p>
             </div>
+            @if (service()!.customDomainPending; as pending) {
+              <div class="domain-verify" role="status">
+                <p><strong>Waiting for verification:</strong> <code>{{ pending }}</code> is not live yet.</p>
+                <p class="muted">Add this DNS TXT record at your DNS provider, then select Verify. The request expires {{ domainClaimExpiry() }}.</p>
+                <div class="port-row"><span>Name</span><code>_cloudbase-challenge.{{ pending }}</code></div>
+                <div class="port-row"><span>Value</span><code>cloudbase-verify={{ service()!.customDomainToken }}</code></div>
+                <button type="button" class="btn btn-primary u-mt-16" (click)="verifyDomain()" [disabled]="verifyingDomain() || !canManage()">
+                  {{ verifyingDomain() ? 'Checking DNS…' : 'Verify' }}
+                </button>
+              </div>
+            }
             @if (service()!.customDomain) {
               <p class="svc-live-url">
                 Live custom:
@@ -876,7 +887,7 @@ const ROLLBACK_WATCH_ATTEMPTS = 100; // 3 s apart: five minutes
               >
                 {{ saving() ? 'Saving…' : domainSaveBlocked() ? 'Check domain first' : 'Save custom domain' }}
               </button>
-              @if (service()!.customDomain) {
+              @if (service()!.customDomain || service()!.customDomainPending) {
                 <button type="button" class="btn btn-ghost" (click)="clearCustomDomain()" [disabled]="saving() || !canManage()">
                   Remove
                 </button>
@@ -2805,7 +2816,9 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
       next: svc => {
         this.applyService(svc);
         this.saving.set(false);
-        this.message.set(this.domainDraft.trim() ? 'Custom domain saved' : 'Custom domain cleared');
+        this.message.set(!this.domainDraft.trim() ? 'Custom domain cleared'
+          : svc.customDomainPending ? 'Saved. Add the TXT record below, then verify to make the domain live.'
+          : 'Custom domain saved');
         this.messageTone.set('ok');
       },
       error: e => {
@@ -2815,6 +2828,32 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
         this.checkDomain();
       }
     });
+  }
+
+  readonly verifyingDomain = signal(false);
+
+  domainClaimExpiry(): string {
+    const at = this.service()?.customDomainRequestedAt;
+    if (!at) return 'in 72 hours';
+    return 'on ' + new Date(new Date(at).getTime() + 72 * 3600 * 1000).toLocaleString();
+  }
+
+  verifyDomain() {
+    if (!this.canManage() || this.verifyingDomain()) return;
+    this.verifyingDomain.set(true);
+    this.projectService.verifyCustomDomain(this.serviceId)
+      .pipe(finalize(() => this.verifyingDomain.set(false)))
+      .subscribe({
+        next: svc => {
+          this.applyService(svc);
+          this.message.set(`Verified. ${svc.customDomain} is now live.`);
+          this.messageTone.set('ok');
+        },
+        error: e => {
+          this.message.set(friendlyApiMessage(e, 'Verification failed'));
+          this.messageTone.set('error');
+        }
+      });
   }
 
   clearCustomDomain() {

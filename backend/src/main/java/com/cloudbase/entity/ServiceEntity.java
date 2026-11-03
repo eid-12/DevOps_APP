@@ -23,6 +23,20 @@ public class ServiceEntity {
     @Builder.Default
     private String setupState = "DONE";
 
+    /** Requested custom domain awaiting DNS proof; never routed. */
+    @Column(name = "custom_domain_pending", length = 255)
+    private String customDomainPending;
+
+    /** Value the owner publishes as TXT _cloudbase-challenge.&lt;domain&gt; = cloudbase-verify=&lt;token&gt;. */
+    @Column(name = "custom_domain_token", length = 64)
+    private String customDomainToken;
+
+    @Column(name = "custom_domain_requested_at")
+    private java.time.Instant customDomainRequestedAt;
+
+    @Column(name = "custom_domain_verified_at")
+    private java.time.Instant customDomainVerifiedAt;
+
     /** Held stopped by the platform while this service's network isolation could not be proven. */
     @Column(name = "quarantined", nullable = false)
     @Builder.Default

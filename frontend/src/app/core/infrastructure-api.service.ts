@@ -64,6 +64,12 @@ export class InfrastructureApiService {
       .put<BackendService>(`${this.base}/projects/services/${serviceId}/custom-domain`, { domain })
       .pipe(map(mapService));
   }
+  verifyCustomDomain(serviceId: string): Observable<Service> {
+    return this.http
+      .post<BackendService>(`${this.base}/projects/services/${serviceId}/custom-domain/verify`, {})
+      .pipe(map(mapService));
+  }
+
 
   checkCustomDomain(
     serviceId: string,
@@ -339,6 +345,9 @@ interface BackendService {
   envVars?: Record<string, unknown>;
   envPendingDeploy?: boolean;
   quarantined?: boolean;
+  customDomainPending?: string;
+  customDomainToken?: string;
+  customDomainRequestedAt?: string;
   containerName?: string;
   containerPort?: number;
   quotaMemoryMb?: number;
@@ -435,6 +444,9 @@ function mapService(s: BackendService): Service {
     envVars,
     envPendingDeploy: s.envPendingDeploy,
     quarantined: s.quarantined,
+    customDomainPending: s.customDomainPending,
+    customDomainToken: s.customDomainToken,
+    customDomainRequestedAt: s.customDomainRequestedAt,
     runtime: resolveRuntime(s),
     quota: {
       memorymb: s.quotaMemoryMb ?? 512,
