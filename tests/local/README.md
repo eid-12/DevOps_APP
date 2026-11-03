@@ -54,3 +54,12 @@ suspension cannot be lifted by email verification. No production credentials or 
 The cooldown boundary unit tests cover rounded-up advertised waits and a controlled backward clock
 step. The latter reproduces a wall-clock timing mechanism; it does not establish the cause of earlier
 untraced failures. Keep that distinction when reporting the new concurrency fixes or successful runs.
+
+## Real-engine isolation
+
+`python -u tests/local/real_stack.py --docker-restart` runs the release JAR against a real Portainer CE, the real
+Nginx Proxy Manager image and the egress guard on the local Docker engine (no simulated infrastructure): refusal
+without the guard, every bypass path (names, all IPs, host addresses, published ports, the edge with any Host
+header, IPv6), guard failure, deleted rules (tenants stopped and restarted) and a Docker engine restart. It restarts
+Docker Desktop with `--docker-restart`, refuses to run if its names already exist, and removes everything it made,
+guard rules included. `network_isolation.py` replays the API's operations against a simulated Portainer instead.

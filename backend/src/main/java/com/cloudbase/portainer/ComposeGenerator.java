@@ -164,7 +164,7 @@ public class ComposeGenerator {
         Map<String, Object> app = new LinkedHashMap<>();
         app.put("image", image);
         app.put("container_name", resolveContainerName(service));
-        app.put("restart", "unless-stopped");
+        app.put("restart", TENANT_RESTART);
         // Private GHCR images are pulled beforehand with the owner's credential; compose must not re-pull
         // anonymously (it would fail), and Watchtower has no credential either. Updates come from the webhook.
         boolean ownerPulled = service.getSourceType() == ServiceSourceType.GITHUB && image.startsWith("ghcr.io/");
@@ -225,7 +225,7 @@ public class ComposeGenerator {
         Map<String, Object> db = new LinkedHashMap<>();
         db.put("image", image);
         db.put("container_name", resolveContainerName(service));
-        db.put("restart", "unless-stopped");
+        db.put("restart", TENANT_RESTART);
         // Never auto-upgrade DB engines via Watchtower (data/compat risk).
         db.put("labels", watchtowerLabels(false, watchtowerScope(service)));
         if (command != null) {
@@ -280,8 +280,9 @@ public class ComposeGenerator {
                 "WATCHTOWER_LABEL_ENABLE", "true",
                 "WATCHTOWER_SCOPE", watchtowerScope(service),
                 "WATCHTOWER_CLEANUP", "true",
-                "WATCHTOWER_INCLUDE_STOPPED", "true",
-                "WATCHTOWER_REVIVE_STOPPED", "true",
+                // Never start a stopped (e.g. quarantined) tenant container; only the API does, after isolation checks.
+                "WATCHTOWER_INCLUDE_STOPPED", "false",
+                "WATCHTOWER_REVIVE_STOPPED", "false",
                 "WATCHTOWER_POLL_INTERVAL", "300",
                 "DOCKER_API_VERSION", "1.44"
         ));
@@ -297,6 +298,13 @@ public class ComposeGenerator {
                 "com.centurylinklabs.watchtower.scope", scope
         );
     }
+
+    /**
+     * Docker never starts tenant containers by itself, not even after a crash: a killed daemon counts as a failure,
+     * so "on-failure" would start them with the daemon, before isolation is proven. TenantIsolationGuard starts
+     * services that should be running (after a crash or a daemon/host restart) once isolation is proven.
+     */
+    static final String TENANT_RESTART = "no";
 
     /** Caps process count so one tenant cannot fork-bomb the shared host. */
     static final String PIDS_LIMIT = "512";

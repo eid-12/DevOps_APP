@@ -23,6 +23,11 @@ public class ServiceEntity {
     @Builder.Default
     private String setupState = "DONE";
 
+    /** Held stopped by the platform while this service's network isolation could not be proven. */
+    @Column(name = "quarantined", nullable = false)
+    @Builder.Default
+    private boolean quarantined = false;
+
     @Id
     @Column(length = 36)
     private String id;

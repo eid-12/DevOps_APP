@@ -2,7 +2,7 @@ services:
   my-db:
     image: mongo:7
     container_name: cb-svc-mongodb
-    restart: unless-stopped
+    restart: 'no'
     labels:
       com.centurylinklabs.watchtower.enable: "false"
       com.centurylinklabs.watchtower.scope: "cb-svc-mongodb"

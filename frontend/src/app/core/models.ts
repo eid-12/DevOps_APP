@@ -201,6 +201,8 @@ export interface Service {
   envVars: EnvironmentVariable[];
   /** True after env save until a successful deploy applies them */
   envPendingDeploy?: boolean;
+  /** Held stopped by the platform while its network isolation could not be confirmed. */
+  quarantined?: boolean;
   volume?: VolumeMount;
   quota: ResourceQuota;
   cpuUsage: number;

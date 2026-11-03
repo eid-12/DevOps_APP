@@ -201,6 +201,39 @@ if gh[0] == 201:
     check('a webhook does not deploy a service whose repository access is unverified',
           not [x for x in deps(gid) if x.get('commitSha') == unverified_sha], deps(gid)[:2])
 
+# Fail closed without proven isolation; running tenants are stopped while exposed and restarted once protected
+container = sql(f"select container_name from services where id='{sid}'")
+quarantined = lambda: sql(f"select quarantined from services where id='{sid}'") == 't'
+stopped = lambda: container in json.loads(mock('node', '-e', "fetch('http://127.0.0.1:9000/_stopped').then(r=>r.text()).then(console.log)"))
+def wait_for(cond, seconds=40):
+    for _ in range(seconds * 2):
+        if cond():
+            return True
+        time.sleep(0.5)
+    return False
+mock('touch', '/tmp/guard-off')
+mark = len(mock('cat', '/tmp/calls.log').splitlines())
+refused = post(f'/api/projects/services/{sid}/deploy', {'imageTag': 'guard-off'}, t)
+rd = {}
+for _ in range(80):
+    rd = next((x for x in deps(sid) if x['id'] == (refused[1] or {}).get('id')), {})
+    if rd.get('status') in ('FAILED', 'SUCCESS'):
+        break
+    time.sleep(0.5)
+calls = [c for c in mock('cat', '/tmp/calls.log').splitlines()[mark:] if '/stacks' in c and ('"POST"' in c or '"PUT"' in c)]
+check('deploy is refused while isolation is not proven, before any stack call', rd.get('status') == 'FAILED'
+      and 'isolation could not be confirmed' in (rd.get('errorMessage') or '') and calls == [], (rd.get('status'), rd.get('errorMessage'), calls))
+check('a running tenant is stopped and quarantined while exposed', wait_for(lambda: stopped() and quarantined()), (stopped(), quarantined()))
+mock('rm', '-f', '/tmp/guard-off')
+check('it is started again and released once isolation is proven', wait_for(lambda: not stopped() and not quarantined()), (stopped(), quarantined()))
+ok = post(f'/api/projects/services/{sid}/deploy', {'imageTag': 'guard-on'}, t)
+for _ in range(80):
+    od = next((x for x in deps(sid) if x['id'] == (ok[1] or {}).get('id')), {})
+    if od.get('status') in ('FAILED', 'SUCCESS'):
+        break
+    time.sleep(0.5)
+check('deploys work again with isolation proven', od.get('status') == 'SUCCESS', (od.get('status'), od.get('errorMessage')))
+
 # A platform container on the project network must stop deploys before any workload call, visibly and every time
 before = stacks()
 mock('node', '-e', f"fetch('http://127.0.0.1:9000/_networks/{pnet}/cloudbase-postgres',{{method:'POST'}}).then(r=>r.text())")

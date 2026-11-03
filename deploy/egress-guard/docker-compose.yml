@@ -9,4 +9,7 @@ services:
     cap_add: [NET_ADMIN, NET_RAW]
     security_opt: ["no-new-privileges:true"]
     read_only: true
+    tmpfs: [/run]
+    environment:
+      INTERVAL: "5"
     restart: unless-stopped

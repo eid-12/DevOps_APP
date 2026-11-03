@@ -2,7 +2,7 @@ services:
   web-app:
     image: "nginx:1.27-alpine"
     container_name: cb-svc-dock1
-    restart: unless-stopped
+    restart: 'no'
     pull_policy: always
     command:
       - "node"
@@ -37,8 +37,8 @@ services:
       WATCHTOWER_LABEL_ENABLE: "true"
       WATCHTOWER_SCOPE: "cb-svc-dock1"
       WATCHTOWER_CLEANUP: "true"
-      WATCHTOWER_INCLUDE_STOPPED: "true"
-      WATCHTOWER_REVIVE_STOPPED: "true"
+      WATCHTOWER_INCLUDE_STOPPED: "false"
+      WATCHTOWER_REVIVE_STOPPED: "false"
       WATCHTOWER_POLL_INTERVAL: "300"
       DOCKER_API_VERSION: "1.44"
     labels:

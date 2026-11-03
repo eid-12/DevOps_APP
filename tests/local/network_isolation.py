@@ -83,6 +83,8 @@ def replay():
             docker('network', 'disconnect', '-f', op['net'], op['container'], check_rc=False)
         elif kind == 'remove':
             docker('rm', '-f', op['name'], check_rc=False)
+        elif kind in ('create', 'start', 'remove', 'exec') and str(op.get('name', op.get('container', ''))).startswith('cb-probe-'):
+            continue  # isolation probes: the simulated Portainer already answered them
         elif kind == 'create':
             b = op['body']
             hc = b.get('HostConfig', {})
@@ -92,7 +94,10 @@ def replay():
                 args += ['--security-opt', opt]
             for k, v in b.get('Labels', {}).items():
                 args += ['--label', f'{k}={v}']
-            docker(*args, b['Image'], *b['Cmd'])
+            for port, binds in (hc.get('PortBindings') or {}).items():
+                for bind in binds:
+                    args += ['-p', f"{bind.get('HostIp', '')}:{bind.get('HostPort', '')}:{port.split('/')[0]}"]
+            docker(*args, b['Image'], *b.get('Cmd', []))
         elif kind == 'start':
             docker('start', op['name'])
         elif kind == 'exec':

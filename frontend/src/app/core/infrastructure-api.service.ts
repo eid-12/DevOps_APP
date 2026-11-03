@@ -338,6 +338,7 @@ interface BackendService {
   customDomain?: string;
   envVars?: Record<string, unknown>;
   envPendingDeploy?: boolean;
+  quarantined?: boolean;
   containerName?: string;
   containerPort?: number;
   quotaMemoryMb?: number;
@@ -433,6 +434,7 @@ function mapService(s: BackendService): Service {
     containerName: s.containerName,
     envVars,
     envPendingDeploy: s.envPendingDeploy,
+    quarantined: s.quarantined,
     runtime: resolveRuntime(s),
     quota: {
       memorymb: s.quotaMemoryMb ?? 512,

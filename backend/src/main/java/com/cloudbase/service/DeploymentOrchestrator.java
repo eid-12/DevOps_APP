@@ -11,6 +11,7 @@ import com.cloudbase.model.ServiceStatus;
 import com.cloudbase.npm.NpmClient;
 import com.cloudbase.portainer.ComposeGenerator;
 import com.cloudbase.portainer.EdgeRouter;
+import com.cloudbase.portainer.TenantIsolationVerifier;
 import com.cloudbase.portainer.PortainerClient;
 import com.cloudbase.repository.DeploymentRepository;
 import com.cloudbase.repository.ServiceRepository;
@@ -60,6 +61,7 @@ public class DeploymentOrchestrator {
     private final UserRepository userRepository;
     private final EmailService emailService;
     private final EdgeRouter edgeRouter;
+    private final TenantIsolationVerifier isolationVerifier;
 
     public DeploymentOrchestrator(
             ServiceRepository serviceRepository,
@@ -75,9 +77,11 @@ public class DeploymentOrchestrator {
             TransactionTemplate transactionTemplate,
             UserRepository userRepository,
             EmailService emailService,
-            EdgeRouter edgeRouter
+            EdgeRouter edgeRouter,
+            TenantIsolationVerifier isolationVerifier
     ) {
         this.edgeRouter = edgeRouter;
+        this.isolationVerifier = isolationVerifier;
         this.serviceRepository = serviceRepository;
         this.deploymentRepository = deploymentRepository;
         this.composeGenerator = composeGenerator;
@@ -214,11 +218,16 @@ public class DeploymentOrchestrator {
 
         // The project network is prepared (and checked) before any workload is created. For apps the edge joins
         // it so it can route to them; the reverse proxy itself (with its admin listener) never does.
-        boolean app = service.getSourceType() != ServiceSourceType.DATABASE;
-        Mono<Void> network = (app ? edgeRouter.ensureEdge() : Mono.<Void>empty())
-                .then(portainerClient.ensureProjectNetwork(
-                        composeGenerator.projectNetworkName(service.getProject().getId()),
-                        edgeRouter.edgeName(), app));
+        // Then the network's isolation is proven by a probe before anything runs on it: no workload is created
+        // unless the host stops tenant bridges from reaching published ports (fail closed).
+        String projectNetwork = composeGenerator.projectNetworkName(service.getProject().getId());
+        Mono<Void> network = edgeRouter.ensureEdge()
+                .then(portainerClient.ensureProjectNetwork(projectNetwork, edgeRouter.edgeName(), true))
+                .then(Mono.fromCallable(() -> isolationVerifier.verify(projectNetwork))
+                        .subscribeOn(Schedulers.boundedElastic())
+                        .flatMap(outcome -> outcome.result() == TenantIsolationVerifier.Result.PROTECTED
+                                ? Mono.<Void>empty()
+                                : Mono.error(new IllegalStateException(isolationRefusal(outcome)))));
         // Logged before subscribing: a fast failure on another thread must not be followed by this stage line.
         appendStage(deploymentId, DeploymentStatus.DEPLOYING, "deploying", "Portainer API call started");
         network.then(Mono.defer(() -> portainerClient.upsertStack(stackName, compose, env, existingStackId, pullImage)))
@@ -729,6 +738,12 @@ public class DeploymentOrchestrator {
             return false;
         }
         return slug.matches("cloudbase\\d{4}");
+    }
+
+    static String isolationRefusal(TenantIsolationVerifier.Outcome outcome) {
+        return "Deploy refused: tenant network isolation could not be confirmed on this host ("
+                + outcome.detail() + "). Nothing was deployed. An administrator must enable the egress guard "
+                + "(deploy/egress-guard) before tenant workloads can run.";
     }
 
     /** NPM forwards every tenant hostname to the edge on this port; the edge routes by Host. */

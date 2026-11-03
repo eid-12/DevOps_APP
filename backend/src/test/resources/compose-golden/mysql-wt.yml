@@ -2,7 +2,7 @@ services:
   my-db:
     image: mysql:8.0
     container_name: cb-svc-mysql
-    restart: unless-stopped
+    restart: 'no'
     labels:
       com.centurylinklabs.watchtower.enable: "false"
       com.centurylinklabs.watchtower.scope: "cb-svc-mysql"
@@ -32,8 +32,8 @@ services:
       WATCHTOWER_LABEL_ENABLE: "true"
       WATCHTOWER_SCOPE: "cb-svc-mysql"
       WATCHTOWER_CLEANUP: "true"
-      WATCHTOWER_INCLUDE_STOPPED: "true"
-      WATCHTOWER_REVIVE_STOPPED: "true"
+      WATCHTOWER_INCLUDE_STOPPED: "false"
+      WATCHTOWER_REVIVE_STOPPED: "false"
       WATCHTOWER_POLL_INTERVAL: "300"
       DOCKER_API_VERSION: "1.44"
     labels:

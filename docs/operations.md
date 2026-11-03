@@ -150,6 +150,14 @@ Docker also accepts connections from any bridge to published ports on a containe
 `deploy/egress-guard` (see its README) to stop tenant bridges from reaching NPM :81, Portainer and other published
 services. That is a host change applied separately.
 
+The application fails closed without it. Before every tenant deploy, and every 30 s for each project with deployed
+services (`CLOUDBASE_ISOLATION_CHECK_MS`), a short-lived probe on the project network must fail to reach
+`cloudbase-guard-canary` (publishes :80 on 127.0.0.1) and must reach `cloudbase-edge` (control). Unproven isolation
+refuses the deploy before any stack call. Proven exposure stops every container of that project and marks its
+services quarantined (owner notified, UI "Paused for safety"); proven protection starts them again. A failed probe
+leaves running services alone and starts nothing. Tenant containers use `restart: "no"`, so after a crash or a
+Docker/host restart they stay stopped until the API has proven isolation and starts them (within one interval).
+
 ## Local vs live
 
 | | Local | Live |

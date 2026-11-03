@@ -12,7 +12,11 @@ const containers = () => [...stacks.values()].flatMap(s => s.containers).concat(
 const networks = new Map(); // name -> Set of member container names
 const subnets = new Map(); // name -> CIDR reported in IPAM
 const ops = [];
-const repos = {}; // "owner/repo" -> { files: {path: base64}, hooks: [bodies] }
+const repos = {};
+const stopped = new Set(); // stack containers stopped through the API
+// Isolation probes (cb-probe-*) exit at once; their output says EXPOSED while /tmp/guard-off exists.
+const probeOutput = () => (fs.existsSync('/tmp/guard-off') ? 'EXPOSED' : 'BLOCKED') + String.fromCharCode(10) + 'CONTROL_OK' + String.fromCharCode(10);
+const frame = s => { const b = Buffer.from(s); const h = Buffer.alloc(8); h[0] = 1; h.writeUInt32BE(b.length, 4); return Buffer.concat([h, b]); }; // "owner/repo" -> { files: {path: base64}, hooks: [bodies] }
 const networkBody = name => ({ Name: name, IPAM: { Config: [{ Subnet: subnets.get(name) }] },
   Containers: Object.fromEntries([...networks.get(name)].map((m, i) => ['c' + i, { Name: m }])) });
 const addNetwork = name => { networks.set(name, new Set()); if (!subnets.has(name)) subnets.set(name, `10.200.${networks.size}.0/24`); };
@@ -55,6 +59,7 @@ http.createServer((req, res) => {
     else if (path === '/_stacks') body = [...stacks.values()];
     else if (path === '/_networks') body = Object.fromEntries([...networks].map(([n, m]) => [n, [...m]]));
     else if (path === '/_ops') body = ops;
+    else if (path === '/_stopped') body = [...stopped];
     // Test hooks: POST /_subnet/<net>/<a.b.c.d>/<bits> sets the CIDR a network reports (to match a real engine);
     // POST /_forget/<container> drops a standalone container and its memberships (as if removed on the host);
     // POST|DELETE /_networks/<net>/<container> adds or removes a member (e.g. a platform container, a recreated proxy).
@@ -92,8 +97,17 @@ http.createServer((req, res) => {
       body = { Id: name };
     } else if (req.method === 'POST' && /\/containers\/[^/]+\/start$/.test(path)) {
       const name = path.split('/').at(-2);
-      if (created.has(name)) { created.get(name).running = true; ops.push({ op: 'start', name }); }
+      if (created.has(name)) { created.get(name).running = !name.startsWith('cb-probe-'); ops.push({ op: 'start', name }); }
+      stopped.delete(name);
       code = 204;
+    } else if (req.method === 'POST' && /\/containers\/[^/]+\/stop$/.test(path)) {
+      const name = path.split('/').at(-2);
+      if (created.has(name)) created.get(name).running = false; else stopped.add(name);
+      ops.push({ op: 'stop', name });
+      code = 204;
+    } else if (req.method === 'GET' && /\/containers\/cb-probe-[^/]+\/logs$/.test(path)) {
+      res.writeHead(200, { 'content-type': 'application/vnd.docker.raw-stream' });
+      return res.end(frame(probeOutput()));
     } else if (req.method === 'POST' && /\/containers\/[^/]+\/exec$/.test(path)) {
       const container = path.split('/').at(-2);
       ops.push({ op: 'exec', container, cmd: json().Cmd });
@@ -108,8 +122,11 @@ http.createServer((req, res) => {
     else if (req.method === 'GET' && /\/containers\/[^/]+\/json$/.test(path)) {
       const n = path.split('/').at(-2);
       const c = created.get(n);
-      if (c) body = { Id: n, Name: '/' + n, Config: { Labels: c.body.Labels ?? {} }, State: { Status: c.running ? 'running' : 'created', Running: c.running }, RestartCount: 0 };
-      else if (containers().includes(n)) body = { Id: n, Name: '/' + n, State: { Status: 'running', Running: true }, RestartCount: 0 };
+      const nets = Object.fromEntries([...networks].filter(([, m]) => m.has(n)).map(([net], i) => [net, { IPAddress: (subnets.get(net) || '10.9.9.0/24').replace(/\.0\/\d+$/, '.' + (10 + i)) }]));
+      if (c) body = { Id: n, Name: '/' + n, Config: { Labels: c.body.Labels ?? {} }, NetworkSettings: { Networks: nets },
+        State: { Status: c.running ? 'running' : 'exited', Running: c.running }, RestartCount: 0 };
+      else if (containers().includes(n)) body = { Id: n, Name: '/' + n, NetworkSettings: { Networks: nets },
+        State: { Status: stopped.has(n) ? 'exited' : 'running', Running: !stopped.has(n) }, RestartCount: 0 };
       else { code = 404; body = { message: 'No such container' }; }
     } else if (req.method === 'GET' && /\/(registries|networks)$/.test(path)) body = [];
     else if (req.method === 'GET' && path === '/api/endpoints/1') body = { Id: 1, Snapshots: [] };

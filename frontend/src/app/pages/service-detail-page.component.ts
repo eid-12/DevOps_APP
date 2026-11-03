@@ -76,7 +76,11 @@ const ROLLBACK_WATCH_ATTEMPTS = 100; // 3 s apart: five minutes
             <span class="svc-title-icon">{{ sourceIcon(service()?.sourceType) }}</span>
             <h1 class="railway-page-title">{{ service()?.name ?? '…' }}</h1>
             @if (service(); as svc) {
-              <span class="service-status-badge" [class]="'badge-' + svc.status.toLowerCase()">{{ statusLabel(svc.status) }}</span>
+              @if (svc.quarantined) {
+                <span class="service-status-badge badge-stopped">Paused for safety</span>
+              } @else {
+                <span class="service-status-badge" [class]="'badge-' + svc.status.toLowerCase()">{{ statusLabel(svc.status) }}</span>
+              }
             }
           </div>
           @if (headerStatusLine(); as line) {
@@ -1622,6 +1626,10 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
 
   /** One short line under the title — no duplicate timeline in the header. */
   headerStatusLine(): string {
+    if (this.service()?.quarantined) {
+      return 'CloudBase stopped this service because network isolation could not be confirmed on the host. '
+        + 'It starts again automatically once isolation is restored; no action is needed.';
+    }
     const active = this.activeDeploy();
     if (active) {
       const label = this.stageLabel(active);
