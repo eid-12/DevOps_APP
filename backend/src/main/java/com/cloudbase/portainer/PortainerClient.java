@@ -547,6 +547,9 @@ public class PortainerClient {
                     String id = String.valueOf(created.get("Id"));
                     return webClient.post()
                             .uri("/api/endpoints/{eid}/docker/containers/{cid}/start", endpointId, id)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            // Explicit body: a bodiless POST goes out chunked, which Docker rejects ("non-empty request body", 400).
+                            .bodyValue("{}")
                             .retrieve()
                             .bodyToMono(Void.class)
                             .then(Mono.delay(java.time.Duration.ofSeconds(2)))
@@ -616,20 +619,26 @@ public class PortainerClient {
                                 "Portainer container inspect HTTP " + resp.statusCode().value()))));
     }
 
-    /** Pull a public image (no credentials), create the named container from {@code body} and start it. */
+    /**
+     * Create the named container from {@code body} and start it, pulling the public image (no credentials) only when
+     * the engine does not have it: platform probes run often and must not wait on the registry.
+     */
     public Mono<Void> createAndStart(String name, String image, String tag, Map<String, Object> body) {
-        return webClient.post()
+        Mono<Integer> create = Mono.defer(() -> webClient.post()
+                .uri(b -> b.path("/api/endpoints/{eid}/docker/containers/create").queryParam("name", name).build(endpointId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(body)
+                .exchangeToMono(resp -> resp.releaseBody().thenReturn(resp.statusCode().value())));
+        Mono<Void> pull = webClient.post()
                 .uri(b -> b.path("/api/endpoints/{eid}/docker/images/create")
                         .queryParam("fromImage", image).queryParam("tag", tag).build(endpointId))
                 .retrieve()
                 .bodyToMono(byte[].class)
-                .then(webClient.post()
-                        .uri(b -> b.path("/api/endpoints/{eid}/docker/containers/create").queryParam("name", name).build(endpointId))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .bodyValue(body)
-                        .retrieve()
-                        .bodyToMono(MAP_TYPE))
-                .then(startContainer(name));
+                .then();
+        return create.flatMap(code -> code == 404 ? pull.then(create) : Mono.just(code))
+                .flatMap(code -> code >= 200 && code < 300 ? Mono.<Void>empty()
+                        : Mono.error(new IllegalStateException("Container create " + name + " HTTP " + code)))
+                .then(Mono.defer(() -> startContainer(name)));
     }
 
     public Mono<Void> removeContainer(String name) {
@@ -777,6 +786,9 @@ public class PortainerClient {
     public Mono<Void> stopContainer(String containerId) {
         return webClient.post()
                 .uri("/api/endpoints/{eid}/docker/containers/{cid}/stop", endpointId, containerId)
+                .contentType(MediaType.APPLICATION_JSON)
+                // Explicit body: a bodiless POST goes out chunked, which Docker rejects ("non-empty request body", 400).
+                .bodyValue("{}")
                 .retrieve()
                 .bodyToMono(Void.class)
                 .onErrorResume(e -> {
@@ -788,6 +800,9 @@ public class PortainerClient {
     public Mono<Void> startContainer(String containerId) {
         return webClient.post()
                 .uri("/api/endpoints/{eid}/docker/containers/{cid}/start", endpointId, containerId)
+                .contentType(MediaType.APPLICATION_JSON)
+                // Explicit body: a bodiless POST goes out chunked, which Docker rejects ("non-empty request body", 400).
+                .bodyValue("{}")
                 .retrieve()
                 .bodyToMono(Void.class)
                 .onErrorResume(e -> {
@@ -799,6 +814,9 @@ public class PortainerClient {
     public Mono<Void> restartContainer(String containerId) {
         return webClient.post()
                 .uri("/api/endpoints/{eid}/docker/containers/{cid}/restart", endpointId, containerId)
+                .contentType(MediaType.APPLICATION_JSON)
+                // Explicit body: a bodiless POST goes out chunked, which Docker rejects ("non-empty request body", 400).
+                .bodyValue("{}")
                 .retrieve()
                 .bodyToMono(Void.class)
                 .doOnError(e -> log.warn("Container restart failed id={}: {}", containerId, e.getMessage()));
