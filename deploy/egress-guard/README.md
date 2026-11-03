@@ -46,6 +46,12 @@ Privileges: the guard container runs with `network_mode: host` and only `NET_ADM
 capabilities dropped, `no-new-privileges`, read-only root filesystem). Applying it needs a shell on the host with
 access to the Docker CLI (the same access used to run Docker Desktop); no Windows firewall or WSL change.
 
+Through Portainer (approved path; no host shell needed): create a stack named `cloudbase-egress-guard` on
+endpoint 3 from `portainer-stack.yml` (same `guard.sh`, embedded; iptables installed from the official Alpine
+repository at start; capabilities NET_ADMIN, NET_RAW plus CHOWN/DAC_OVERRIDE/FOWNER for that install). Roll back by
+running `sh /usr/local/bin/guard.sh --remove` in the container (Portainer console or exec), then removing the stack.
+Regenerate the file with `python deploy/egress-guard/make-portainer-stack.py` whenever `guard.sh` changes.
+
 Order:
 1. Release the application (normal `master` push and CI/CD). Safe before the guard: tenant deploys are refused.
 2. On the host, from a checkout of the released commit:
