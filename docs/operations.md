@@ -127,7 +127,14 @@ new domain is verified, the previous one keeps working. DNS lookups use the syst
 Rollout (V23): existing active domains are marked verified (`custom_domain_verified_at`) and keep routing; they were
 accepted without proof before this release. To re-check one, clear it and claim it again. Production had no tenant
 services when inspected, so nothing is affected there. The API container needs outbound DNS (UDP/TCP 53) for TXT
-lookups; a lookup failure counts as "not proven" and leaves the claim pending.
+lookups; a lookup failure counts as "not proven" and leaves the claim pending. Activation commits the domain, then
+routes it synchronously (NPM host and edge table); if routing fails the previous domain and the claim are restored and
+the API answers 502. A claim that loses to another service's active domain is discarded.
+
+Rollback: a V23 trigger refuses any new active `custom_domain` unless `custom_domain_verified_at` is set in the same
+write. A release from before V23 (for example 37cfe4a) starts on a V23 database and keeps serving verified domains,
+but its attempts to activate a domain are refused (fail closed); clearing domains still works. No database restore is
+needed to roll back; roll forward again to re-enable domain changes.
 
 ## Repository authority
 
