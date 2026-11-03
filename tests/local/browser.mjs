@@ -18,8 +18,15 @@ const results = [];
 const check = (name, ok, detail = '') => { results.push(ok); console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !detail ? '' : ' — ' + detail}`); };
 
 async function api(method, path, body, token, expected = 200) {
-  const res = await fetch(lab.api + path, { method, headers: { 'content-type': 'application/json', ...(token ? { authorization: 'Bearer ' + token } : {}) },
-    body: body === undefined ? undefined : JSON.stringify(body) });
+  let res;
+  try {
+    res = await fetch(lab.api + path, { method, headers: { 'content-type': 'application/json', ...(token ? { authorization: 'Bearer ' + token } : {}) },
+      body: body === undefined ? undefined : JSON.stringify(body) });
+  } catch (e) {
+    // Node reports socket errors as a bare "fetch failed"; keep the underlying cause for diagnosis.
+    const c = e.cause || {};
+    throw new Error(`${method} ${path}: fetch failed at ${new Date().toISOString()} (${c.code || ''} ${c.errno || ''} ${c.syscall || ''} ${c.message || ''})`.trim());
+  }
   const text = await res.text();
   if (res.status !== expected) throw new Error(`${method} ${path}: expected ${expected}, got ${res.status} ${text.slice(0, 200)}`);
   return text ? JSON.parse(text) : null;
