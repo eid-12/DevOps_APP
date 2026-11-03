@@ -83,7 +83,7 @@ sid = create(repo)
 check('a new service records verified repository access', flag(sid) == 'true', flag(sid))
 check('provisioning registered exactly one webhook', len(github().get(repo, {}).get('hooks', [])) == 1, github().get(repo))
 # Make the lab deploy path work without GitHub Actions or a registry (same as deploy_verify.py).
-sql(f"""update services set custom_domain='app.cloudbase.test' where id='{sid}'""")
+sql(f"""update services set custom_domain='app.cloudbase.test', custom_domain_verified_at=now() where id='{sid}'""")
 
 # 1. An installation from before the check: same service, flag absent.
 sql(f"update services set source_details = source_details - 'ciRepoAccessVerified' where id='{sid}'")

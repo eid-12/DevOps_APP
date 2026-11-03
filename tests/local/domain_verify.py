@@ -88,6 +88,7 @@ check('the verified domain is routed to the owner', wait_routes(lambda t: f'{dom
 
 code, r = request('POST', f'/api/projects/services/{b_sid}/custom-domain/verify', {}, bt)
 check("the other claim can no longer verify (409), even though its own TXT value is published", code == 409, (code, r))
+check('the defeated claim is discarded', not request('GET', f'/api/projects/services/{b_sid}', token=bt)[1].get('customDomainPending'))
 code, r = request('PUT', f'/api/projects/services/{b_sid}/custom-domain', {'domain': domain}, bt)
 check('nor can it claim the active domain again', code == 409, (code, r))
 check('the route still points at the owner', f'{domain} cb-{a_sid}:' in routes() and f'cb-{b_sid}:' not in routes().split(domain, 1)[-1].split(';', 1)[0])
@@ -104,5 +105,60 @@ check('requesting it again issues a fresh token', code == 200 and c2.get('custom
 code, r = request('PUT', f'/api/projects/services/{a_sid}/custom-domain', {'domain': ''}, at)
 check('clearing removes the active domain', code == 200 and not r.get('customDomain'), (code, r))
 check('and its route', wait_routes(lambda t: domain not in t), routes()[-300:])
+# Replacing an active domain: the current one stays live until the new one is verified and routed.
+x = f'keep-{uuid.uuid4().hex[:6]}.example.test'
+y = f'next-{uuid.uuid4().hex[:6]}.example.test'
+cx = request('PUT', f'/api/projects/services/{a_sid}/custom-domain', {'domain': x}, at)[1]
+dns('POST', '_cloudbase-challenge.' + x, 'cloudbase-verify=' + cx['customDomainToken'])
+code, r = request('POST', f'/api/projects/services/{a_sid}/custom-domain/verify', {}, at)
+check('setup: X verified and active', code == 200 and r.get('customDomain') == x, (code, r))
+code, cy = request('PUT', f'/api/projects/services/{a_sid}/custom-domain', {'domain': y}, at)
+check('claiming Y keeps X active and routed', code == 200 and cy.get('customDomain') == x and cy.get('customDomainPending') == y
+      and wait_routes(lambda t: f'{x} cb-{a_sid}:' in t), (code, cy))
+code, r = request('POST', f'/api/projects/services/{a_sid}/custom-domain/verify', {}, at)
+check('a failed DNS proof for Y leaves X active', code == 400 and request('GET', f'/api/projects/services/{a_sid}', token=at)[1].get('customDomain') == x, (code, r))
+
+# Routing failure after a successful proof: nothing changes, the claim stays for a retry.
+dns('POST', '_cloudbase-challenge.' + y, 'cloudbase-verify=' + cy['customDomainToken'])
+mock('touch', '/tmp/fail-exec')
+code, r = request('POST', f'/api/projects/services/{a_sid}/custom-domain/verify', {}, at)
+after = request('GET', f'/api/projects/services/{a_sid}', token=at)[1]
+check('a routing failure returns 502 and keeps X active with the Y claim intact',
+      code == 502 and x in str(r) and after.get('customDomain') == x and after.get('customDomainPending') == y
+      and after.get('customDomainToken') == cy['customDomainToken'], (code, str(r)[:160], after.get('customDomain'), after.get('customDomainPending')))
+mock('rm', '-f', '/tmp/fail-exec')
+code, r = request('POST', f'/api/projects/services/{a_sid}/custom-domain/verify', {}, at)
+check('retrying after routing recovers activates Y and routes it instead of X',
+      code == 200 and r.get('customDomain') == y and wait_routes(lambda t: f'{y} cb-{a_sid}:' in t and x not in t), (code, r))
+
+# Concurrent verification of the same name by two tenants: exactly one owner.
+import threading
+z = f'race-{uuid.uuid4().hex[:6]}.example.test'
+ct, c_sid = tenant('racer')
+za = request('PUT', f'/api/projects/services/{b_sid}/custom-domain', {'domain': z}, bt)[1]
+zb = request('PUT', f'/api/projects/services/{c_sid}/custom-domain', {'domain': z}, ct)[1]
+for tok in (za['customDomainToken'], zb['customDomainToken']):
+    dns('POST', '_cloudbase-challenge.' + z, 'cloudbase-verify=' + tok)
+codes, barrier = {}, threading.Barrier(2)
+def race(name, sid, token):
+    barrier.wait()
+    codes[name] = request('POST', f'/api/projects/services/{sid}/custom-domain/verify', {}, token)[0]
+threads = [threading.Thread(target=race, args=('b', b_sid, bt)), threading.Thread(target=race, args=('c', c_sid, ct))]
+[th.start() for th in threads]; [th.join() for th in threads]
+owners = sql(f"select count(*) from services where lower(custom_domain) = '{z}'")
+check('two simultaneous verifications: one 200, one 409, one owner', sorted(codes.values()) == [200, 409] and owners == '1', (codes, owners))
+winner_sid, winner_t, loser_sid = (b_sid, bt, c_sid) if codes['b'] == 200 else (c_sid, ct, b_sid)
+check('the route points at the winner only', wait_routes(lambda t: f'{z} cb-{winner_sid}:' in t), routes()[-300:])
+
+# Reused challenges: an earlier token never verifies a later claim.
+request('PUT', f'/api/projects/services/{winner_sid}/custom-domain', {'domain': ''}, winner_t)
+loser_t = ct if loser_sid == c_sid else bt
+code, again = request('PUT', f'/api/projects/services/{loser_sid}/custom-domain', {'domain': z}, loser_t)
+stale = {za['customDomainToken'], zb['customDomainToken']}
+check('a new claim gets a token different from every earlier one', code == 200 and again['customDomainToken'] not in stale, (code, again))
+code, r = request('POST', f'/api/projects/services/{loser_sid}/custom-domain/verify', {}, loser_t)
+check('old TXT values (from earlier claims) do not verify the new claim', code == 400, (code, str(r)[:120]))
+check('no unverified domain is active anywhere', sql("select count(*) from services where custom_domain is not null and custom_domain_verified_at is null") == '0')
+
 print(f'{sum(results)}/{len(results)} custom domain ownership checks passed')
 sys.exit(0 if all(results) else 1)

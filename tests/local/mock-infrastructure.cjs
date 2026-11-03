@@ -113,6 +113,7 @@ http.createServer((req, res) => {
       ops.push({ op: 'exec', container, cmd: json().Cmd });
       body = { Id: 'exec-' + ops.length };
     } else if (req.method === 'POST' && /\/exec\/[^/]+\/start$/.test(path)) {
+      if (fs.existsSync('/tmp/fail-exec')) { code = 500; body = { message: 'synthetic exec failure' }; return send(); }
       res.writeHead(200, { 'content-type': 'application/vnd.docker.raw-stream' });
       return res.end();
     }

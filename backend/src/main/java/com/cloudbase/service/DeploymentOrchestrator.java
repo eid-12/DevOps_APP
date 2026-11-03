@@ -749,6 +749,30 @@ public class DeploymentOrchestrator {
     /** NPM forwards every tenant hostname to the edge on this port; the edge routes by Host. */
     static final int EDGE_PORT = 80;
 
+    /**
+     * Synchronously bring one service's public routing in line with its committed domains: its NPM proxy host
+     * (when NPM is enabled) and the edge route table. Throws when either step fails, so callers can undo a change.
+     */
+    public void routeNow(String serviceId) {
+        ServiceEntity service = transactionTemplate.execute(tx -> serviceRepository.findByIdWithProject(serviceId).orElse(null));
+        // Not deployed yet: there is nothing to route; the first deploy provisions its routes.
+        if (service == null || service.getSourceType() == ServiceSourceType.DATABASE || service.getPortainerStackId() == null) {
+            return;
+        }
+        List<String> domains = resolveDomainNames(service);
+        if (npmClient.isEnabled() && !domains.isEmpty()) {
+            Integer hostId = npmClient.upsertProxyHost(service.getNpmProxyHostId(), domains, edgeRouter.edgeName(), EDGE_PORT)
+                    .block(Duration.ofSeconds(30));
+            if (hostId != null && !hostId.equals(service.getNpmProxyHostId())) {
+                transactionTemplate.executeWithoutResult(tx -> serviceRepository.findById(serviceId).ifPresent(s -> {
+                    s.setNpmProxyHostId(hostId);
+                    serviceRepository.save(s);
+                }));
+            }
+        }
+        refreshEdgeRoutes().block(Duration.ofSeconds(60));
+    }
+
     /** Rewrite the edge route table from all app services (hostname -> container:port). */
     public Mono<Void> refreshEdgeRoutes() {
         return Mono.fromCallable(() -> transactionTemplate.execute(status -> {

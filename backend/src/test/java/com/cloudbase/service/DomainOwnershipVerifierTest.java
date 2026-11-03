@@ -86,4 +86,15 @@ class DomainOwnershipVerifierTest {
         assertFalse(v.proves("app.example.test", "abc123"), "another tenant's token");
         assertFalse(v.proves("other.example.test", "abc123"), "no record");
     }
+    @Test
+    void anUnreachableDnsServerIsNotProofAndFailsWithinItsTimeout() throws Exception {
+        int closed;
+        try (DatagramSocket s = new DatagramSocket(0, InetAddress.getLoopbackAddress())) {
+            closed = s.getLocalPort();
+        }
+        DomainOwnershipVerifier v = new DomainOwnershipVerifier("dns://127.0.0.1:" + closed);
+        long started = System.nanoTime();
+        assertFalse(v.proves("app.example.test", "abc123"));
+        assertTrue(System.nanoTime() - started < 20_000_000_000L, "bounded by the lookup timeout");
+    }
 }

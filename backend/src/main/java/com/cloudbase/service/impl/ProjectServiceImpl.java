@@ -723,44 +723,88 @@ public class ProjectServiceImpl implements ProjectService {
     }
 
     @Override
-    @Transactional
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
     public ServiceEntity verifyCustomDomain(String serviceId, UserEntity user) {
         requireDeploymentEnabled(user);
-        ServiceEntity service = getService(serviceId, user);
-        String pending = service.getCustomDomainPending();
+        // 1. Checks and the DNS proof, holding no transaction during the lookup.
+        ServiceEntity current = transactions.execute(tx -> getService(serviceId, user));
+        String pending = current.getCustomDomainPending();
+        String token = current.getCustomDomainToken();
         if (pending == null || pending.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "No custom domain is waiting for verification");
         }
-        if (claimExpired(service)) {
+        if (claimExpired(current)) {
             throw new ResponseStatusException(HttpStatus.GONE,
                     "This verification request expired. Save the domain again to get a new TXT value.");
         }
         if (isHostnameTakenByOther(pending, serviceId)) {
+            discardClaim(serviceId, token);
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Domain already in use");
         }
-        if (!domainOwnershipVerifier.proves(pending, service.getCustomDomainToken())) {
+        if (!domainOwnershipVerifier.proves(pending, token)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "TXT record not found yet. Add a TXT record named "
                     + DomainOwnershipVerifier.recordName(pending) + " with the value "
-                    + DomainOwnershipVerifier.recordValue(service.getCustomDomainToken())
-                    + ", wait for DNS to update, then verify again.");
+                    + DomainOwnershipVerifier.recordValue(token) + ", wait for DNS to update, then verify again.");
         }
-        service.setCustomDomain(pending);
-        service.setCustomDomainVerifiedAt(java.time.Instant.now());
-        clearDomainClaim(service);
-        if (service.getContainerName() == null) {
-            service.setContainerName(composeGenerator.resolveContainerName(service));
-        }
-        if (service.getContainerPort() == null) {
-            service.setContainerPort(composeGenerator.resolveContainerPort(service));
-        }
-        ServiceEntity saved;
+        // 2. Activate, only if the claim is still the one that was proven. The unique index settles races.
+        String previous = current.getCustomDomain();
+        java.time.Instant previousVerifiedAt = current.getCustomDomainVerifiedAt();
+        java.time.Instant requestedAt = current.getCustomDomainRequestedAt();
         try {
-            saved = serviceRepository.saveAndFlush(service);
+            transactions.executeWithoutResult(tx -> {
+                ServiceEntity s = lockedService(serviceId);
+                if (!pending.equals(s.getCustomDomainPending()) || !token.equals(s.getCustomDomainToken())) {
+                    throw new ResponseStatusException(HttpStatus.CONFLICT, "The domain request changed; verify again");
+                }
+                s.setCustomDomain(pending);
+                s.setCustomDomainVerifiedAt(java.time.Instant.now());
+                clearDomainClaim(s);
+                if (s.getContainerName() == null) s.setContainerName(composeGenerator.resolveContainerName(s));
+                if (s.getContainerPort() == null) s.setContainerPort(composeGenerator.resolveContainerPort(s));
+                serviceRepository.saveAndFlush(s);
+            });
         } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            discardClaim(serviceId, token);
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Domain already in use");
         }
-        orchestrator.ensureProxyHost(saved);
-        return saved;
+        // 3. Route it now. If routing fails, put the previous domain and the claim back and route those again.
+        try {
+            orchestrator.routeNow(serviceId);
+        } catch (RuntimeException routingFailure) {
+            log.warn("Routing {} for {} failed; restoring the previous domain: {}", pending, serviceId, routingFailure.getMessage());
+            transactions.executeWithoutResult(tx -> {
+                ServiceEntity s = lockedService(serviceId);
+                s.setCustomDomain(previous);
+                s.setCustomDomainVerifiedAt(previousVerifiedAt);
+                s.setCustomDomainPending(pending);
+                s.setCustomDomainToken(token);
+                s.setCustomDomainRequestedAt(requestedAt);
+                serviceRepository.saveAndFlush(s);
+            });
+            try {
+                orchestrator.routeNow(serviceId);
+            } catch (RuntimeException e) {
+                log.error("Restoring routes for {} also failed: {}", serviceId, e.getMessage());
+            }
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Ownership is proven, but " + pending
+                    + " could not be routed right now. "
+                    + (previous == null ? "Nothing changed" : previous + " stays active") + "; verify again in a minute.");
+        }
+        return transactions.execute(tx -> getService(serviceId, user));
+    }
+
+    /**
+     * A claim that lost to another service's active domain ends here, so a later claim gets a fresh token and TXT
+     * values published for this one can never activate the domain afterwards.
+     */
+    private void discardClaim(String serviceId, String token) {
+        transactions.executeWithoutResult(tx -> {
+            ServiceEntity s = lockedService(serviceId);
+            if (token.equals(s.getCustomDomainToken())) {
+                clearDomainClaim(s);
+                serviceRepository.save(s);
+            }
+        });
     }
 
     private static boolean claimExpired(ServiceEntity service) {

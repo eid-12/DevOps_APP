@@ -154,7 +154,7 @@ if gh[0] == 201:
     settle(gid)
     # No GitHub in the lab: give the service an existing image so the real webhook path can deploy it.
     sql(f"""update services set source_details = source_details || '{{"ciWorkflowCreated":true,"ciBootstrapped":true}}'::jsonb where id='{gid}'""")
-    sql(f"""update services set custom_domain='app.cloudbase.test' where id='{gid}'""")
+    sql(f"""update services set custom_domain='app.cloudbase.test', custom_domain_verified_at=now() where id='{gid}'""")
 
     def hook(action, sha, conclusion):
         raw = json.dumps({'action': action, 'repository': {'html_url': 'https://github.com/local-qa/deploy-app', 'full_name': 'local-qa/deploy-app'},

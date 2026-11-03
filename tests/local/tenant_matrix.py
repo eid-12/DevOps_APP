@@ -93,6 +93,7 @@ calls = [
     ('DELETE', f'/api/projects/services/{a_sid}/vanity-subdomain', None),
     ('PUT', f'/api/projects/services/{a_sid}/custom-domain', {'domain': 'stolen.example.test'}),
     ('DELETE', f'/api/projects/services/{a_sid}/custom-domain', None),
+    ('POST', f'/api/projects/services/{a_sid}/custom-domain/verify', {}),
     ('POST', f'/api/projects/services/{a_sid}/github/sync-ci', {}),
     ('POST', f'/api/projects/services/{a_sid}/deploy', {'imageTag': 'alpine'}),
     ('POST', f'/api/projects/services/{a_sid}/deployments/{a_dep}/rollback', {}),
