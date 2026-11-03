@@ -119,20 +119,36 @@ Frontend cache: `index.html` is `Cache-Control: no-store` so a stale SPA chunk i
 A GitHub service can be created for, or switched to, a repository only if the owner's connected GitHub account has
 push access to it (GitHub `permissions.push`: owners, admins, maintainers and write collaborators). Otherwise the
 request is refused with 403 before anything is stored or written to GitHub. CI provisioning re-checks it and records
-`ciRepoAccessVerified`; `workflow_run` webhooks deploy only services with that flag. GitHub services created before
-this check carry no flag and receive no webhook deploys until their CI is re-synced (Settings, or
-`POST /api/projects/services/{id}/github/sync-ci`).
+`ciRepoAccessVerified`; `workflow_run` webhooks deploy only services with that flag.
+
+Older installations: GitHub services created before this check carry no flag and receive no webhook deploys. To
+recover one, its owner (GitHub still connected) opens the service and runs **Sync CI** (or
+`POST /api/projects/services/{id}/github/sync-ci`). That re-checks push access, sets the flag, rewrites the CI files
+and keeps the existing webhook (hooks are matched by URL, so syncing again never adds a second one). If the owner
+no longer has push access the flag stays false and nothing is written. To list affected services (read-only):
+`select id, source_details->>'repositoryUrl' from services where source_type='GITHUB' and
+coalesce(source_details->>'ciRepoAccessVerified','') <> 'true';`. Covered by `tests/local/ci_recovery.py`.
 
 ## Tenant network isolation
 
 Tenant containers never join the platform network `cloudbase` (it holds `cloudbase-postgres`, `cloudbase-backend`,
-Portainer and other workloads). Every app and database of a project joins only that project's network `project-<id>`.
-Before each deploy the API creates that network if missing (within 30 s, or the deploy fails before any stack call);
-for apps it also connects the reverse proxy container `nginx-proxy` (`CLOUDBASE_INGRESS_CONTAINER`). A deploy is refused
-if the network holds anything other than the proxy and `cb-*` tenant containers, so never attach platform or unrelated
-containers to it. Deleting a project detaches the proxy and removes the network. The admin "Docker network" setting no
-longer decides where tenant containers attach. The proxy's own listeners (including the NPM admin port) are reachable
-from every project network it joins; see the handoff for the measured exposure.
+Portainer and other workloads). Every app and database of a project joins only that project's network `project-<id>`
+(host bridge `cbp-<id>`). Before each deploy the API creates that network if missing (within 30 s, or the deploy fails
+before any stack call). A deploy is refused if the network holds anything other than the edge and `cb-*` tenant
+containers, so never attach platform or unrelated containers to it.
+
+Nginx Proxy Manager never joins a project network (its admin UI listens on :81 on every network it joins). The API
+runs an edge, `cloudbase-edge` (plain nginx, :80 only), on the network `cloudbase-edge` shared only with
+`nginx-proxy`, and joins the edge to every project network that holds an app. NPM forwards every tenant hostname to
+`cloudbase-edge:80`; the edge routes by Host to the app container from a route table the API rewrites on each change,
+and serves only requests from the edge network. Every 2 minutes (`CLOUDBASE_EDGE_RECONCILE_MS`) the API recreates
+the edge, reconnects NPM and the edge and rewrites the routes if any of them were removed or recreated. Deleting a
+project detaches the edge and removes the network. The admin "Docker network" setting no longer decides where tenant
+containers attach.
+
+Docker also accepts connections from any bridge to published ports on a container's IP, so the host needs
+`deploy/egress-guard` (see its README) to stop tenant bridges from reaching NPM :81, Portainer and other published
+services. That is a host change applied separately.
 
 ## Local vs live
 

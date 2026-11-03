@@ -68,6 +68,12 @@ await mem.fill('90000'); await saveIn();
 check('Scale over the plan is refused and shown', (await svc(gh.id)).quotaMemoryMb === 256 && /limit|between|memory/i.test(await p.locator('body').innerText()));
 
 // Danger: cancel, then confirm
+// GitHub services deploy on creation; deletion is refused (409) mid-deploy, so wait for it to finish first.
+for (let i = 0; i < 120; i++) {
+  const d = (await api('GET', `/api/projects/services/${victim.id}/deployments`, undefined, u.token))[1] ?? [];
+  if (!d.some(x => ['QUEUED', 'BUILDING', 'DEPLOYING'].includes(x.status))) break;
+  await new Promise(r => setTimeout(r, 1000));
+}
 await openSvc(victim.id, 'Settings'); await section('Danger');
 await p.getByRole('button', { name: /Delete/ }).first().click(); await p.waitForTimeout(400);
 const confirmInput = p.locator('.modal-panel input, [role=dialog] input').first();
@@ -77,8 +83,16 @@ await p.getByRole('button', { name: /Delete/ }).first().click(); await p.waitFor
 const del = p.locator('.modal-panel, [role=dialog]').last().getByRole('button', { name: /Delete/ }).last();
 const disabledFirst = await del.isDisabled();
 if (await confirmInput.count()) await confirmInput.fill('to-delete');
-await del.click({ timeout: 5000 }).catch(() => {}); await p.waitForTimeout(1800);
-check('Danger confirm deletes after typed confirmation', disabledFirst && (await api('GET', '/api/projects/services/' + victim.id, undefined, u.token))[0] === 404, disabledFirst);
+// Teardown of a deployed service takes ~2 s; wait for the API answer rather than a fixed delay.
+await Promise.all([
+  p.waitForResponse(r => r.request().method() === 'DELETE' && r.url().includes('/services/' + victim.id), { timeout: 30000 }).catch(() => null),
+  del.click({ timeout: 5000 }).catch(() => {})
+]);
+await p.waitForTimeout(300);
+const gone = (await api('GET', '/api/projects/services/' + victim.id, undefined, u.token))[0] === 404;
+check('Danger confirm deletes after typed confirmation', disabledFirst && gone, gone ? disabledFirst : JSON.stringify({ disabledFirst,
+  page: (await p.locator('body').innerText()).match(/.{0,80}(deploy|delet|error|wait).{0,80}/i)?.[0],
+  deployments: ((await api('GET', `/api/projects/services/${victim.id}/deployments`, undefined, u.token))[1] ?? []).slice(0, 2).map(d => d.status) }));
 
 // Network
 await openSvc(gh.id, 'Network');

@@ -103,6 +103,7 @@ public class CiBootstrapServiceImpl implements CiBootstrapService {
         try {
             // Nothing is written to a repository, and no webhook deploy reaches this service, unless the owner's
             // GitHub account may push to it. Write collaborators qualify, so shared repositories keep working.
+            src.put(REPO_ACCESS_VERIFIED, false); // fail closed if the check itself errors
             boolean authorized = repoClient.canPush(token, or.owner(), or.repo());
             src.put(REPO_ACCESS_VERIFIED, authorized);
             if (!authorized) {

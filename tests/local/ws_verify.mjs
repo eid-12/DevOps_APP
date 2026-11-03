@@ -184,13 +184,16 @@ check('reconnect after signing in again receives events', !!(await renewed.waitF
 renewed.disconnect();
 
 // 4b. a password change signs out other sessions, including open WebSockets
+await settle(svc.id, ownerToken); // events of the previous deploy are legitimate for this session until the change
 const beforeChange = await Stomp.open(ownerToken);
 beforeChange.subscribe(topic);
 await sleep(500);
+const changeAt = Date.now();
 const changed = await call('POST', '/api/auth/change-password', { currentPassword: PASSWORD, newPassword: 'Changed-Ws!2026' }, ownerToken);
 await deploy(svc.id, changed.token);
 check('open session from before a password change gets ERROR, not the event',
-  !!(await beforeChange.waitFor(f => f.command === 'ERROR', 60000)) && beforeChange.messages(topic).length === 0);
+  !!(await beforeChange.waitFor(f => f.command === 'ERROR', 60000)) && beforeChange.messages(topic).every(f => f.at < changeAt),
+  beforeChange.messages(topic).map(f => f.at - changeAt).join(','));
 check('token from before the password change cannot reconnect', (await Stomp.open(ownerToken)).frames.some(f => f.command === 'ERROR'));
 ownerToken = changed.token;
 const afterChange = await Stomp.open(ownerToken);
