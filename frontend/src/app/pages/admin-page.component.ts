@@ -181,7 +181,11 @@ const STRONG_PASSWORD = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#._-]).{8,
                   <div class="grid grid-4 admin-filters">
                     <div class="field"><label>Base domain</label><input [(ngModel)]="hostingDraft.baseDomain" name="baseDomain" /></div>
                     <div class="field"><label>Public API URL</label><input [(ngModel)]="hostingDraft.publicApiUrl" name="publicApiUrl" placeholder="https://api.cloudbase.website" /></div>
-                    <div class="field"><label>Docker network</label><input [(ngModel)]="hostingDraft.dockerNetwork" name="dockerNetwork" /></div>
+                    <div class="field">
+                      <label>Tenant networks</label>
+                      <input value="One isolated network per project" readonly disabled />
+                      <small class="muted u-text-13">Tenant apps and databases join only their project's network; this setting no longer applies.</small>
+                    </div>
                     <div class="field"><label>Volume root</label><input [(ngModel)]="hostingDraft.volumeRoot" name="volumeRoot" /></div>
                   </div>
 

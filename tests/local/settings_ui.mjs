@@ -39,7 +39,14 @@ const session = async mail => {
 const p = await session(u.user.email);
 const openSvc = async (id, tab) => { await p.goto(`${WEB}/projects/${project.id}/services/${id}`); await p.waitForLoadState('networkidle').catch(() => {}); await p.getByRole('button', { name: tab, exact: true }).first().click(); await p.waitForTimeout(400); };
 const section = async n => { await p.locator('.settings-nav-item', { hasText: n }).click(); await p.waitForTimeout(250); };
-const saveIn = async () => { await p.getByRole('button', { name: /^Save/ }).first().click(); await p.waitForTimeout(1300); };
+// Wait for the save request's answer: saving GitHub build fields re-provisions CI, which takes a moment.
+const saveIn = async () => {
+  await Promise.all([
+    p.waitForResponse(r => ['PUT', 'POST'].includes(r.request().method()) && r.url().includes('/api/projects/'), { timeout: 30000 }).catch(() => null),
+    p.getByRole('button', { name: /^Save/ }).first().click()
+  ]);
+  await p.waitForTimeout(300);
+};
 
 // Build
 await openSvc(gh.id, 'Settings'); await section('Build');
