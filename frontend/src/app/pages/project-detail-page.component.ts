@@ -298,7 +298,11 @@ const FREE_PLAN_LIMIT_MESSAGE = 'Free plan limit reached. Delete a service or se
               <div class="service-card-header">
                 <span class="service-icon">{{ sourceIcon(svc.sourceType) }}</span>
                 <span class="service-name">{{ svc.name }}</span>
-                <span class="service-status-badge" [class]="'badge-' + svc.status.toLowerCase()">{{ statusLabel(svc.status) }}</span>
+                @if (svc.quarantined) {
+                  <span class="service-status-badge badge-stopped" title="Stopped by CloudBase until network isolation is confirmed; restarts automatically">Paused for safety</span>
+                } @else {
+                  <span class="service-status-badge" [class]="'badge-' + svc.status.toLowerCase()">{{ statusLabel(svc.status) }}</span>
+                }
               </div>
 
               <div class="service-card-meta">

@@ -126,6 +126,24 @@ check('double-clicked cancel sends one request and reports success only', cancel
   && !/already finished/i.test(afterCancel), JSON.stringify({ cancels, error: afterCancel.match(/.{0,40}already finished.{0,20}/i)?.[0] }));
 mockExec('rm', '-f', '/tmp/slow-deploy');
 
+// A service held stopped for safety is shown as paused, with the reason, not as failed
+const sqlx = q => execFileSync('docker', ['exec', lab.prefix + '-db', 'psql', '-U', 'cloudbase', '-d', 'cloudbase', '-Atc', q], { encoding: 'utf8' });
+// Let the platform itself quarantine it: the simulated isolation probe reports exposure while /tmp/guard-off exists.
+const isQuarantined = () => sqlx(`select quarantined from services where id = '${sv.id}'`).trim() === 't';
+mockExec('touch', '/tmp/guard-off');
+for (let i = 0; i < 60 && !isQuarantined(); i++) await u.waitForTimeout(500);
+const quarantinedBeforeUi = isQuarantined();
+await u.goto(`${WEB}/projects/${pa.id}`); await u.waitForLoadState('networkidle').catch(() => {});
+const projectText = await u.locator('body').innerText();
+await u.goto(`${WEB}/projects/${pa.id}/services/${sv.id}`); await u.waitForLoadState('networkidle').catch(() => {});
+const serviceText = await u.locator('body').innerText();
+check('a quarantined service shows "Paused for safety" with the reason, not Failed',
+  /Paused for safety/i.test(projectText) && /Paused for safety/i.test(serviceText) && /isolation could not be confirmed/.test(serviceText),
+  JSON.stringify({ quarantinedBeforeUi, project: /Paused for safety/i.test(projectText), service: /Paused for safety/i.test(serviceText), head: serviceText.slice(0, 160) }));
+mockExec('rm', '-f', '/tmp/guard-off');
+for (let i = 0; i < 60 && isQuarantined(); i++) await u.waitForTimeout(500);
+check('it is released once isolation is proven again', !isQuarantined());
+
 // Older history stays reachable in the UI
 execFileSync('docker', ['exec', lab.prefix + '-db', 'psql', '-U', 'cloudbase', '-d', 'cloudbase', '-c',
   `insert into deployments (id, service_id, project_id, status, started_at, finished_at) select 'old-'||g, '${sv.id}', '${pa.id}', 'SUCCESS', now() - (g||' minutes')::interval, now() from generate_series(1,120) g`]);
