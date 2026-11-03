@@ -119,6 +119,7 @@ def start(args):
             'CLOUDBASE_WATCHTOWER_ENABLED': 'false', 'CLOUDBASE_VOLUME_ROOT': '/tmp/cloudbase-test',
             'CLOUDBASE_CORS_ALLOWED_ORIGINS': 'http://127.0.0.1',
             'GITHUB_API_URL': 'http://mock:9000/github',
+            'CLOUDBASE_EDGE_RECONCILE_MS': '5000', 'CLOUDBASE_EDGE_RECONCILE_INITIAL_MS': '5000',
         }
         if args.jwt_expiration_ms:
             env['JWT_EXPIRATION_MS'] = str(int(args.jwt_expiration_ms))

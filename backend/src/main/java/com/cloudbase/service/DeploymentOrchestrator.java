@@ -10,6 +10,7 @@ import com.cloudbase.model.ServiceSourceType;
 import com.cloudbase.model.ServiceStatus;
 import com.cloudbase.npm.NpmClient;
 import com.cloudbase.portainer.ComposeGenerator;
+import com.cloudbase.portainer.EdgeRouter;
 import com.cloudbase.portainer.PortainerClient;
 import com.cloudbase.repository.DeploymentRepository;
 import com.cloudbase.repository.ServiceRepository;
@@ -58,6 +59,7 @@ public class DeploymentOrchestrator {
     private final TransactionTemplate transactionTemplate;
     private final UserRepository userRepository;
     private final EmailService emailService;
+    private final EdgeRouter edgeRouter;
 
     public DeploymentOrchestrator(
             ServiceRepository serviceRepository,
@@ -72,8 +74,10 @@ public class DeploymentOrchestrator {
             @org.springframework.context.annotation.Lazy VanitySubdomainService vanitySubdomainService,
             TransactionTemplate transactionTemplate,
             UserRepository userRepository,
-            EmailService emailService
+            EmailService emailService,
+            EdgeRouter edgeRouter
     ) {
+        this.edgeRouter = edgeRouter;
         this.serviceRepository = serviceRepository;
         this.deploymentRepository = deploymentRepository;
         this.composeGenerator = composeGenerator;
@@ -208,12 +212,13 @@ public class DeploymentOrchestrator {
         serviceRepository.save(service);
         eventPublisher.publishServiceStatusUpdate(service);
 
-        // The project network is prepared (and checked) before any workload is created; the proxy joins it
-        // only for apps, which it must route to.
-        Mono<Void> network = portainerClient.ensureProjectNetwork(
-                composeGenerator.projectNetworkName(service.getProject().getId()),
-                composeGenerator.ingressContainer(),
-                service.getSourceType() != ServiceSourceType.DATABASE);
+        // The project network is prepared (and checked) before any workload is created. For apps the edge joins
+        // it so it can route to them; the reverse proxy itself (with its admin listener) never does.
+        boolean app = service.getSourceType() != ServiceSourceType.DATABASE;
+        Mono<Void> network = (app ? edgeRouter.ensureEdge() : Mono.<Void>empty())
+                .then(portainerClient.ensureProjectNetwork(
+                        composeGenerator.projectNetworkName(service.getProject().getId()),
+                        edgeRouter.edgeName(), app));
         // Logged before subscribing: a fast failure on another thread must not be followed by this stage line.
         appendStage(deploymentId, DeploymentStatus.DEPLOYING, "deploying", "Portainer API call started");
         network.then(Mono.defer(() -> portainerClient.upsertStack(stackName, compose, env, existingStackId, pullImage)))
@@ -474,19 +479,18 @@ public class DeploymentOrchestrator {
                         return Mono.empty();
                     }
                     List<String> domains = resolveDomainNames(service);
-                    String forwardHost = composeGenerator.resolveContainerName(service);
-                    int forwardPort = composeGenerator.resolveContainerPort(service);
                     Integer existingNpmId = service.getNpmProxyHostId();
 
                     Mono<Void> proxy = domains.isEmpty() || !npmClient.isEnabled()
                             ? Mono.empty()
-                            : npmClient.upsertProxyHost(existingNpmId, domains, forwardHost, forwardPort)
+                            : npmClient.upsertProxyHost(existingNpmId, domains, edgeRouter.edgeName(), EDGE_PORT)
                             .doOnNext(hostId -> transactionTemplate.executeWithoutResult(status ->
                                     serviceRepository.findById(serviceId).ifPresent(s -> {
                                         s.setNpmProxyHostId(hostId);
                                         serviceRepository.save(s);
                                     })))
                             .then();
+                    proxy = proxy.then(Mono.defer(this::refreshEdgeRoutes));
 
                     Mono<Void> verify = service.getSourceType() == ServiceSourceType.GITHUB
                             ? verifyGitHubAppHttp(service)
@@ -648,10 +652,8 @@ public class DeploymentOrchestrator {
         if (domains.isEmpty()) {
             return;
         }
-        String forwardHost = composeGenerator.resolveContainerName(service);
-        int forwardPort = composeGenerator.resolveContainerPort(service);
-
-        npmClient.upsertProxyHost(service.getNpmProxyHostId(), domains, forwardHost, forwardPort)
+        npmClient.upsertProxyHost(service.getNpmProxyHostId(), domains, edgeRouter.edgeName(), EDGE_PORT)
+                .flatMap(hostId -> refreshEdgeRoutes().thenReturn(hostId))
                 .subscribe(
                         hostId -> serviceRepository.findById(service.getId()).ifPresent(s -> {
                             s.setNpmProxyHostId(hostId);
@@ -727,6 +729,50 @@ public class DeploymentOrchestrator {
             return false;
         }
         return slug.matches("cloudbase\\d{4}");
+    }
+
+    /** NPM forwards every tenant hostname to the edge on this port; the edge routes by Host. */
+    static final int EDGE_PORT = 80;
+
+    /** Rewrite the edge route table from all app services (hostname -> container:port). */
+    public Mono<Void> refreshEdgeRoutes() {
+        return Mono.fromCallable(() -> transactionTemplate.execute(status -> {
+                    Map<String, String> routes = new java.util.TreeMap<>();
+                    for (ServiceEntity s : serviceRepository.findAll()) {
+                        if (s.getSourceType() == ServiceSourceType.DATABASE || s.getProject() == null) continue;
+                        String upstream = composeGenerator.resolveContainerName(s) + ":" + composeGenerator.resolveContainerPort(s);
+                        for (String host : resolveDomainNames(s)) routes.put(host, upstream);
+                    }
+                    return routes;
+                }))
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMap(edgeRouter::writeRoutes);
+    }
+
+    /**
+     * Keeps tenant routing working when the edge, its network or the proxy's link to it was recreated: the edge
+     * exists and runs, joins every project network that holds an app, and has the current routes.
+     */
+    @org.springframework.scheduling.annotation.Scheduled(
+            fixedDelayString = "${cloudbase.edge.reconcile-ms:120000}", initialDelayString = "${cloudbase.edge.reconcile-initial-ms:40000}")
+    public void reconcileEdge() {
+        java.util.Set<String> projects = transactionTemplate.execute(status -> serviceRepository.findAll().stream()
+                .filter(s -> s.getSourceType() != ServiceSourceType.DATABASE && s.getProject() != null && s.getPortainerStackId() != null)
+                .map(s -> s.getProject().getId())
+                .collect(java.util.stream.Collectors.toCollection(java.util.TreeSet::new)));
+        if (projects == null || projects.isEmpty()) {
+            return;
+        }
+        try {
+            edgeRouter.ensureEdge()
+                    .thenMany(reactor.core.publisher.Flux.fromIterable(projects).concatMap(pid -> portainerClient
+                            .ensureProjectNetwork(composeGenerator.projectNetworkName(pid), edgeRouter.edgeName(), true)
+                            .onErrorResume(e -> Mono.empty())))
+                    .then(Mono.defer(this::refreshEdgeRoutes))
+                    .block(Duration.ofSeconds(90));
+        } catch (RuntimeException e) {
+            log.warn("Edge reconcile failed: {}", e.getMessage());
+        }
     }
 
     public List<String> resolveDomainNames(ServiceEntity service) {
@@ -904,7 +950,7 @@ public class DeploymentOrchestrator {
         }
 
         try {
-            portainerClient.removeNetworkByName(networkName, composeGenerator.ingressContainer())
+            portainerClient.removeNetworkByName(networkName, edgeRouter.edgeName())
                     .onErrorResume(e -> {
                         log.warn("Project network remove failed for {}: {}", networkName, e.getMessage());
                         return Mono.empty();

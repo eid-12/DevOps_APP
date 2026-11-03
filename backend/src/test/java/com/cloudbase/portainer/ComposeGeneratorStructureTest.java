@@ -34,7 +34,7 @@ class ComposeGeneratorStructureTest {
         when(settings.get(PlatformSettingsService.DOCKER_NETWORK)).thenReturn("cloudbase");
         when(settings.get(PlatformSettingsService.VOLUME_ROOT)).thenReturn("/var/lib/cloudbase/users");
         when(settings.get(PlatformSettingsService.DOCKERHUB_NAMESPACE)).thenReturn("minipcer");
-        return new ComposeGenerator(settings, watchtower, "nginx-proxy");
+        return new ComposeGenerator(settings, watchtower);
     }
 
     private static Object parse(String yaml) {

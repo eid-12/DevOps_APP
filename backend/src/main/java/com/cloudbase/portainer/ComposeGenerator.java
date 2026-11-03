@@ -28,24 +28,13 @@ public class ComposeGenerator {
 
     private final PlatformSettingsService settings;
     private final boolean watchtowerEnabled;
-    private final String ingressContainer;
 
     public ComposeGenerator(
             PlatformSettingsService settings,
-            @Value("${cloudbase.watchtower.enabled:true}") boolean watchtowerEnabled,
-            @Value("${cloudbase.ingress.container:nginx-proxy}") String ingressContainer
+            @Value("${cloudbase.watchtower.enabled:true}") boolean watchtowerEnabled
     ) {
         this.settings = settings;
         this.watchtowerEnabled = watchtowerEnabled;
-        this.ingressContainer = StringUtils.hasText(ingressContainer) ? ingressContainer : "nginx-proxy";
-    }
-
-    /**
-     * Reverse proxy container joined to a project's network so it can route to that project's apps. Tenant
-     * containers never join the platform network or another project's network.
-     */
-    public String ingressContainer() {
-        return ingressContainer;
     }
 
     private String volumeRoot() {

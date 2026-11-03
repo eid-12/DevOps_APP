@@ -38,7 +38,7 @@ class GhcrPullTest {
             mock(ServiceRepository.class), mock(DeploymentRepository.class), mock(ComposeGenerator.class), portainer,
             mock(NpmClient.class), mock(DeploymentEventPublisher.class), mock(NotificationService.class),
             mock(PlatformSettingsService.class), WebClient.builder(), mock(VanitySubdomainService.class),
-            mock(TransactionTemplate.class), users, mock(EmailService.class));
+            mock(TransactionTemplate.class), users, mock(EmailService.class), mock(com.cloudbase.portainer.EdgeRouter.class));
 
     private static ServiceEntity ghcrService() {
         Map<String, Object> src = new HashMap<>();

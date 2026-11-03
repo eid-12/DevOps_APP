@@ -94,7 +94,8 @@ check('one simulated stack exists', len(stacks()) == 1, stacks())
 # Network isolation: each project has its own network (the proxy joins it for apps); never the platform network
 pnet = 'project-' + pid
 nets = lambda: json.loads(mock('node', '-e', "fetch('http://127.0.0.1:9000/_networks').then(r=>r.text()).then(console.log)"))
-check('project network was created with the proxy on it', nets().get(pnet) == ['nginx-proxy'], nets())
+check('project network holds the edge, never the proxy; the proxy reaches the edge on its own network',
+      nets().get(pnet) == ['cloudbase-edge'] and set(nets().get('cloudbase-edge', [])) == {'nginx-proxy', 'cloudbase-edge'}, nets())
 snapshot = sql(f"select compose_snapshot from deployments where service_id='{sid}' and status='SUCCESS' limit 1")
 check('app stack joins only its project network, not the platform network',
       f'- {pnet}' in snapshot and f'name: {pnet}' in snapshot and '- cloudbase\n' not in snapshot + '\n'
@@ -107,7 +108,7 @@ if dbs[0] == 201:
     only_project = f'networks:\n  {pnet}:\n    external: true\n    name: {pnet}'
     check('database stack joins the same project network only', dd[0]['status'] == 'SUCCESS'
           and f'    networks:\n    - {pnet}\n' in dsnap.replace('      - ', '    - ') and dsnap.rstrip().endswith(only_project)
-          and nets().get(pnet) == ['nginx-proxy'], (dd[0]['status'], dsnap[-300:], nets()))
+          and nets().get(pnet) == ['cloudbase-edge'], (dd[0]['status'], dsnap[-300:], nets()))
 else:
     check('database service created', False, dbs)
 

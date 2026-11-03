@@ -26,7 +26,7 @@ class ComposeNetworkIsolationTest {
         when(settings.get(PlatformSettingsService.DOCKER_NETWORK)).thenReturn("cloudbase");
         when(settings.get(PlatformSettingsService.VOLUME_ROOT)).thenReturn("/var/lib/cloudbase/users");
         when(settings.get(PlatformSettingsService.DOCKERHUB_NAMESPACE)).thenReturn("minipcer");
-        return new ComposeGenerator(settings, true, "nginx-proxy");
+        return new ComposeGenerator(settings, true);
     }
 
     @SuppressWarnings("unchecked")

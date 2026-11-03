@@ -1,0 +1,12 @@
+# Host firewall for tenant bridges. Review deploy/egress-guard/README.md before applying.
+services:
+  egress-guard:
+    build: .
+    image: cloudbase-egress-guard:local
+    container_name: cloudbase-egress-guard
+    network_mode: host
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN, NET_RAW]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    restart: unless-stopped

@@ -564,6 +564,80 @@ public class PortainerClient {
                 .then();
     }
 
+    /** Network inspect by name; empty when it does not exist. */
+    public Mono<Map<String, Object>> findNetwork(String networkName) {
+        return webClient.get()
+                .uri("/api/endpoints/{eid}/docker/networks/{name}", endpointId, networkName)
+                .exchangeToMono(resp -> resp.statusCode().value() == 404
+                        ? resp.releaseBody().then(Mono.<Map<String, Object>>empty())
+                        : resp.statusCode().is2xxSuccessful()
+                        ? resp.bodyToMono(MAP_TYPE)
+                        : resp.releaseBody().then(Mono.error(new IllegalStateException(
+                                "Portainer network inspect HTTP " + resp.statusCode().value()))));
+    }
+
+    /** Create a bridge network if missing, then return its inspect document. */
+    public Mono<Map<String, Object>> ensureNetwork(String networkName, Map<String, String> labels) {
+        return findNetwork(networkName).switchIfEmpty(webClient.post()
+                .uri("/api/endpoints/{eid}/docker/networks/create", endpointId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of("Name", networkName, "Driver", "bridge", "CheckDuplicate", true, "Labels", labels))
+                .retrieve()
+                .bodyToMono(MAP_TYPE)
+                .then(Mono.defer(() -> findNetwork(networkName))));
+    }
+
+    /**
+     * Join {@code container} to the network unless it is already a member, never as its gateway network (so a
+     * container's published ports and default route stay on the network it was started on).
+     */
+    public Mono<Void> connectIfMissing(String networkName, Map<String, Object> network, String container) {
+        if (networkMembers(network).contains(container)) {
+            return Mono.empty();
+        }
+        return webClient.post()
+                .uri("/api/endpoints/{eid}/docker/networks/{name}/connect", endpointId, networkName)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of("Container", container, "EndpointConfig", Map.of("GwPriority", -100)))
+                .retrieve()
+                .toBodilessEntity()
+                .then();
+    }
+
+    /** Container inspect by name; empty when it does not exist. */
+    public Mono<Map<String, Object>> findContainer(String name) {
+        return webClient.get()
+                .uri("/api/endpoints/{eid}/docker/containers/{cid}/json", endpointId, name)
+                .exchangeToMono(resp -> resp.statusCode().value() == 404
+                        ? resp.releaseBody().then(Mono.<Map<String, Object>>empty())
+                        : resp.statusCode().is2xxSuccessful()
+                        ? resp.bodyToMono(MAP_TYPE)
+                        : resp.releaseBody().then(Mono.error(new IllegalStateException(
+                                "Portainer container inspect HTTP " + resp.statusCode().value()))));
+    }
+
+    /** Pull a public image (no credentials), create the named container from {@code body} and start it. */
+    public Mono<Void> createAndStart(String name, String image, String tag, Map<String, Object> body) {
+        return webClient.post()
+                .uri(b -> b.path("/api/endpoints/{eid}/docker/images/create")
+                        .queryParam("fromImage", image).queryParam("tag", tag).build(endpointId))
+                .retrieve()
+                .bodyToMono(byte[].class)
+                .then(webClient.post()
+                        .uri(b -> b.path("/api/endpoints/{eid}/docker/containers/create").queryParam("name", name).build(endpointId))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .bodyValue(body)
+                        .retrieve()
+                        .bodyToMono(MAP_TYPE))
+                .then(startContainer(name));
+    }
+
+    public Mono<Void> removeContainer(String name) {
+        return webClient.delete()
+                .uri(b -> b.path("/api/endpoints/{eid}/docker/containers/{cid}").queryParam("force", "true").build(endpointId, name))
+                .exchangeToMono(resp -> resp.releaseBody());
+    }
+
     /** Upper bound for preparing a project network, so a stalled Portainer call fails the deploy visibly. */
     static final java.time.Duration NETWORK_PREPARE_TIMEOUT = java.time.Duration.ofSeconds(30);
     java.time.Duration networkPrepareTimeout = NETWORK_PREPARE_TIMEOUT;
@@ -590,7 +664,9 @@ public class PortainerClient {
                 .uri("/api/endpoints/{eid}/docker/networks/create", endpointId)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(Map.of("Name", networkName, "Driver", "bridge", "CheckDuplicate", true,
-                        "Labels", Map.of("cloudbase.role", "project-network")))
+                        "Labels", Map.of("cloudbase.role", "project-network"),
+                        // A fixed host interface prefix lets the host firewall (deploy/egress-guard) match all tenant bridges.
+                        "Options", Map.of("com.docker.network.bridge.name", tenantBridgeName(networkName))))
                 .retrieve()
                 .bodyToMono(MAP_TYPE)
                 .then(inspect);
@@ -619,6 +695,12 @@ public class PortainerClient {
                         "Timed out preparing project network " + networkName + "; nothing was deployed")))
                 .doOnSuccess(v -> log.info("Project network {} ready", networkName))
                 .doOnError(e -> log.warn("Project network {} not ready: {}", networkName, e.getMessage()));
+    }
+
+    /** Host bridge interface for a project network: {@code cbp-} plus up to 11 id characters (Linux limit 15). */
+    static String tenantBridgeName(String networkName) {
+        String id = networkName.replaceFirst("^project-", "").replaceFirst("^proj-", "").replaceAll("[^a-zA-Z0-9]", "");
+        return "cbp-" + (id.length() > 11 ? id.substring(id.length() - 11) : id);
     }
 
     @SuppressWarnings("unchecked")
