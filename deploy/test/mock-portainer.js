@@ -5,6 +5,7 @@
 // MODE=outage          after the rollout PUT, /api answers 530 for OUTAGE_SECONDS and the rollout never reaches the containers
 // MODE=outage-applied  same outage, but the new containers did start
 // MODE=outage-forever  /api answers 530 for good after the rollout PUT
+// MODE=outage-start    /api answers 530 for the first OUTAGE_SECONDS after start, then behaves like ok
 // COMPARE=ahead|behind|identical|diverged  GitHub compare status of deployed...new
 // PREV_REVOCATION=ahead|diverged  compare status of ROLLBACK_SAFE_SINCE...deployed (ahead = it enforces revocation)
 // GET /_puts returns what each stack update sent (without the env values).
@@ -38,6 +39,7 @@ let outageUntil = 0;
 let running = null; // images the containers actually run; null = whatever the stack file says
 let oldImages;
 const OUTAGE_MS = Number(process.env.OUTAGE_SECONDS || 15) * 1000;
+const startedAt = Date.now();
 const fileImg = name => (file.match(new RegExp(`image:\\s*(\\S*cloudbase-${name}\\S*)`)) || [])[1];
 const img = name => (running ? running[name] : fileImg(name));
 const rev = () => (img('backend').match(/:([0-9a-f]{40})@/) || [])[1];
@@ -54,7 +56,7 @@ http.createServer((req, res) => {
     }
     if (u.startsWith('/github/')) return send(200, { status: process.env.COMPARE || 'ahead' });
     if (u === '/_puts') return send(200, puts);
-    if (u.startsWith('/api/') && (MODE === 'outage-before' || Date.now() < outageUntil)) { res.writeHead(530); return res.end('error code: 1033'); }
+    if (u.startsWith('/api/') && (MODE === 'outage-before' || Date.now() < outageUntil || (MODE === 'outage-start' && Date.now() < startedAt + OUTAGE_MS))) { res.writeHead(530); return res.end('error code: 1033'); }
     if (u.startsWith('/api/') && req.headers['x-api-key'] !== 'test-key') return send(401, { message: 'bad key' });
     if (u === '/api/stacks/44' && req.method === 'GET') return send(200, { Id: 44, Name: 'cloudbase-platform', EndpointId: 3, Env: env });
     if (u === '/api/stacks/44/file') return send(200, { StackFileContent: file });

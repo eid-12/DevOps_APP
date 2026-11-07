@@ -203,8 +203,8 @@ jobs:
     name: Deploy to production
     needs: publish
     runs-on: ubuntu-24.04
-    # Rollout + 15-minute outage reconciliation + verification/rollback must fit.
-    timeout-minutes: 45
+    # 10-minute preflight wait + rollout + 15-minute outage reconciliation + verification/rollback must fit.
+    timeout-minutes: 55
     environment:
       name: production
       url: https://www.cloudbase.website

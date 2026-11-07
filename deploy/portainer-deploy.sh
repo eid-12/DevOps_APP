@@ -16,6 +16,7 @@
 #   GITHUB_TOKEN, GITHUB_REPOSITORY   (used to refuse rolling back to an older commit)
 # Optional env:
 #   DEPLOY_TIMEOUT_SECONDS (default 300)
+#   DEPLOY_PREFLIGHT_SECONDS (default 600): how long the first, read-only stack reads retry while the gateway cannot reach Portainer
 #   DEPLOY_RECONCILE_SECONDS (default 900): how long to wait for an unreachable Portainer before reporting unknown state
 #   CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET (if Portainer is put behind Cloudflare Access)
 #   ROLLBACK_BACKEND_IMAGE  digest-pinned build of ROLLBACK_COMPAT_SHA (deploy/session-revocation.env); used as the
@@ -46,10 +47,31 @@ portainer() {
 }
 
 # --- read the live stack (kept in a private temp dir, never printed) ---------------------------------
-portainer "${PORTAINER_URL}/api/stacks/${PORTAINER_STACK_ID}" > "$WORK/stack.json" \
+# The Cloudflare tunnel in front of Portainer drops out now and then (HTTP 530 / error 1033). Nothing has
+# changed yet, so these reads are retried for up to PREFLIGHT seconds while the gateway cannot reach
+# Portainer. Any answer from Portainer itself (401, 403, 404, ...) is final and fails at once.
+PREFLIGHT="${DEPLOY_PREFLIGHT_SECONDS:-600}"
+PREFLIGHT_DEADLINE=$((SECONDS + PREFLIGHT))
+preflight_get() {  # url outfile
+  local code
+  while :; do
+    code="$(portainer -o "$2" -w '%{http_code}' "$1")" || true
+    case "$code" in
+      2??) return 0 ;;
+      000|502|503|504|52?|530) ;;
+      *) log "portainer answered HTTP ${code}; not retrying"; return 1 ;;
+    esac
+    (( SECONDS < PREFLIGHT_DEADLINE )) || { log "portainer unreachable (last HTTP ${code}) for ${PREFLIGHT}s"; return 1; }
+    log "portainer unreachable (HTTP ${code}); retrying in 15s, nothing has been changed"
+    sleep 15
+  done
+}
+preflight_get "${PORTAINER_URL}/api/stacks/${PORTAINER_STACK_ID}" "$WORK/stack.json" \
   || fail "STATE UNKNOWN: initial stack read failed; no production change was attempted"
-portainer "${PORTAINER_URL}/api/stacks/${PORTAINER_STACK_ID}/file" | jq -ej '.StackFileContent' > "$WORK/previous.yml" \
-  || fail "STATE UNKNOWN: initial stack file read failed; no production change was attempted"
+if ! preflight_get "${PORTAINER_URL}/api/stacks/${PORTAINER_STACK_ID}/file" "$WORK/stack-file.json" \
+   || ! jq -ej '.StackFileContent' "$WORK/stack-file.json" > "$WORK/previous.yml"; then
+  fail "STATE UNKNOWN: initial stack file read failed; no production change was attempted"
+fi
 STACK_NAME="$(jq -r '.Name' "$WORK/stack.json")"
 [[ "$(jq -r '.EndpointId' "$WORK/stack.json")" == "$PORTAINER_ENDPOINT_ID" ]] || fail "stack endpoint mismatch"
 log "stack ${PORTAINER_STACK_ID} (${STACK_NAME}), $(jq '.Env | length' "$WORK/stack.json") env vars preserved"

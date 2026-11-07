@@ -17,7 +17,7 @@ Because the namespace equals the `DOCKERHUB_USERNAME` secret, Actions masks it i
 
 **Deploy** runs [`deploy/portainer-deploy.sh`](../deploy/portainer-deploy.sh):
 
-1. Reads the live stack file and env from Portainer. Env values are never printed.
+1. Reads the live stack file and env from Portainer. Env values are never printed. While Cloudflare cannot reach Portainer (530/1033, 502–504 or no connection) these read-only requests are retried every 15 s for up to `DEPLOY_PREFLIGHT_SECONDS` (10 min); any answer from Portainer itself, such as 401 for a wrong key, fails at once. Only after that does it report **STATE UNKNOWN: initial stack read failed; no production change was attempted**.
 2. Refuses to go backwards: if the deployed commit is newer than this one, the run is skipped; if their histories diverged, it stops for a human.
 3. Replaces only the two CloudBase `image:` lines with `<repo>:<sha>@sha256:<digest>`. Env vars, volumes, networks and Postgres are sent back unchanged (prune off, pull off: the digest-pinned images are pulled because they are new, and unchanged containers such as Postgres are not recreated).
 4. Waits up to 5 minutes for both containers to run the pinned images and have matching revision labels, rejects backend/frontend Docker health states other than healthy or absent, requires `cloudbase-postgres` running and healthy, `GET /api/public/app-config` = 200, `GET /api/auth/me` = 401, www = 200, then 30 s with no container restarts (catches crash loops).

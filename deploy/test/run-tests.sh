@@ -34,7 +34,7 @@ run_deploy() {  # timeout -> sets RC
   FRONTEND_IMAGE="minipcer/cloudbase-frontend:${NEW_SHA}@${FE_DIGEST}" \
   HEALTH_API_URL="http://127.0.0.1:${PORT}/health" HEALTH_WEB_URL="http://127.0.0.1:${PORT}/health/web" \
   GITHUB_TOKEN=test GITHUB_REPOSITORY=o/r GITHUB_API_URL="http://127.0.0.1:${PORT}/github" \
-  DEPLOY_TIMEOUT_SECONDS="$1" DEPLOY_RECONCILE_SECONDS="${RECONCILE:-60}" GITHUB_OUTPUT=/dev/null \
+  DEPLOY_TIMEOUT_SECONDS="$1" DEPLOY_RECONCILE_SECONDS="${RECONCILE:-60}" DEPLOY_PREFLIGHT_SECONDS="${PREFLIGHT:-20}" GITHUB_OUTPUT=/dev/null \
     bash deploy/portainer-deploy.sh >"$OUT" 2>&1
   RC=$?
   set -e
@@ -82,6 +82,7 @@ check "exits non-zero without updating" '[[ $RC -ne 0 && "$(puts | jq length)" =
 echo "6. wrong API key fails before any change"
 start_mock ok ahead; API_KEY=wrong run_deploy 45
 check "exits non-zero without updating" '[[ $RC -ne 0 && "$(puts | jq length)" == 0 ]]'
+check "a Portainer refusal is not retried" 'grep -q "portainer answered HTTP 401; not retrying" "$OUT" && ! grep -q "retrying in 15s" "$OUT"'
 
 echo "7. tunnel outage: rollout never reached the containers -> reconcile, no blind rollback"
 start_mock outage ahead; run_deploy 35
@@ -120,9 +121,16 @@ check "reports unknown state" '[[ $RC -ne 0 ]] && grep -q "STATE UNKNOWN" "$OUT"
 check "no rollback sent" '[[ "$(puts | jq length)" == 1 ]]'
 
 echo "13. outage before rollout -> unknown, no mutation"
-start_mock outage-before ahead; run_deploy 35
+start_mock outage-before ahead; PREFLIGHT=10 run_deploy 35
 check "reports unknown state" '[[ $RC -ne 0 ]] && grep -q "STATE UNKNOWN" "$OUT"'
 check "no update sent" '[[ "$(puts | jq length)" == 0 ]]'
+check "retried while the gateway could not reach portainer" 'grep -q "retrying in 15s, nothing has been changed" "$OUT"'
+
+echo "13b. gateway outage at start that clears -> waits, then deploys normally"
+OUTAGE_SECONDS=8 start_mock outage-start ahead; PREFLIGHT=60 run_deploy 120
+check "exits 0" '[[ $RC -eq 0 ]]'
+check "retried first" 'grep -q "portainer unreachable (HTTP 530); retrying" "$OUT"'
+check "exactly one update" '[[ "$(puts | jq length)" == 1 ]]'
 
 echo "14. Docker health failure rejects a release even when HTTP responds"
 start_mock unhealthy ahead; run_deploy 35
