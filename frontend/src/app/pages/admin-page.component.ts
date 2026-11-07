@@ -5,7 +5,6 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { AdminService } from '../core/admin.service';
 import { AuthService } from '../core/auth.service';
 import { UserAccount, AuditLogEntry, HostingSettings, HostingSettingsUpdate, PortainerHostMetrics } from '../core/models';
-import { IconComponent } from '../shared/icon.component';
 import { StyledSelectComponent, StyledSelectOption } from '../shared/styled-select.component';
 import { TimeAgoPipe } from '../shared/pipes/time-ago.pipe';
 import { TruncatePipe } from '../shared/pipes/truncate.pipe';
@@ -21,7 +20,6 @@ const STRONG_PASSWORD = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#._-]).{8,
   imports: [
     CommonModule,
     FormsModule,
-    IconComponent,
     StyledSelectComponent,
     TimeAgoPipe,
     TruncatePipe,

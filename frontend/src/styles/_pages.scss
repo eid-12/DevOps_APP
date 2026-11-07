@@ -2423,12 +2423,6 @@ form.ng-submitted input.ng-invalid {
   border-color: rgba(239, 68, 68, 0.55) !important;
 }
 
-.help-defer-placeholder {
-  min-height: 120px;
-  display: grid;
-  place-items: center;
-}
-
 .account-pwd-form input[type='password'],
 .account-pwd-form input[type='text'] {
   width: 100%;

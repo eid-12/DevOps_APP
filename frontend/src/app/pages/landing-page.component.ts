@@ -46,7 +46,7 @@ interface PlatformStatus {
               <a *ngIf="!auth.isAuthenticated()" routerLink="/auth" [queryParams]="{ mode: 'login' }" class="btn btn-ghost btn-lg">Sign In</a>
               <a *ngIf="auth.isAuthenticated() && !auth.isAdmin()" routerLink="/dashboard" class="btn btn-ghost btn-lg">My Projects</a>
             </div>
-            <p class="hero-note">No credit card required · Runs on your own hardware</p>
+            <p class="hero-note">No credit card required · Free plan for every account</p>
 
             <div class="live-bar">
               <span>{{ liveStatus() }}</span>
@@ -61,15 +61,15 @@ interface PlatformStatus {
             </div>
           </div>
 
-          <div class="terminal">
+          <div class="terminal" aria-hidden="true">
             <div class="terminal-bar">
               <span class="terminal-dot red"></span>
               <span class="terminal-dot yellow"></span>
               <span class="terminal-dot green"></span>
-              <span class="terminal-title">bash — cloudbase&#64;wsl-ubuntu</span>
+              <span class="terminal-title">bash — ~/portfolio</span>
             </div>
             <div class="terminal-body">
-              <div><span class="prompt">cloudbase&#64;wsl:~$</span> <span class="cmd">{{ typedCommand() }}</span><span class="cursor">▊</span></div>
+              <div><span class="prompt">you&#64;laptop:~/portfolio$</span> <span class="cmd">{{ typedCommand() }}</span><span class="cursor">▊</span></div>
               <div *ngFor="let line of visibleLines()" [class]="line.cls">{{ line.text }}</div>
             </div>
           </div>
@@ -161,14 +161,14 @@ export class LandingPageComponent implements OnInit, OnDestroy {
   readonly connectionLabel = signal('Checking...');
 
   readonly steps: Array<{ icon: IconName; tone: IconTone; title: string; desc: string }> = [
-    { icon: 'github-link', tone: 'indigo', title: 'Link GitHub', desc: 'Connect your repository in one click using OAuth. CloudBase reads your code — nothing else.' },
-    { icon: 'shield-check', tone: 'emerald', title: 'Admin Approves', desc: 'An admin activates your account, sets CPU & RAM quotas, and unlocks deployment capability.' },
-    { icon: 'rocket', tone: 'violet', title: 'Automatic Deployment', desc: 'Every git push builds a new image and updates your live container automatically. SSL included.' }
+    { icon: 'github-link', tone: 'indigo', title: 'Link GitHub', desc: 'Connect GitHub with OAuth and pick a repository you can push to. CloudBase adds a Dockerfile if it has none, a build workflow and a deploy webhook.' },
+    { icon: 'shield-check', tone: 'emerald', title: 'Admin Approves', desc: 'An admin enables Deploy for your account. Every account gets the same fixed RAM, CPU and storage pool.' },
+    { icon: 'rocket', tone: 'violet', title: 'Automatic Deployment', desc: 'Every git push builds a new image with GitHub Actions and rolls out your container over HTTPS.' }
   ];
 
   readonly features: Array<{ icon: IconName; tone: IconTone; title: string; desc: string; tags: string[] }> = [
-    { icon: 'pipeline', tone: 'amber', title: 'Automated Pipelines', desc: 'GitHub Actions builds on every push. CloudBase injects Dockerfiles, workflows, and secrets — then Watchtower keeps containers current.', tags: ['Webhooks', 'CI/CD', 'Docker Hub'] },
-    { icon: 'lock-shield', tone: 'emerald', title: 'Absolute Isolation', desc: 'Each project runs in a sandboxed container with a dynamically provisioned MySQL or PostgreSQL database. No cross-contamination.', tags: ['WSL2', 'Portainer', 'Per-Project DB'] },
+    { icon: 'pipeline', tone: 'amber', title: 'Automated Pipelines', desc: 'GitHub Actions builds on every push and publishes the image to the GitHub Container Registry of that same repository. CloudBase never writes secrets into your repository.', tags: ['Webhooks', 'GitHub Actions', 'GHCR'] },
+    { icon: 'lock-shield', tone: 'emerald', title: 'Project Isolation', desc: 'Each project gets its own Docker network and every service its own container with CPU and RAM limits. Add PostgreSQL, MySQL, MongoDB or Redis as private services.', tags: ['Per-project network', 'Resource limits', 'Private databases'] },
     { icon: 'terminal-live', tone: 'sky', title: 'Live deploy trail', desc: 'Watch Queued → Building → Deploying → Verify on the service page, then open container logs and an HTTP shell when the stack is running.', tags: ['Deploy stages', 'Logs', 'Exec'] }
   ];
 
@@ -179,20 +179,20 @@ export class LandingPageComponent implements OnInit, OnDestroy {
     { role: 'Reverse Proxy', name: 'Nginx Proxy Manager' },
     { role: 'Secure Ingress', name: 'Cloudflare Tunnel' },
     { role: 'Backend API', name: 'Spring Boot' },
-    { role: 'Frontend UI', name: 'Angular 18+' },
+    { role: 'Frontend UI', name: 'Angular' },
     { role: 'Build Runner', name: 'GitHub Actions' }
   ];
 
   readonly terminalLines = [
-    { text: 'Injecting Dockerfile → pushed to repo ✓', cls: 'success' },
-    { text: 'GitHub Actions triggered → building image...', cls: '' },
-    { text: '✓ Image built: cloudbase/portfolio-a9f1:latest', cls: 'success' },
-    { text: '✓ Stack deployed via Portainer API', cls: 'success' },
-    { text: '✓ SSL issued → portfolio.cloudbase.site', cls: 'success' },
-    { text: '══ Live in 14.3 s ══', cls: 'highlight' }
+    { text: 'GitHub Actions → building image...', cls: '' },
+    { text: '✓ Published ghcr.io/you/portfolio:3f9c2a1', cls: 'success' },
+    { text: '✓ Webhook received → deploy queued', cls: 'success' },
+    { text: '✓ Stack updated via Portainer', cls: 'success' },
+    { text: '✓ HTTPS live → cloudbase8472.cloudbase.website', cls: 'success' },
+    { text: '══ Deploy succeeded ══', cls: 'highlight' }
   ];
 
-  readonly fullCommand = 'cloudbase deploy ./portfolio-website --framework=angular';
+  readonly fullCommand = 'git push origin main';
   readonly typedCommand = signal('');
   readonly visibleLines = signal<{ text: string; cls: string }[]>([]);
 
@@ -270,6 +270,11 @@ export class LandingPageComponent implements OnInit, OnDestroy {
   }
 
   private runTerminalAnimation() {
+    if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      this.typedCommand.set(this.fullCommand);
+      this.visibleLines.set([...this.terminalLines]);
+      return;
+    }
     let charIndex = 0;
     const typeChar = () => {
       if (charIndex <= this.fullCommand.length) {

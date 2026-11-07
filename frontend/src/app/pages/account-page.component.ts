@@ -10,7 +10,6 @@ import { AuthService } from '../core/auth.service';
 import { GitHubOAuthService } from '../core/github-oauth.service';
 import { NotificationPrefs, UsageSummary } from '../core/models';
 import { AutofocusDirective } from '../shared/directives/autofocus.directive';
-import { CopyTextDirective } from '../shared/directives/copy-text.directive';
 import { PressableDirective } from '../shared/directives/pressable.directive';
 import { TimeAgoPipe } from '../shared/pipes/time-ago.pipe';
 
@@ -29,7 +28,6 @@ const STRONG_PASSWORD_PATTERN = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#.
     TagModule,
     MessageModule,
     AutofocusDirective,
-    CopyTextDirective,
     PressableDirective,
     TimeAgoPipe
   ],

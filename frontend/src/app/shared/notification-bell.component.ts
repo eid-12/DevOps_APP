@@ -1,6 +1,6 @@
 import { Component, HostListener, OnDestroy, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router, RouterLink } from '@angular/router';
+import { Router } from '@angular/router';
 import { AuthService } from '../core/auth.service';
 import { InAppNotification } from '../core/models';
 import { TimeAgoPipe } from './pipes/time-ago.pipe';
@@ -9,7 +9,7 @@ import { PressableDirective } from './directives/pressable.directive';
 @Component({
   selector: 'app-notification-bell',
   standalone: true,
-  imports: [CommonModule, RouterLink, TimeAgoPipe, PressableDirective],
+  imports: [CommonModule, TimeAgoPipe, PressableDirective],
   template: `
     <div class="notif-bell" (click)="$event.stopPropagation()">
       <button

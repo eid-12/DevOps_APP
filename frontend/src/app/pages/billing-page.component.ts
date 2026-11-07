@@ -36,11 +36,13 @@ import { PlanInfo, UsageSummary } from '../core/models';
           </div>
 
           <ul class="plan-features">
-            <li>Up to <strong>{{ p.projectsLimit }}</strong> projects — count is open</li>
-            <li>Up to <strong>{{ p.servicesLimit }}</strong> services — count is open</li>
             <li><strong>{{ p.memoryMbLimit }} MB</strong> RAM pool (enforced)</li>
+            @if (usage()?.cpuMilliLimit) {
+              <li><strong>{{ cores(usage()!.cpuMilliLimit) }}</strong> CPU pool (enforced)</li>
+            }
             <li><strong>{{ p.storageGbLimit }} GB</strong> storage (enforced)</li>
-            <li>Deploys / month — count is open</li>
+            <li>Suggested: <strong>{{ p.projectsLimit }}</strong> projects, <strong>{{ p.servicesLimit }}</strong> services — not enforced</li>
+            <li>Deploys per month — not limited</li>
             <li>Random cloudbase*.cloudbase.website URLs + custom domains</li>
             <li>Community support</li>
           </ul>
@@ -48,6 +50,10 @@ import { PlanInfo, UsageSummary } from '../core/models';
           <div class="pill pill-amber u-mt-16 u-block">
             Every account uses the Free plan on this host. There is no paid upgrade.
           </div>
+        } @else if (planError()) {
+          <p class="muted">Could not load plan details. Refresh the page to try again.</p>
+        } @else {
+          <p class="muted">Loading plan…</p>
         }
       </section>
 
@@ -70,16 +76,23 @@ import { PlanInfo, UsageSummary } from '../core/models';
             <div class="billing-usage-row">
               <div>
                 <span class="metric-label">Memory</span>
-                <strong>{{ u.memoryMbUsed }} / {{ plan()?.memoryMbLimit }} MB</strong>
+                <strong>{{ u.memoryMbUsed }} / {{ u.memoryMbLimit }} MB</strong>
               </div>
-              <div class="meter"><span [style.width.%]="pct(u.memoryMbUsed, plan()?.memoryMbLimit)"></span></div>
+              <div class="meter"><span [style.width.%]="pct(u.memoryMbUsed, u.memoryMbLimit)"></span></div>
+            </div>
+            <div class="billing-usage-row">
+              <div>
+                <span class="metric-label">CPU</span>
+                <strong>{{ u.cpuMilliUsed }}m / {{ u.cpuMilliLimit }}m</strong>
+              </div>
+              <div class="meter"><span [style.width.%]="pct(u.cpuMilliUsed, u.cpuMilliLimit)"></span></div>
             </div>
             <div class="billing-usage-row">
               <div>
                 <span class="metric-label">Storage</span>
-                <strong>{{ u.storageGbUsed }} / {{ plan()?.storageGbLimit }} GB</strong>
+                <strong>{{ u.storageGbUsed }} / {{ u.storageGbLimit }} GB</strong>
               </div>
-              <div class="meter"><span [style.width.%]="pct(u.storageGbUsed, plan()?.storageGbLimit)"></span></div>
+              <div class="meter"><span [style.width.%]="pct(u.storageGbUsed, u.storageGbLimit)"></span></div>
             </div>
             <div class="billing-usage-row">
               <div>
@@ -88,6 +101,8 @@ import { PlanInfo, UsageSummary } from '../core/models';
               </div>
             </div>
           </div>
+        } @else if (usageError()) {
+          <p class="muted">Could not load usage. Refresh the page to try again.</p>
         } @else {
           <p class="muted">Loading usage…</p>
         }
@@ -103,28 +118,21 @@ export class BillingPageComponent implements OnInit {
 
   readonly plan = signal<PlanInfo | null>(null);
   readonly usage = signal<UsageSummary | null>(null);
+  readonly planError = signal(false);
+  readonly usageError = signal(false);
 
   ngOnInit() {
     if (!this.auth.user()) {
       this.router.navigate(['/auth']);
       return;
     }
-    this.auth.getPlan().subscribe({ next: p => this.plan.set(p), error: () => this.plan.set(null) });
-    this.auth.usage().subscribe({
-      next: u => this.usage.set(u),
-      error: () => this.usage.set({
-        projects: 0,
-        services: 0,
-        runningServices: 0,
-        cpuMilliUsed: 0,
-        cpuMilliLimit: 0,
-        memoryMbUsed: 0,
-        memoryMbLimit: 0,
-        storageGbUsed: 0,
-        storageGbLimit: 0,
-        deploymentsThisMonth: 0
-      } as UsageSummary)
-    });
+    this.auth.getPlan().subscribe({ next: p => this.plan.set(p), error: () => this.planError.set(true) });
+    this.auth.usage().subscribe({ next: u => this.usage.set(u), error: () => this.usageError.set(true) });
+  }
+
+  cores(milli: number): string {
+    const n = milli / 1000;
+    return `${Number.isInteger(n) ? n : n.toFixed(1)} ${n === 1 ? 'core' : 'cores'}`;
   }
 
   pct(used: number, limit?: number): number {

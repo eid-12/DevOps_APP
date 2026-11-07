@@ -19,31 +19,14 @@ import { PressableDirective } from '../shared/directives/pressable.directive';
     </header>
 
     <div class="help-grid">
-      @for (s of sections; track s.title; let i = $index) {
-        @if (i === 0) {
-          <section class="panel svc-panel">
-            <h3>{{ s.title }}</h3>
-            <p class="muted u-text-13 u-mb-10">{{ s.body }}</p>
-            @if (s.link) {
-              <a class="btn btn-ghost btn-sm" appPressable [routerLink]="s.link" [queryParams]="s.queryParams || null">{{ s.cta }}</a>
-            }
-          </section>
-        } @else {
-          <!-- @defer: enter the body when the card scrolls into view -->
-          @defer (on viewport; prefetch on idle) {
-            <section class="panel svc-panel">
-              <h3>{{ s.title }}</h3>
-              <p class="muted u-text-13 u-mb-10">{{ s.body }}</p>
-              @if (s.link) {
-                <a class="btn btn-ghost btn-sm" appPressable [routerLink]="s.link" [queryParams]="s.queryParams || null">{{ s.cta }}</a>
-              }
-            </section>
-          } @placeholder {
-            <section class="panel svc-panel help-defer-placeholder">
-              <p class="muted u-m-0">Loading…</p>
-            </section>
+      @for (s of sections; track s.title) {
+        <section class="panel svc-panel">
+          <h3>{{ s.title }}</h3>
+          <p class="muted u-text-13 u-mb-10">{{ s.body }}</p>
+          @if (s.link) {
+            <a class="btn btn-ghost btn-sm" appPressable [routerLink]="s.link">{{ s.cta }}</a>
           }
-        }
+        </section>
       }
     </div>
   </div>
@@ -51,48 +34,48 @@ import { PressableDirective } from '../shared/directives/pressable.directive';
   `
 })
 export class HelpPageComponent {
-  readonly sections = [
+  readonly sections: ReadonlyArray<{ title: string; body: string; link: string; cta: string }> = [
     {
-      title: '1. Create a project',
+      title: '1. Get Deploy access',
+      body: 'New accounts can sign in and look around, but creating and deploying services stays locked until an admin enables Deploy for your account. The dashboard shows a notice while it is locked.',
+      link: '/dashboard',
+      cta: 'Open Dashboard'
+    },
+    {
+      title: '2. Create a project',
       body: 'Projects are canvases. Use + New on the dashboard, then pick Empty, GitHub, Docker, or Database.',
       link: '/dashboard',
-      cta: 'Open Dashboard',
-      queryParams: undefined as Record<string, string> | undefined
+      cta: 'Open Dashboard'
     },
     {
-      title: '2. Connect GitHub',
-      body: 'Link GitHub in Account to deploy private repos and enable auto-deploy on push via GitHub Actions.',
+      title: '3. Connect GitHub',
+      body: 'Link GitHub in Account, then pick a repository you can push to. CloudBase adds a Dockerfile if there is none, a build workflow and a webhook, so every push deploys.',
       link: '/account',
-      cta: 'Account → GitHub',
-      queryParams: undefined as Record<string, string> | undefined
+      cta: 'Account → GitHub'
     },
     {
-      title: '3. Deploy a service',
+      title: '4. Deploy a service',
       body: 'Open a service → Deployments tab. Watch Logs, open Terminal when RUNNING, and manage Variables.',
       link: '/dashboard',
-      cta: 'Go to projects',
-      queryParams: undefined as Record<string, string> | undefined
+      cta: 'Go to projects'
     },
     {
-      title: '4. Domains & networking',
+      title: '5. Domains & networking',
       body: 'Each app service gets a random cloudbase*.cloudbase.website URL. Attach your own domain on the service Network tab.',
       link: '/dashboard',
-      cta: 'Open projects',
-      queryParams: undefined as Record<string, string> | undefined
+      cta: 'Open projects'
     },
     {
-      title: '5. Databases',
+      title: '6. Databases',
       body: 'Add a Database service, then copy the private connection URL from the service Overview (no public URL).',
       link: '/dashboard',
-      cta: 'Open projects',
-      queryParams: undefined as Record<string, string> | undefined
+      cta: 'Open projects'
     },
     {
-      title: '6. Plan & usage',
-      body: 'Billing shows your Free plan limits (RAM, storage). Project, service, and deploy counts are open.',
+      title: '7. Plan & usage',
+      body: 'Billing shows your Free plan pool: RAM, CPU and storage are enforced; project, service and deploy counts are not.',
       link: '/billing',
-      cta: 'View Billing',
-      queryParams: undefined as Record<string, string> | undefined
+      cta: 'View Billing'
     }
   ];
 }

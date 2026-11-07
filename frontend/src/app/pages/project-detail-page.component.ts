@@ -14,7 +14,6 @@ import {
 import { ConfirmDeleteDialogComponent } from '../shared/confirm-delete-dialog.component';
 import { CreatePickerComponent, CreatePickerOptionId } from '../shared/create-picker.component';
 import { EnvironmentSelectComponent } from '../shared/environment-select.component';
-import { RuntimeSelectComponent } from '../shared/runtime-select.component';
 import { GithubRepoSelectComponent } from '../shared/github-repo-select.component';
 import { DockerPresetSelectComponent } from '../shared/docker-preset-select.component';
 import { DatabaseTypeSelectComponent } from '../shared/database-type-select.component';
@@ -42,7 +41,6 @@ const FREE_PLAN_LIMIT_MESSAGE = 'Free plan limit reached. Delete a service or se
     FormsModule,
     CreatePickerComponent,
     EnvironmentSelectComponent,
-    RuntimeSelectComponent,
     GithubRepoSelectComponent,
     DockerPresetSelectComponent,
     DatabaseTypeSelectComponent,
