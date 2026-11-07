@@ -10,6 +10,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.util.matcher.AnyRequestMatcher;
 
 @Configuration
 @EnableWebSecurity
@@ -29,6 +30,11 @@ public class SecurityConfig {
         http
             .csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            // TLS ends at Cloudflare/NPM, so the API sees plain HTTP and Spring would skip HSTS. The API is only
+            // published over HTTPS; browsers ignore the header on plain-HTTP local runs.
+            .headers(h -> h.httpStrictTransportSecurity(hsts -> hsts
+                .requestMatcher(AnyRequestMatcher.INSTANCE)
+                .maxAgeInSeconds(31536000)))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/login", "/api/auth/register").permitAll()
                 .requestMatchers("/api/auth/forgot-password", "/api/auth/reset-password").permitAll()
@@ -51,8 +57,32 @@ public class SecurityConfig {
         return http.build();
     }
 
+    /**
+     * BCrypt reads only the first 72 bytes, so a longer password would match any password sharing that prefix
+     * (CVE-2025-22228). Such passwords never match and are never stored, whatever the library version does.
+     */
     @Bean
     public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
+        BCryptPasswordEncoder bcrypt = new BCryptPasswordEncoder();
+        return new PasswordEncoder() {
+            @Override
+            public String encode(CharSequence raw) {
+                if (raw == null || PasswordPolicy.exceedsBcryptLimit(raw.toString())) {
+                    throw new IllegalArgumentException("password cannot be more than " + PasswordPolicy.MAX_BYTES + " bytes");
+                }
+                return bcrypt.encode(raw);
+            }
+
+            @Override
+            public boolean matches(CharSequence raw, String encoded) {
+                if (raw == null || PasswordPolicy.exceedsBcryptLimit(raw.toString())) return false;
+                return bcrypt.matches(raw, encoded);
+            }
+
+            @Override
+            public boolean upgradeEncoding(String encoded) {
+                return bcrypt.upgradeEncoding(encoded);
+            }
+        };
     }
 }

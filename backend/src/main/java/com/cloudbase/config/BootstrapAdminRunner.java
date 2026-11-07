@@ -55,6 +55,9 @@ public class BootstrapAdminRunner implements ApplicationRunner {
         if (password.length() < 8) {
             throw new IllegalStateException("CLOUDBASE_BOOTSTRAP_ADMIN_PASSWORD must be at least 8 characters.");
         }
+        if (com.cloudbase.security.PasswordPolicy.exceedsBcryptLimit(password)) {
+            throw new IllegalStateException("CLOUDBASE_BOOTSTRAP_ADMIN_PASSWORD must be at most 72 bytes.");
+        }
 
         UserEntity user = userRepository.findByEmail(email).orElse(null);
         if (user == null) {

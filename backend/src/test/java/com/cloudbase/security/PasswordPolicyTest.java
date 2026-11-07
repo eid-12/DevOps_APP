@@ -25,4 +25,15 @@ class PasswordPolicyTest {
         }
         assertThrows(ResponseStatusException.class, () -> PasswordPolicy.require(null));
     }
+
+    @Test
+    void capsAtBcryptsSeventyTwoBytes() {
+        String base = "Aa1@";
+        assertDoesNotThrow(() -> PasswordPolicy.require(base + "a".repeat(68)));
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> PasswordPolicy.require(base + "a".repeat(69)));
+        assertEquals(400, ex.getStatusCode().value());
+        // 2-byte characters count by bytes, not chars: 4 + 35*2 = 74 bytes in 39 chars.
+        assertThrows(ResponseStatusException.class, () -> PasswordPolicy.require(base + "é".repeat(35)));
+    }
 }

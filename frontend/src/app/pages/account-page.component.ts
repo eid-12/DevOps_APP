@@ -14,7 +14,7 @@ import { PressableDirective } from '../shared/directives/pressable.directive';
 import { TimeAgoPipe } from '../shared/pipes/time-ago.pipe';
 
 /** Same regex used by auth Reactive Forms Validators.pattern(). */
-const STRONG_PASSWORD_PATTERN = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#._-]).{8,}$';
+const STRONG_PASSWORD_PATTERN = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#._-]).{8,72}$';
 
 @Component({
   selector: 'app-account-page',
@@ -232,7 +232,7 @@ const STRONG_PASSWORD_PATTERN = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#.
           </div>
           <div class="field flex flex-column gap-2">
             <label for="acc-new">New password</label>
-            <small class="muted">8+ characters with upper, lower, digit, and special character</small>
+            <small class="muted">8 to 72 characters with upper, lower, digit, and special character</small>
             <input
               id="acc-new"
               name="newPassword"
@@ -559,7 +559,7 @@ export class AccountPageComponent implements OnInit {
       return;
     }
     if (!new RegExp(STRONG_PASSWORD_PATTERN).test(this.newPassword)) {
-      this.flash('Password must be 8+ chars with upper, lower, digit, and special character', 'error');
+      this.flash('Password must be 8 to 72 characters with upper, lower, digit, and special character', 'error');
       return;
     }
     this.savingPassword.set(true);

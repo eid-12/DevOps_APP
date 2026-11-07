@@ -28,8 +28,8 @@ type FieldName = 'name' | 'email' | 'password' | 'confirmPassword' | 'code';
 /** Stricter than Angular's default email validator. */
 const EMAIL_PATTERN = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 
-/** Min 8, upper, lower, digit, special. */
-const STRONG_PASSWORD = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#._-]).{8,}$/;
+/** 8 to 72 characters (BCrypt reads only 72 bytes), upper, lower, digit, special. */
+const STRONG_PASSWORD = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#._-]).{8,72}$/;
 
 function passwordMatchValidator(passwordKey: string, confirmKey: string): ValidatorFn {
   return (group: AbstractControl): ValidationErrors | null => {
@@ -174,7 +174,7 @@ const PENDING_VERIFY_KEY = 'cloudbase.pendingVerificationEmail';
                 }
                 @if (mode() === 'register' || mode() === 'reset') {
                   <ul class="password-rules" aria-label="Password requirements">
-                    <li [class.ok]="liveRules.length">At least 8 characters</li>
+                    <li [class.ok]="liveRules.length">8 to 72 characters</li>
                     <li [class.ok]="liveRules.upper">One uppercase letter</li>
                     <li [class.ok]="liveRules.lower">One lowercase letter</li>
                     <li [class.ok]="liveRules.digit">One number</li>
@@ -417,7 +417,7 @@ export class AuthPageComponent implements OnInit {
 
   passwordRules(value: string) {
     return {
-      length: value.length >= 8,
+      length: value.length >= 8 && value.length <= 72,
       upper: /[A-Z]/.test(value),
       lower: /[a-z]/.test(value),
       digit: /\d/.test(value),
@@ -507,7 +507,7 @@ export class AuthPageComponent implements OnInit {
       if (errors['required']) return 'Password is required.';
       if (errors['minlength']) return 'Password must be at least 8 characters.';
       if (errors['pattern']) {
-        return 'Password needs upper, lower, number, and special character.';
+        return 'Password needs 8 to 72 characters with upper, lower, number, and special character.';
       }
     }
     if (controlName === 'confirmPassword') {

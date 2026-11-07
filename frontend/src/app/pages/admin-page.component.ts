@@ -12,7 +12,7 @@ import { PressableDirective } from '../shared/directives/pressable.directive';
 
 type AdminTab = 'account' | 'hosting' | 'governance' | 'infrastructure' | 'audit';
 
-const STRONG_PASSWORD = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#._-]).{8,}$';
+const STRONG_PASSWORD = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#._-]).{8,72}$';
 
 @Component({
   selector: 'app-admin-page',
