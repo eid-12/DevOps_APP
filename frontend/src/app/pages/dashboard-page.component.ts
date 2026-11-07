@@ -221,7 +221,7 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
                     <button
                       type="button"
                       class="btn btn-ghost btn-sm project-menu-btn"
-                      (click)="toggleMenu(project.id)"
+                      aria-label="Project actions" (click)="toggleMenu(project.id)"
                       [attr.aria-expanded]="menuOpenId() === project.id"
                     >⋮</button>
                     @if (menuOpenId() === project.id) {
@@ -306,15 +306,15 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
           <div class="modal-panel panel create-form-panel" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
             <div class="modal-header">
               <h2>Empty Project</h2>
-              <button type="button" class="btn btn-ghost btn-sm" (click)="backToPicker()" [disabled]="creating()">✕</button>
+              <button type="button" class="btn btn-ghost btn-sm" aria-label="Close" (click)="backToPicker()" [disabled]="creating()">✕</button>
             </div>
             <p class="modal-desc">Create a blank canvas, then add services later.</p>
             @if (createError()) {
               <div class="pill pill-red railway-alert">{{ createError() }}</div>
             }
             <div class="field field-gap">
-              <label>Project Name</label>
-              <input
+              <label for="cb-dash-1">Project Name</label>
+              <input id="cb-dash-1"
                 [ngModel]="emptyName || ''"
                 (ngModelChange)="emptyName = ($event ?? '').toString()"
                 placeholder="my-project"
@@ -323,8 +323,8 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
               />
             </div>
             <div class="field field-gap">
-              <label>Description (optional)</label>
-              <input [(ngModel)]="emptyDescription" placeholder="What is this project for?" />
+              <label for="cb-dash-2">Description (optional)</label>
+              <input id="cb-dash-2" [(ngModel)]="emptyDescription" placeholder="What is this project for?" />
             </div>
             <div class="field field-gap-lg">
               <label>Environment</label>
@@ -370,8 +370,8 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
 
             <div class="add-service-form">
               <div class="field">
-                <label>Service Name</label>
-                <input [(ngModel)]="draft.name" placeholder="my-service" autocomplete="off" />
+                <label for="cb-dash-3">Service Name</label>
+                <input id="cb-dash-3" [(ngModel)]="draft.name" placeholder="my-service" autocomplete="off" />
               </div>
 
               <div class="field">
@@ -400,15 +400,15 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
                   </div>
                 }
                 <div class="field">
-                  <label>Repository URL</label>
-                  <input
+                  <label for="cb-dash-4">Repository URL</label>
+                  <input id="cb-dash-4"
                     [(ngModel)]="draft.repoUrl"
                     [placeholder]="repoUrlPlaceholder()"
                   />
                 </div>
                 <div class="field">
-                  <label>Branch</label>
-                  <input [(ngModel)]="draft.branch" placeholder="main" />
+                  <label for="cb-dash-5">Branch</label>
+                  <input id="cb-dash-5" [(ngModel)]="draft.branch" placeholder="main" />
                 </div>
                 <p class="create-form-hint">Advanced options (root directory, build, healthcheck, restart) are in Settings after create.</p>
               }
@@ -425,8 +425,8 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
                   />
                 </div>
                 <div class="field">
-                  <label>Image</label>
-                  <input
+                  <label for="cb-dash-6">Image</label>
+                  <input id="cb-dash-6"
                     [(ngModel)]="draft.imageName"
                     (ngModelChange)="onDockerImageChange($event)"
                     placeholder="nginxdemos/hello or nginx"
@@ -434,17 +434,17 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
                   />
                 </div>
                 <div class="field">
-                  <label>Tag</label>
-                  <input [(ngModel)]="draft.imageTag" placeholder="latest" />
+                  <label for="cb-dash-7">Tag</label>
+                  <input id="cb-dash-7" [(ngModel)]="draft.imageTag" placeholder="latest" />
                 </div>
                 <div class="field">
-                  <label>Container listen port</label>
-                  <input type="number" [(ngModel)]="draft.containerPort" min="1" max="65535" />
+                  <label for="cb-dash-8">Container listen port</label>
+                  <input id="cb-dash-8" type="number" [(ngModel)]="draft.containerPort" min="1" max="65535" />
                   <p class="empty-sub empty-hint">Port inside this container only (Nginx/Hello = 80, Grafana = 3000). Not a host port — many services can all use 80 safely. Public access is via a random HTTPS URL.</p>
                 </div>
                 <div class="field">
-                  <label>Start command <span class="muted">(optional)</span></label>
-                  <input
+                  <label for="cb-dash-101">Start command <span class="muted">(optional)</span></label>
+                  <input id="cb-dash-101"
                     [(ngModel)]="draft.startCommand"
                     placeholder="Leave empty to use image default"
                     autocomplete="off"
@@ -464,8 +464,8 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
                   <p class="empty-sub empty-hint">{{ dbPreset(draft.dbType).hint }}</p>
                 </div>
                 <div class="field">
-                  <label>Internal port</label>
-                  <input type="number" [ngModel]="dbPreset(draft.dbType).port" disabled />
+                  <label for="cb-dash-9">Internal port</label>
+                  <input id="cb-dash-9" type="number" [ngModel]="dbPreset(draft.dbType).port" disabled />
                 </div>
               }
 
@@ -477,9 +477,9 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
                   </div>
                   @for (env of draft.envVars; track $index) {
                     <div class="env-row">
-                      <input [(ngModel)]="env.key" placeholder="KEY" />
-                      <input [(ngModel)]="env.value" placeholder="value" />
-                      <button type="button" class="btn btn-ghost btn-sm danger" (click)="removeEnvVar($index)">✕</button>
+                      <input [(ngModel)]="env.key" placeholder="KEY" aria-label="Variable name" />
+                      <input [(ngModel)]="env.value" placeholder="value" aria-label="Variable value" />
+                      <button type="button" class="btn btn-ghost btn-sm danger" aria-label="Remove variable" (click)="removeEnvVar($index)">✕</button>
                     </div>
                   }
                   @if (!draft.envVars.length) {
@@ -500,13 +500,13 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
               }
               @if (createKind() !== 'github' && (draft.useVolume || createKind() === 'database')) {
                 <div class="field">
-                  <label>Mount Path <span class="muted u-fw-400">(inside container only)</span></label>
-                  <input [(ngModel)]="draft.mountPath" [placeholder]="createKind() === 'database' ? dbPreset(draft.dbType).mountPath : '/data'" />
+                  <label for="cb-dash-102">Mount Path <span class="muted u-fw-400">(inside container only)</span></label>
+                  <input id="cb-dash-102" [(ngModel)]="draft.mountPath" [placeholder]="createKind() === 'database' ? dbPreset(draft.dbType).mountPath : '/data'" />
                   <small class="muted">Host disk path is fixed by CloudBase. Example: /data or /var/lib/postgresql/data</small>
                 </div>
                 <div class="field">
-                  <label>Storage (GB)</label>
-                  <input type="number" [(ngModel)]="draft.storageGb" min="1" max="50" />
+                  <label for="cb-dash-10">Storage (GB)</label>
+                  <input id="cb-dash-10" type="number" [(ngModel)]="draft.storageGb" min="1" max="50" />
                 </div>
               }
 
@@ -532,18 +532,18 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
         <div class="modal-panel panel create-form-panel" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
           <div class="modal-header">
             <h2>Edit Project</h2>
-            <button type="button" class="btn btn-ghost btn-sm" (click)="closeEdit()" [disabled]="savingEdit()">✕</button>
+            <button type="button" class="btn btn-ghost btn-sm" aria-label="Close" (click)="closeEdit()" [disabled]="savingEdit()">✕</button>
           </div>
           @if (editError()) {
             <div class="pill pill-red railway-alert">{{ editError() }}</div>
           }
           <div class="field field-gap">
-            <label>Project Name</label>
-            <input [(ngModel)]="editName" autocomplete="off" />
+            <label for="cb-dash-11">Project Name</label>
+            <input id="cb-dash-11" [(ngModel)]="editName" autocomplete="off" />
           </div>
           <div class="field field-gap">
-            <label>Description</label>
-            <input [(ngModel)]="editDescription" placeholder="Optional description" />
+            <label for="cb-dash-12">Description</label>
+            <input id="cb-dash-12" [(ngModel)]="editDescription" placeholder="Optional description" />
           </div>
           <div class="field field-gap-lg">
             <label>Environment</label>

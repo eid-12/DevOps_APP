@@ -150,13 +150,14 @@ const FREE_PLAN_LIMIT_MESSAGE = 'Free plan limit reached. Delete a service or se
           <div class="shared-var-editor panel">
             <div class="shared-var-grid">
               <div class="field">
-                <label>Key</label>
-                <input [(ngModel)]="sharedDraft.key" placeholder="DATABASE_URL" class="mono" [disabled]="!!sharedDraft.id" />
+                <label for="cb-proj-1">Key</label>
+                <input id="cb-proj-1" [(ngModel)]="sharedDraft.key" placeholder="DATABASE_URL" class="mono" [disabled]="!!sharedDraft.id" />
               </div>
               <div class="field">
-                <label>Value</label>
+                <label for="cb-proj-shared-value">Value</label>
                 <div class="shared-value-row">
                   <input
+                    id="cb-proj-shared-value"
                     [(ngModel)]="sharedDraft.value"
                     [type]="sharedDraft.isSecret && !sharedShowValue ? 'password' : 'text'"
                     placeholder="value"
@@ -416,8 +417,8 @@ const FREE_PLAN_LIMIT_MESSAGE = 'Free plan limit reached. Delete a service or se
 
         <div class="add-service-form">
           <div class="field">
-            <label>Service Name</label>
-            <input [(ngModel)]="draft.name" placeholder="my-service" autocomplete="off" />
+            <label for="cb-proj-2">Service Name</label>
+            <input id="cb-proj-2" [(ngModel)]="draft.name" placeholder="my-service" autocomplete="off" />
           </div>
 
           @if (addMode() === 'github') {
@@ -445,12 +446,12 @@ const FREE_PLAN_LIMIT_MESSAGE = 'Free plan limit reached. Delete a service or se
               </div>
             }
             <div class="field">
-              <label>Repository URL</label>
-              <input [(ngModel)]="draft.repoUrl" [placeholder]="repoUrlPlaceholder()" />
+              <label for="cb-proj-3">Repository URL</label>
+              <input id="cb-proj-3" [(ngModel)]="draft.repoUrl" [placeholder]="repoUrlPlaceholder()" />
             </div>
             <div class="field">
-              <label>Branch</label>
-              <input [(ngModel)]="draft.branch" placeholder="main" />
+              <label for="cb-proj-4">Branch</label>
+              <input id="cb-proj-4" [(ngModel)]="draft.branch" placeholder="main" />
             </div>
             <p class="create-form-hint">Advanced options (root directory, build, healthcheck, restart) are in Settings after create.</p>
           }
@@ -467,8 +468,8 @@ const FREE_PLAN_LIMIT_MESSAGE = 'Free plan limit reached. Delete a service or se
               />
             </div>
             <div class="field">
-              <label>Image</label>
-              <input
+              <label for="cb-proj-5">Image</label>
+              <input id="cb-proj-5"
                 [(ngModel)]="draft.imageName"
                 (ngModelChange)="onDockerImageChange($event)"
                 placeholder="nginxdemos/hello or nginx"
@@ -476,20 +477,20 @@ const FREE_PLAN_LIMIT_MESSAGE = 'Free plan limit reached. Delete a service or se
               />
             </div>
             <div class="field">
-              <label>Tag</label>
-              <input [(ngModel)]="draft.imageTag" placeholder="latest" />
+              <label for="cb-proj-6">Tag</label>
+              <input id="cb-proj-6" [(ngModel)]="draft.imageTag" placeholder="latest" />
             </div>
             <div class="field">
-              <label>Container listen port</label>
-              <input type="number" [(ngModel)]="draft.containerPort" min="1" max="65535" />
+              <label for="cb-proj-7">Container listen port</label>
+              <input id="cb-proj-7" type="number" [(ngModel)]="draft.containerPort" min="1" max="65535" />
               <p class="empty-sub empty-hint">
                 Port inside this container only (Nginx = 80, Grafana = 3000). Not the host port —
                 many apps can use 80 safely. Public access uses a random HTTPS URL.
               </p>
             </div>
             <div class="field">
-              <label>Start command <span class="muted">(optional)</span></label>
-              <input
+              <label for="cb-proj-101">Start command <span class="muted">(optional)</span></label>
+              <input id="cb-proj-101"
                 [(ngModel)]="draft.startCommand"
                 placeholder="Leave empty to use image default"
                 autocomplete="off"
@@ -509,8 +510,8 @@ const FREE_PLAN_LIMIT_MESSAGE = 'Free plan limit reached. Delete a service or se
               <p class="empty-sub empty-hint">{{ dbPreset(draft.dbType).hint }}</p>
             </div>
             <div class="field">
-              <label>Internal port</label>
-              <input type="number" [ngModel]="dbPreset(draft.dbType).port" disabled />
+              <label for="cb-proj-8">Internal port</label>
+              <input id="cb-proj-8" type="number" [ngModel]="dbPreset(draft.dbType).port" disabled />
             </div>
           }
 
@@ -522,9 +523,9 @@ const FREE_PLAN_LIMIT_MESSAGE = 'Free plan limit reached. Delete a service or se
               </div>
               @for (env of draft.envVars; track $index) {
                 <div class="env-row">
-                  <input [(ngModel)]="env.key" placeholder="KEY" />
-                  <input [(ngModel)]="env.value" placeholder="value" />
-                  <button type="button" class="btn btn-ghost btn-sm danger" (click)="removeEnvVar($index)">✕</button>
+                  <input [(ngModel)]="env.key" placeholder="KEY" aria-label="Variable name" />
+                  <input [(ngModel)]="env.value" placeholder="value" aria-label="Variable value" />
+                  <button type="button" class="btn btn-ghost btn-sm danger" aria-label="Remove variable" (click)="removeEnvVar($index)">✕</button>
                 </div>
               }
               @if (!draft.envVars.length) {
@@ -545,13 +546,13 @@ const FREE_PLAN_LIMIT_MESSAGE = 'Free plan limit reached. Delete a service or se
           }
           @if (addMode() !== 'github' && (draft.useVolume || addMode() === 'database')) {
             <div class="field">
-              <label>Mount Path <span class="muted u-fw-400">(inside container only)</span></label>
-              <input [(ngModel)]="draft.mountPath" [placeholder]="addMode() === 'database' ? dbPreset(draft.dbType).mountPath : '/data'" />
+              <label for="cb-proj-102">Mount Path <span class="muted u-fw-400">(inside container only)</span></label>
+              <input id="cb-proj-102" [(ngModel)]="draft.mountPath" [placeholder]="addMode() === 'database' ? dbPreset(draft.dbType).mountPath : '/data'" />
               <small class="muted">Host disk path is fixed by CloudBase. Example: /data or /var/lib/postgresql/data</small>
             </div>
             <div class="field">
-              <label>Storage (GB)</label>
-              <input type="number" [(ngModel)]="draft.storageGb" min="1" max="50" />
+              <label for="cb-proj-9">Storage (GB)</label>
+              <input id="cb-proj-9" type="number" [(ngModel)]="draft.storageGb" min="1" max="50" />
             </div>
           }
 
@@ -577,18 +578,18 @@ const FREE_PLAN_LIMIT_MESSAGE = 'Free plan limit reached. Delete a service or se
     <div class="modal-panel panel create-form-panel" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
       <div class="modal-header">
         <h2>Project Settings</h2>
-        <button type="button" class="btn btn-ghost btn-sm" (click)="closeSettings()" [disabled]="savingSettings()">✕</button>
+        <button type="button" class="btn btn-ghost btn-sm" aria-label="Close" (click)="closeSettings()" [disabled]="savingSettings()">✕</button>
       </div>
       @if (settingsError()) {
         <div class="pill pill-red railway-alert">{{ settingsError() }}</div>
       }
       <div class="field field-gap">
-        <label>Project Name</label>
-        <input [(ngModel)]="settingsName" />
+        <label for="cb-proj-10">Project Name</label>
+        <input id="cb-proj-10" [(ngModel)]="settingsName" />
       </div>
       <div class="field field-gap">
-        <label>Description</label>
-        <input [(ngModel)]="settingsDescription" placeholder="Optional description" />
+        <label for="cb-proj-11">Description</label>
+        <input id="cb-proj-11" [(ngModel)]="settingsDescription" placeholder="Optional description" />
       </div>
       <div class="field field-gap-lg">
         <label>Environment</label>

@@ -404,7 +404,7 @@ const ROLLBACK_WATCH_ATTEMPTS = 100; // 3 s apart: five minutes
           <div class="modal-panel panel create-form-panel rollback-modal" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
             <div class="modal-header">
               <h2>Rollback deployment</h2>
-              <button type="button" class="btn btn-ghost btn-sm" (click)="closeRollback()" [disabled]="rollbackBusy()">✕</button>
+              <button type="button" class="btn btn-ghost btn-sm" aria-label="Close" (click)="closeRollback()" [disabled]="rollbackBusy()">✕</button>
             </div>
             <p class="modal-desc">
               This will re-deploy the selected build and make it the live version of
@@ -518,6 +518,7 @@ const ROLLBACK_WATCH_ATTEMPTS = 100; // 3 s apart: five minutes
             <form class="term-input-row" (ngSubmit)="submitTerm()">
               <span class="term-prompt">$</span>
               <input
+                aria-label="Command to run in the container"
                 #termInput
                 class="term-input"
                 [(ngModel)]="termCmd"
@@ -604,6 +605,7 @@ const ROLLBACK_WATCH_ATTEMPTS = 100; // 3 s apart: five minutes
               @for (v of envDraft; track $index; let i = $index) {
                 <div class="var-row" [class.var-row-focused]="refInsertIndex() === i">
                   <input
+                    aria-label="Variable name"
                     [(ngModel)]="v.key"
                     placeholder="KEY"
                     (ngModelChange)="markVarsDirty()"
@@ -611,6 +613,7 @@ const ROLLBACK_WATCH_ATTEMPTS = 100; // 3 s apart: five minutes
                   />
                   <div class="var-value-wrap">
                     <input
+                      aria-label="Variable value"
                       [(ngModel)]="v.value"
                       [attr.type]="v.isSecret && !showSecrets[i] ? 'password' : 'text'"
                       [placeholder]="refPlaceholder"
@@ -624,7 +627,7 @@ const ROLLBACK_WATCH_ATTEMPTS = 100; // 3 s apart: five minutes
                       {{ showSecrets[i] ? 'Hide' : 'Show' }}
                     </button>
                   }
-                  <button type="button" class="btn btn-ghost btn-sm danger" (click)="removeVar(i)">✕</button>
+                  <button type="button" class="btn btn-ghost btn-sm danger" aria-label="Remove variable" (click)="removeVar(i)">✕</button>
                 </div>
               } @empty {
                 <p class="muted">No service variables yet. Add one, then use Insert Reference.</p>
@@ -767,10 +770,11 @@ const ROLLBACK_WATCH_ATTEMPTS = 100; // 3 s apart: five minutes
             </div>
 
             <div class="field field-gap-xl">
-              <label>Vanity subdomain (1 per account)</label>
+              <label for="cb-svc-vanity">Vanity subdomain (1 per account)</label>
               <div class="form-row">
                 <input
                   class="form-row-grow"
+                  id="cb-svc-vanity"
                   [(ngModel)]="vanityDraft"
                   (ngModelChange)="onVanityDraftChange($event)"
                   placeholder="myapp"
@@ -825,10 +829,11 @@ const ROLLBACK_WATCH_ATTEMPTS = 100; // 3 s apart: five minutes
             </div>
 
             <div class="field">
-              <label>Custom domain</label>
+              <label for="cb-svc-domain">Custom domain</label>
               <div class="form-row">
                 <input
                   class="form-row-grow-lg"
+                  id="cb-svc-domain"
                   [(ngModel)]="domainDraft"
                   (ngModelChange)="onDomainDraftChange($event)"
                   placeholder="app.example.com"
@@ -926,8 +931,8 @@ const ROLLBACK_WATCH_ATTEMPTS = 100; // 3 s apart: five minutes
               @if (settingsSection() === 'source') {
                 <h3>Source</h3>
                 <div class="field field-gap">
-                  <label>Service Name</label>
-                  <input [(ngModel)]="nameDraft" />
+                  <label for="cb-svc-1">Service Name</label>
+                  <input id="cb-svc-1" [(ngModel)]="nameDraft" />
                 </div>
 
                 @if (service()!.sourceType === 'GITHUB') {
@@ -936,8 +941,8 @@ const ROLLBACK_WATCH_ATTEMPTS = 100; // 3 s apart: five minutes
                     <app-runtime-select [value]="runtimeDraft" (valueChange)="onSettingsRuntimeChange($event)" />
                   </div>
                   <div class="field field-gap">
-                    <label>Start command</label>
-                    <input
+                    <label for="cb-svc-2">Start command</label>
+                    <input id="cb-svc-2"
                       [(ngModel)]="startCommandDraft"
                       (ngModelChange)="startCommandTouched = true"
                       placeholder="java -jar /app/app.jar"
@@ -946,8 +951,8 @@ const ROLLBACK_WATCH_ATTEMPTS = 100; // 3 s apart: five minutes
                       class="u-mono-input"
                     />
                   </div>
-                  <div class="field"><label>Repository URL</label><input [(ngModel)]="sourceDraft.repoUrl" [placeholder]="'https://github.com/' + (auth.githubUsername() || 'user') + '/repo'" /></div>
-                  <div class="field"><label>Branch</label><input [(ngModel)]="sourceDraft.branch" /></div>
+                  <div class="field"><label for="cb-svc-3">Repository URL</label><input id="cb-svc-3" [(ngModel)]="sourceDraft.repoUrl" [placeholder]="'https://github.com/' + (auth.githubUsername() || 'user') + '/repo'" /></div>
+                  <div class="field"><label for="cb-svc-4">Branch</label><input id="cb-svc-4" [(ngModel)]="sourceDraft.branch" /></div>
                   <label class="toggle-field"><input type="checkbox" [(ngModel)]="sourceDraft.autoDeploy" /><span>Auto deploy on push</span></label>
                   <p class="hint hint-note">
                     When enabled: push to GitHub → Actions builds &amp; pushes the image → the live container updates automatically (Watchtower). Webhook redeploy also runs when the public API is reachable.
@@ -970,15 +975,15 @@ const ROLLBACK_WATCH_ATTEMPTS = 100; // 3 s apart: five minutes
                 }
 
                 @if (service()!.sourceType === 'DOCKER') {
-                  <div class="field"><label>Image Name</label><input [(ngModel)]="sourceDraft.imageName" (ngModelChange)="onSettingsImageChange($event)" /></div>
-                  <div class="field"><label>Image Tag</label><input [(ngModel)]="sourceDraft.imageTag" /></div>
+                  <div class="field"><label for="cb-svc-5">Image Name</label><input id="cb-svc-5" [(ngModel)]="sourceDraft.imageName" (ngModelChange)="onSettingsImageChange($event)" /></div>
+                  <div class="field"><label for="cb-svc-6">Image Tag</label><input id="cb-svc-6" [(ngModel)]="sourceDraft.imageTag" /></div>
                   <div class="field">
-                    <label>Container listen port</label>
-                    <input type="number" [(ngModel)]="sourceDraft.containerPort" min="1" max="65535" />
+                    <label for="cb-svc-7">Container listen port</label>
+                    <input id="cb-svc-7" type="number" [(ngModel)]="sourceDraft.containerPort" min="1" max="65535" />
                   </div>
                   <div class="field">
-                    <label>Start command <span class="muted">(optional)</span></label>
-                    <input
+                    <label for="cb-svc-101">Start command <span class="muted">(optional)</span></label>
+                    <input id="cb-svc-101"
                       [(ngModel)]="startCommandDraft"
                       placeholder="Leave empty for image default"
                       autocomplete="off"
@@ -999,8 +1004,8 @@ const ROLLBACK_WATCH_ATTEMPTS = 100; // 3 s apart: five minutes
                     <p class="empty-sub empty-hint u-text-warn">Locked after create — type and port cannot be changed.</p>
                   </div>
                   <div class="field">
-                    <label>Internal port</label>
-                    <input type="number" [ngModel]="dbPreset(sourceDraft.dbType).port" disabled />
+                    <label for="cb-svc-8">Internal port</label>
+                    <input id="cb-svc-8" type="number" [ngModel]="dbPreset(sourceDraft.dbType).port" disabled />
                   </div>
                 }
 
@@ -1014,13 +1019,13 @@ const ROLLBACK_WATCH_ATTEMPTS = 100; // 3 s apart: five minutes
               @if (settingsSection() === 'build' && service()!.sourceType === 'GITHUB') {
                 <h3>Build</h3>
                 <div class="field">
-                  <label>Root Directory</label>
-                  <input [(ngModel)]="sourceDraft.rootDirectory" placeholder="backend (optional — empty = repo root)" />
+                  <label for="cb-svc-9">Root Directory</label>
+                  <input id="cb-svc-9" [(ngModel)]="sourceDraft.rootDirectory" placeholder="backend (optional — empty = repo root)" />
                   <p class="empty-sub empty-hint">Docker build context for monorepos.</p>
                 </div>
                 <div class="field">
-                  <label>Build command</label>
-                  <input
+                  <label for="cb-svc-10">Build command</label>
+                  <input id="cb-svc-10"
                     [(ngModel)]="sourceDraft.buildCommand"
                     placeholder="npm run build (optional)"
                     autocomplete="off"
@@ -1038,20 +1043,20 @@ const ROLLBACK_WATCH_ATTEMPTS = 100; // 3 s apart: five minutes
               @if (settingsSection() === 'deploy' && service()!.sourceType === 'GITHUB') {
                 <h3>Deploy</h3>
                 <div class="field">
-                  <label>Healthcheck path</label>
-                  <input [(ngModel)]="sourceDraft.healthcheckPath" placeholder="/health (optional)" />
+                  <label for="cb-svc-11">Healthcheck path</label>
+                  <input id="cb-svc-11" [(ngModel)]="sourceDraft.healthcheckPath" placeholder="/health (optional)" />
                 </div>
                 <div class="field">
-                  <label>Restart policy</label>
-                  <select [(ngModel)]="sourceDraft.restartPolicy">
+                  <label for="cb-svc-12">Restart policy</label>
+                  <select id="cb-svc-12" [(ngModel)]="sourceDraft.restartPolicy">
                     <option value="unless-stopped">Always restart (unless stopped)</option>
                     <option value="on-failure">On Failure</option>
                   </select>
                 </div>
                 @if (sourceDraft.restartPolicy === 'on-failure') {
                   <div class="field">
-                    <label>Restart retries</label>
-                    <input type="number" [(ngModel)]="sourceDraft.restartRetries" min="1" max="50" />
+                    <label for="cb-svc-13">Restart retries</label>
+                    <input id="cb-svc-13" type="number" [(ngModel)]="sourceDraft.restartRetries" min="1" max="50" />
                   </div>
                 }
                 <div class="modal-actions u-mt-16 u-mb-8">
@@ -1065,16 +1070,16 @@ const ROLLBACK_WATCH_ATTEMPTS = 100; // 3 s apart: five minutes
                 <h3>Scale</h3>
                 <div class="settings-grid">
                   <div class="field">
-                    <label>Memory (MB)</label>
-                    <input type="number" [(ngModel)]="quotaDraft.memorymb" min="128" step="128" />
+                    <label for="cb-svc-14">Memory (MB)</label>
+                    <input id="cb-svc-14" type="number" [(ngModel)]="quotaDraft.memorymb" min="128" step="128" />
                   </div>
                   <div class="field">
-                    <label>CPU (milli)</label>
-                    <input type="number" [(ngModel)]="quotaDraft.cpuMilli" min="100" step="100" />
+                    <label for="cb-svc-15">CPU (milli)</label>
+                    <input id="cb-svc-15" type="number" [(ngModel)]="quotaDraft.cpuMilli" min="100" step="100" />
                   </div>
                   <div class="field">
-                    <label>Storage (GB)</label>
-                    <input type="number" [(ngModel)]="quotaDraft.storageGb" min="1" step="1" />
+                    <label for="cb-svc-16">Storage (GB)</label>
+                    <input id="cb-svc-16" type="number" [(ngModel)]="quotaDraft.storageGb" min="1" step="1" />
                   </div>
                 </div>
                 <label class="toggle-field u-mt-14 u-mb-14">
@@ -1084,12 +1089,12 @@ const ROLLBACK_WATCH_ATTEMPTS = 100; // 3 s apart: five minutes
                 @if (useVolume) {
                   <div class="settings-grid">
                     <div class="field">
-                      <label>Mount Path</label>
-                      <input [(ngModel)]="volumePath" placeholder="/data" />
+                      <label for="cb-svc-17">Mount Path</label>
+                      <input id="cb-svc-17" [(ngModel)]="volumePath" placeholder="/data" />
                     </div>
                     <div class="field">
-                      <label>Volume Size (GB)</label>
-                      <input type="number" [(ngModel)]="volumeSize" min="1" />
+                      <label for="cb-svc-18">Volume Size (GB)</label>
+                      <input id="cb-svc-18" type="number" [(ngModel)]="volumeSize" min="1" />
                     </div>
                   </div>
                 }

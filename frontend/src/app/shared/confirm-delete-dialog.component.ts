@@ -20,7 +20,7 @@ import { FormsModule } from '@angular/forms';
       >
         <div class="modal-header">
           <h3 [id]="titleId">{{ title }}</h3>
-          <button type="button" class="btn btn-ghost btn-sm" (click)="cancel.emit()" [disabled]="busy">✕</button>
+          <button type="button" class="btn btn-ghost btn-sm" aria-label="Close" (click)="cancel.emit()" [disabled]="busy">✕</button>
         </div>
 
         <p class="confirm-delete-warn">{{ warning }}</p>

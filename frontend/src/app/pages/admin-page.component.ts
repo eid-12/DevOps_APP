@@ -136,9 +136,9 @@ const STRONG_PASSWORD = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#._-]).{8,
                 <form class="hosting-form" (ngSubmit)="saveHosting()" #hostingForm="ngForm">
                   <h3>Portainer</h3>
                   <div class="grid grid-4 admin-filters">
-                    <div class="field"><label>URL</label><input [(ngModel)]="hostingDraft.portainerUrl" name="portainerUrl" /></div>
-                    <div class="field"><label>API key (token)</label><input [(ngModel)]="hostingDraft.portainerApiKey" name="portainerApiKey" type="password" placeholder="Leave blank to keep" autocomplete="new-password" /></div>
-                    <div class="field"><label>Endpoint ID</label><input [(ngModel)]="hostingDraft.portainerEndpointId" name="portainerEndpointId" /></div>
+                    <div class="field"><label for="cb-adm-1">URL</label><input id="cb-adm-1" [(ngModel)]="hostingDraft.portainerUrl" name="portainerUrl" /></div>
+                    <div class="field"><label for="cb-adm-2">API key (token)</label><input id="cb-adm-2" [(ngModel)]="hostingDraft.portainerApiKey" name="portainerApiKey" type="password" placeholder="Leave blank to keep" autocomplete="new-password" /></div>
+                    <div class="field"><label for="cb-adm-3">Endpoint ID</label><input id="cb-adm-3" [(ngModel)]="hostingDraft.portainerEndpointId" name="portainerEndpointId" /></div>
                   </div>
 
                   <h3>Nginx Proxy Manager</h3>
@@ -148,10 +148,10 @@ const STRONG_PASSWORD = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#._-]).{8,
                         <input type="checkbox" [(ngModel)]="hostingDraft.npmEnabled" name="npmEnabled" /> Enabled
                       </label>
                     </div>
-                    <div class="field"><label>URL</label><input [(ngModel)]="hostingDraft.npmUrl" name="npmUrl" /></div>
-                    <div class="field"><label>Email</label><input [(ngModel)]="hostingDraft.npmEmail" name="npmEmail" /></div>
-                    <div class="field"><label>Password</label><input [(ngModel)]="hostingDraft.npmPassword" name="npmPassword" type="password" placeholder="Leave blank to keep" autocomplete="new-password" /></div>
-                    <div class="field"><label>Certificate ID</label><input [(ngModel)]="hostingDraft.npmCertificateId" name="npmCertificateId" /></div>
+                    <div class="field"><label for="cb-adm-4">URL</label><input id="cb-adm-4" [(ngModel)]="hostingDraft.npmUrl" name="npmUrl" /></div>
+                    <div class="field"><label for="cb-adm-5">Email</label><input id="cb-adm-5" [(ngModel)]="hostingDraft.npmEmail" name="npmEmail" /></div>
+                    <div class="field"><label for="cb-adm-6">Password</label><input id="cb-adm-6" [(ngModel)]="hostingDraft.npmPassword" name="npmPassword" type="password" placeholder="Leave blank to keep" autocomplete="new-password" /></div>
+                    <div class="field"><label for="cb-adm-7">Certificate ID</label><input id="cb-adm-7" [(ngModel)]="hostingDraft.npmCertificateId" name="npmCertificateId" /></div>
                     <div class="field field-end">
                       <label class="inline-check">
                         <input type="checkbox" [(ngModel)]="hostingDraft.npmSslForced" name="npmSslForced" /> Force SSL
@@ -161,30 +161,30 @@ const STRONG_PASSWORD = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#._-]).{8,
 
                   <h3>GitHub OAuth</h3>
                   <div class="grid grid-4 admin-filters">
-                    <div class="field"><label>Client ID</label><input [(ngModel)]="hostingDraft.githubClientId" name="githubClientId" /></div>
-                    <div class="field"><label>Client secret</label><input [(ngModel)]="hostingDraft.githubClientSecret" name="githubClientSecret" type="password" placeholder="Leave blank to keep" autocomplete="new-password" /></div>
-                    <div class="field"><label>Redirect URI</label><input [(ngModel)]="hostingDraft.githubRedirectUri" name="githubRedirectUri" /></div>
-                    <div class="field"><label>Scopes</label><input [(ngModel)]="hostingDraft.githubScopes" name="githubScopes" /></div>
-                    <div class="field"><label>Webhook secret</label><input [(ngModel)]="hostingDraft.githubWebhookSecret" name="githubWebhookSecret" type="password" placeholder="Leave blank to keep" autocomplete="new-password" /></div>
+                    <div class="field"><label for="cb-adm-8">Client ID</label><input id="cb-adm-8" [(ngModel)]="hostingDraft.githubClientId" name="githubClientId" /></div>
+                    <div class="field"><label for="cb-adm-9">Client secret</label><input id="cb-adm-9" [(ngModel)]="hostingDraft.githubClientSecret" name="githubClientSecret" type="password" placeholder="Leave blank to keep" autocomplete="new-password" /></div>
+                    <div class="field"><label for="cb-adm-10">Redirect URI</label><input id="cb-adm-10" [(ngModel)]="hostingDraft.githubRedirectUri" name="githubRedirectUri" /></div>
+                    <div class="field"><label for="cb-adm-11">Scopes</label><input id="cb-adm-11" [(ngModel)]="hostingDraft.githubScopes" name="githubScopes" /></div>
+                    <div class="field"><label for="cb-adm-12">Webhook secret</label><input id="cb-adm-12" [(ngModel)]="hostingDraft.githubWebhookSecret" name="githubWebhookSecret" type="password" placeholder="Leave blank to keep" autocomplete="new-password" /></div>
                   </div>
 
                   <h3>Docker Hub</h3>
                   <div class="grid grid-4 admin-filters">
-                    <div class="field"><label>Username</label><input [(ngModel)]="hostingDraft.dockerHubUsername" name="dockerHubUsername" /></div>
-                    <div class="field"><label>Token</label><input [(ngModel)]="hostingDraft.dockerHubToken" name="dockerHubToken" type="password" placeholder="Leave blank to keep" autocomplete="new-password" /></div>
-                    <div class="field"><label>Namespace</label><input [(ngModel)]="hostingDraft.dockerHubNamespace" name="dockerHubNamespace" /></div>
+                    <div class="field"><label for="cb-adm-13">Username</label><input id="cb-adm-13" [(ngModel)]="hostingDraft.dockerHubUsername" name="dockerHubUsername" /></div>
+                    <div class="field"><label for="cb-adm-14">Token</label><input id="cb-adm-14" [(ngModel)]="hostingDraft.dockerHubToken" name="dockerHubToken" type="password" placeholder="Leave blank to keep" autocomplete="new-password" /></div>
+                    <div class="field"><label for="cb-adm-15">Namespace</label><input id="cb-adm-15" [(ngModel)]="hostingDraft.dockerHubNamespace" name="dockerHubNamespace" /></div>
                   </div>
 
                   <h3>Platform</h3>
                   <div class="grid grid-4 admin-filters">
-                    <div class="field"><label>Base domain</label><input [(ngModel)]="hostingDraft.baseDomain" name="baseDomain" /></div>
-                    <div class="field"><label>Public API URL</label><input [(ngModel)]="hostingDraft.publicApiUrl" name="publicApiUrl" placeholder="https://api.cloudbase.website" /></div>
+                    <div class="field"><label for="cb-adm-16">Base domain</label><input id="cb-adm-16" [(ngModel)]="hostingDraft.baseDomain" name="baseDomain" /></div>
+                    <div class="field"><label for="cb-adm-17">Public API URL</label><input id="cb-adm-17" [(ngModel)]="hostingDraft.publicApiUrl" name="publicApiUrl" placeholder="https://api.cloudbase.website" /></div>
                     <div class="field">
-                      <label>Tenant networks</label>
-                      <input value="One isolated network per project" readonly disabled />
+                      <label for="cb-adm-18">Tenant networks</label>
+                      <input id="cb-adm-18" value="One isolated network per project" readonly disabled />
                       <small class="muted u-text-13">Tenant apps and databases join only their project's network; this setting no longer applies.</small>
                     </div>
-                    <div class="field"><label>Volume root</label><input [(ngModel)]="hostingDraft.volumeRoot" name="volumeRoot" /></div>
+                    <div class="field"><label for="cb-adm-19">Volume root</label><input id="cb-adm-19" [(ngModel)]="hostingDraft.volumeRoot" name="volumeRoot" /></div>
                   </div>
 
                   <div class="hosting-actions">
@@ -209,8 +209,8 @@ const STRONG_PASSWORD = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#._-]).{8,
             <div class="panel u-pad-panel-sm u-mb-16">
               <div class="grid grid-4 admin-filters">
                 <div class="field">
-                  <label>Search Users</label>
-                  <input [(ngModel)]="searchQuery" (ngModelChange)="resetPage()" placeholder="Name or email">
+                  <label for="cb-adm-20">Search Users</label>
+                  <input id="cb-adm-20" [(ngModel)]="searchQuery" (ngModelChange)="resetPage()" placeholder="Name or email">
                 </div>
                 <div class="field">
                   <label>Role</label>

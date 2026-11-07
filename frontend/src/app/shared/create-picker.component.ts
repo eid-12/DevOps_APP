@@ -34,6 +34,7 @@ export type PromptDetectKind = 'github' | 'docker' | 'name' | 'empty';
           </svg>
         </span>
         <input
+          aria-label="GitHub URL, Docker image or project name"
           #promptInput
           class="create-picker-input"
           [ngModel]="prompt"
