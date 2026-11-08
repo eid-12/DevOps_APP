@@ -2,7 +2,8 @@
 # Roll the cloudbase-platform Portainer stack to images pinned to one commit, verify, roll back on failure.
 #
 # Reuses the documented manual process (update the existing stack) but changes only the two CloudBase
-# image lines. Stack env vars, volumes, networks and every other line are sent back unchanged.
+# image lines, plus removing the API's old tenant-data bind mount if it is still there. Stack env vars, other
+# volumes, networks and every other line are sent back unchanged.
 # PullImage is off: images are pinned by digest, so a new one is pulled because it is missing locally,
 # and Portainer does not force-recreate (restart) the unchanged Postgres container.
 #
@@ -101,9 +102,35 @@ fi
 
 # --- build the new stack file: only the two image lines change ----------------------------------------
 pin() { sed -E "s#^([[:space:]]*image:[[:space:]]*)[^[:space:]]*cloudbase-$1[^[:space:]]*#\1$2#"; }
-pin backend "$BACKEND_IMAGE" < "$WORK/previous.yml" | pin frontend "$FRONTEND_IMAGE" > "$WORK/next.yml"
+# The one other edit: drop the tenant-data bind mount the API used to get. The API never touches that folder
+# (Portainer does), and the mount handed every tenant's files to anyone who compromised the API. A "volumes:"
+# header is dropped only when that mount was its sole entry. Applied to the rollout only: a rollback restores
+# the previous file exactly.
+TENANT_MOUNT='^[[:space:]]*-[[:space:]]*["'"'"']?/var/lib/cloudbase/users:'
+strip_tenant_mount() {
+  awk -v mount="$TENANT_MOUNT" '
+    pending != "" {
+      if ($0 ~ mount) { dropped = 1; next }
+      if ($0 ~ /^[[:space:]]*-/) { print pending; pending = ""; print; next }
+      if (!dropped) print pending
+      pending = ""
+    }
+    /^[[:space:]]*volumes:[[:space:]]*$/ { pending = $0; dropped = 0; next }
+    $0 ~ mount { next }
+    { print }
+    END { if (pending != "" && !dropped) print pending }'
+}
+pin backend "$BACKEND_IMAGE" < "$WORK/previous.yml" | pin frontend "$FRONTEND_IMAGE" | strip_tenant_mount > "$WORK/next.yml"
 CHANGED="$(diff "$WORK/previous.yml" "$WORK/next.yml" | grep -c '^>' || true)"
 [[ "$CHANGED" -le 2 ]] || fail "unexpected stack file changes (${CHANGED} lines)"
+# Removed lines may only be the two old image lines, the tenant mount and its now-empty "volumes:" header.
+UNEXPECTED_REMOVALS="$(diff "$WORK/previous.yml" "$WORK/next.yml" | grep '^<' | sed 's/^< //' \
+  | grep -vE "^[[:space:]]*image:[[:space:]]*[^[:space:]]*cloudbase-(backend|frontend)" \
+  | grep -vE "$TENANT_MOUNT" | grep -vcE '^[[:space:]]*volumes:[[:space:]]*$' || true)"
+[[ "$UNEXPECTED_REMOVALS" -eq 0 ]] || fail "unexpected stack file removals (${UNEXPECTED_REMOVALS} lines)"
+if grep -qE "$TENANT_MOUNT" "$WORK/previous.yml"; then
+  log "removing the tenant-data mount from the API container"
+fi
 
 # --- rollback target: never a backend that would revive revoked sessions ------------------------------------
 # Rolling back to a backend without session revocation would accept revoked tokens again, and one without atomic

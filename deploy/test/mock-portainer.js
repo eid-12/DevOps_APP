@@ -26,6 +26,8 @@ let file = [
   `    image: minipcer/cloudbase-backend:${OLD_SHA}@sha256:${'1'.repeat(64)}`,
   '    environment:',
   '      DB_PASS: ${DB_PASS}',
+  '    volumes:',
+  '      - /var/lib/cloudbase/users:/var/lib/cloudbase/users',
   '  frontend:',
   `    image: minipcer/cloudbase-frontend:${OLD_SHA}@sha256:${'2'.repeat(64)}`,
   'volumes:',
@@ -67,7 +69,8 @@ http.createServer((req, res) => {
         prune: b.Prune, pull: b.PullImage,
         backend: (b.StackFileContent.match(/cloudbase-backend\S*/) || [])[0],
         volumesKept: b.StackFileContent.includes('data:/var/lib/postgresql/data'),
-        postgresUntouched: b.StackFileContent.includes('image: postgres:16-alpine')
+        postgresUntouched: b.StackFileContent.includes('image: postgres:16-alpine'),
+        tenantMountDropped: !b.StackFileContent.includes('/var/lib/cloudbase/users')
       });
       const first = puts.length === 1;
       if (first) oldImages = { backend: fileImg('backend'), frontend: fileImg('frontend') };

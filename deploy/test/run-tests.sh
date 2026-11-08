@@ -55,6 +55,7 @@ start_mock ok ahead; run_deploy 120
 check "exits 0" '[[ $RC -eq 0 ]]'
 check "exactly one update" '[[ "$(puts | jq length)" == 1 ]]'
 check "pinned to the new digest" '[[ "$(puts | jq -r ".[0].backend")" == "cloudbase-backend:${NEW_SHA}@${BE_DIGEST}" ]]'
+check "tenant-data mount removed from the API container" '[[ "$(puts | jq -r ".[0].tenantMountDropped")" == true ]]'
 common_checks
 
 echo "2. failing health checks roll back"
