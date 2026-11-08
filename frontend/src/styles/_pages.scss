@@ -1,15 +1,30 @@
 // ─── Project Detail Page ─────────────────────────────────────────────────────
 
+// The back link sits on its own line above the title (a breadcrumb), so long names never squeeze it.
 .railway-topbar-left {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
 }
 
 .back-btn {
   font-size: 13px;
   color: var(--muted);
   &:hover { color: var(--text); }
+}
+
+.railway-topbar-left > .back-btn {
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  &:hover { background: none; text-decoration: underline; }
 }
 
 .services-canvas {
@@ -1725,32 +1740,95 @@
   padding: 16px 18px;
 }
 
-.onboarding-steps {
-  display: grid;
-  gap: 10px;
+.onboarding-progress-text {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
 
-  label {
+.onboarding-bar {
+  height: 6px;
+  margin: 12px 0 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+
+  span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #a78bfa, var(--primary));
+    transition: width 0.4s ease;
+  }
+}
+
+.onboarding-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+
+  li {
     display: grid;
     grid-template-columns: auto 1fr auto;
-    gap: 10px;
+    gap: 12px;
     align-items: center;
     padding: 10px 12px;
     border-radius: 10px;
     background: rgba(8, 10, 16, 0.45);
-    border: 1px solid rgba(148, 163, 184, 0.1);
-    font-size: 13px;
-
-    &.done { opacity: 0.65; }
-
-    a, button {
-      border: none;
-      background: transparent;
-      color: #93c5fd;
-      cursor: pointer;
-      font-size: 12px;
-      text-decoration: underline;
-    }
+    border: 1px solid var(--border);
   }
+
+  li.done .onboarding-text { color: var(--muted); }
+  li.done .onboarding-text small { display: none; }
+}
+
+.onboarding-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  color: var(--muted-light);
+  font-size: 12px;
+  font-weight: 700;
+
+  .done & {
+    border-color: transparent;
+    background: rgba(52, 211, 153, 0.16);
+    color: var(--accent);
+  }
+}
+
+.onboarding-text {
+  display: grid;
+  gap: 2px;
+  font-size: 14px;
+  font-weight: 600;
+
+  small {
+    color: var(--muted);
+    font-size: 12.5px;
+    font-weight: 400;
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.usage-strip > .btn:last-child {
+  margin-left: auto;
 }
 
 .billing-grid,
@@ -2442,4 +2520,12 @@ form.ng-submitted input.ng-invalid {
 
 .hosting-form h3:first-child {
   margin-top: 0;
+}
+
+.plan-note {
+  margin: 16px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  color: var(--muted-light);
+  font-size: 13px;
 }

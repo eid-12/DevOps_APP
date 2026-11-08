@@ -1563,19 +1563,19 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
     if (d.status === 'FAILED') {
       if (stage === 'building') {
         return github
-          ? 'Failed during build (GitHub Actions / Docker image check)'
+          ? 'Failed while building the image (GitHub Actions)'
           : 'Failed while preparing the stack';
       }
-      if (stage === 'deploying') return 'Failed while starting the container (Portainer)';
+      if (stage === 'deploying') return 'Failed while starting the container';
       if (stage === 'verify') return 'Failed while checking the public URL';
       if (stage === 'queued') return 'Failed before deploy started';
-      return 'Deploy failed — see logs below';
+      return 'Deploy failed. Open Logs to see why.';
     }
     switch (stage) {
       case 'queued': return 'Stage: Queued';
       case 'building':
-        return github ? 'Stage: Building image (GitHub Actions / Docker Hub)' : 'Stage: Preparing stack';
-      case 'deploying': return 'Stage: Deploying on Portainer';
+        return github ? 'Stage: Building image (GitHub Actions)' : 'Stage: Preparing';
+      case 'deploying': return 'Stage: Starting container';
       case 'verify': return 'Stage: Verifying public URL';
       case 'success': return 'Stage: Success';
       default:
@@ -1653,6 +1653,10 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
     }
     const latest = this.deployments()[0];
     if (latest?.status === 'FAILED') {
+      // A failed rollout leaves the previous version serving: say so, instead of contradicting a "Healthy" badge.
+      if (this.service()?.status === 'RUNNING') {
+        return 'Your latest deploy failed, so the previous version is still running. Open Deployments to see why.';
+      }
       return this.stageLabel(latest);
     }
     const hint = this.statusHint();

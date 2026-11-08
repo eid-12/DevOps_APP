@@ -20,6 +20,7 @@ import { PressableDirective } from './directives/pressable.directive';
         aria-label="Notifications"
       >
         <i class="pi pi-bell" aria-hidden="true"></i>
+        <span class="notif-bell-label" aria-hidden="true">Notifications</span>
         @if (unread() > 0) {
           <span class="notif-badge">{{ unread() > 9 ? '9+' : unread() }}</span>
         }

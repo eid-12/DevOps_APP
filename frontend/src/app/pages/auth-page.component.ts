@@ -62,10 +62,19 @@ const PENDING_VERIFY_KEY = 'cloudbase.pendingVerificationEmail';
       <div class="container auth-layout">
         <aside class="panel auth-side">
           <p class="section-label">Secure Access</p>
-          <h1 class="section-title">Welcome to CloudBase</h1>
+          <h1 class="section-title">{{ mode() === 'register' ? 'Start deploying in minutes' : 'Welcome to CloudBase' }}</h1>
           <p class="section-desc">
-            Sign in to manage deployments, monitor containers, and access your private cloud dashboard.
+            @if (mode() === 'register') {
+              Create a free account. Once an admin approves it, connect GitHub and every push goes live.
+            } @else {
+              Sign in to manage deployments, monitor containers, and access your private cloud dashboard.
+            }
           </p>
+          <ul class="auth-points">
+            <li><span class="auth-point-icon" aria-hidden="true">↗</span>Push to GitHub, and every commit deploys itself</li>
+            <li><span class="auth-point-icon" aria-hidden="true">⛨</span>Each project runs on its own private network</li>
+            <li><span class="auth-point-icon" aria-hidden="true">✓</span>Free plan for every account, no credit card</li>
+          </ul>
         </aside>
 
         <section class="panel auth-form-panel">
@@ -91,7 +100,7 @@ const PENDING_VERIFY_KEY = 'cloudbase.pendingVerificationEmail';
             @if (mode() === 'register') {
               <div class="field">
                 <label for="auth-name">Full name</label>
-                <input id="auth-name" formControlName="name" autocomplete="name" placeholder="Eid Alrashidi" />
+                <input id="auth-name" formControlName="name" autocomplete="name" placeholder="Your name" />
                 @if (showError('name')) {
                   <small class="auth-error">{{ fieldError('name') }}</small>
                 }
@@ -146,7 +155,7 @@ const PENDING_VERIFY_KEY = 'cloudbase.pendingVerificationEmail';
                     [type]="showPassword() ? 'text' : 'password'"
                     formControlName="password"
                     [attr.autocomplete]="mode() === 'login' ? 'current-password' : 'new-password'"
-                    placeholder="••••••••"
+                    [attr.placeholder]="mode() === 'login' ? 'Your password' : 'At least 8 characters'"
                   />
                   <button
                     type="button"
@@ -193,7 +202,7 @@ const PENDING_VERIFY_KEY = 'cloudbase.pendingVerificationEmail';
                     [type]="showConfirmPassword() ? 'text' : 'password'"
                     formControlName="confirmPassword"
                     autocomplete="new-password"
-                    placeholder="••••••••"
+                    placeholder="Repeat the password"
                   />
                   <button
                     type="button"

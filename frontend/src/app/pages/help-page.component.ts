@@ -73,9 +73,9 @@ export class HelpPageComponent {
     },
     {
       title: '7. Plan & usage',
-      body: 'Billing shows your Free plan pool: RAM, CPU and storage are enforced; project, service and deploy counts are not.',
+      body: 'Usage shows your Free plan pool: RAM, CPU and storage are enforced; project, service and deploy counts are not.',
       link: '/billing',
-      cta: 'View Billing'
+      cta: 'View usage'
     }
   ];
 }

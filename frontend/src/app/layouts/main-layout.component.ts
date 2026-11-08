@@ -2,7 +2,6 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import { CommonModule } from '@angular/common';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs/operators';
-import { ButtonModule } from 'primeng/button';
 import { AuthService } from '../core/auth.service';
 import { IconComponent } from '../shared/icon.component';
 import { NotificationBellComponent } from '../shared/notification-bell.component';
@@ -24,7 +23,6 @@ import { PressableDirective } from '../shared/directives/pressable.directive';
     RouterLinkActive,
     IconComponent,
     NotificationBellComponent,
-    ButtonModule,
     HasRoleDirective,
     PressableDirective
   ],
@@ -32,15 +30,8 @@ import { PressableDirective } from '../shared/directives/pressable.directive';
     <div [class.app-shell-footer-hidden]="auth.isAuthenticated()">
     <header class="navbar">
       <div class="container navbar-inner">
-        <span *appHasRole="'ADMIN'" class="navbar-brand navbar-brand-static">
-          <app-icon name="cloud" tone="violet" size="sm"></app-icon>
-          CloudBase
-        </span>
-        <a *appHasRole="'GUEST'" routerLink="/" class="navbar-brand" appPressable (click)="closeMenu()">
-          <app-icon name="cloud" tone="violet" size="sm"></app-icon>
-          CloudBase
-        </a>
-        <a *appHasRole="'USER'" routerLink="/" class="navbar-brand" appPressable (click)="closeMenu()">
+        <a [routerLink]="auth.isAuthenticated() ? '/dashboard' : '/'" class="navbar-brand" appPressable
+           (click)="closeMenu()" aria-label="CloudBase home">
           <app-icon name="cloud" tone="violet" size="sm"></app-icon>
           CloudBase
         </a>
@@ -59,23 +50,28 @@ import { PressableDirective } from '../shared/directives/pressable.directive';
         </button>
 
         <div class="navbar-menu" [class.is-open]="menuOpen()">
-          <nav class="navbar-links">
-            <a *appHasRole="'USER'" routerLink="/dashboard" routerLinkActive="active" class="nav-link" (click)="closeMenu()">Dashboard</a>
-            <a *appHasRole="'USER'" routerLink="/billing" routerLinkActive="active" class="nav-link" (click)="closeMenu()">Billing</a>
-            <a *appHasRole="'USER'" routerLink="/help" routerLinkActive="active" class="nav-link" (click)="closeMenu()">Help</a>
-            <a *appHasRole="'USER'" routerLink="/account" routerLinkActive="active" class="nav-link" (click)="closeMenu()">Account</a>
+          <nav class="navbar-links" aria-label="Main">
+            <ng-container *appHasRole="'AUTH'">
+              <a routerLink="/dashboard" routerLinkActive="active" ariaCurrentWhenActive="page" class="nav-link" (click)="closeMenu()">Projects</a>
+              <a routerLink="/billing" routerLinkActive="active" ariaCurrentWhenActive="page" class="nav-link" (click)="closeMenu()">Usage</a>
+              <a routerLink="/help" routerLinkActive="active" ariaCurrentWhenActive="page" class="nav-link" (click)="closeMenu()">Help</a>
+              <a *appHasRole="'ADMIN'" routerLink="/admin" routerLinkActive="active" ariaCurrentWhenActive="page" class="nav-link nav-link-admin" (click)="closeMenu()">Admin</a>
+            </ng-container>
           </nav>
 
           <div class="navbar-actions">
             <ng-container *appHasRole="'GUEST'">
-              <a routerLink="/auth" [queryParams]="{ mode: 'login' }" class="btn btn-ghost btn-sm" appPressable (click)="closeMenu()">Login</a>
-              <p-button label="Sign Up" styleClass="p-button-sm" (onClick)="goRegister()" />
+              <a routerLink="/auth" [queryParams]="{ mode: 'login' }" class="btn btn-ghost btn-sm" appPressable (click)="closeMenu()">Sign in</a>
+              <a routerLink="/auth" [queryParams]="{ mode: 'register' }" class="btn btn-primary btn-sm" appPressable (click)="closeMenu()">Get started</a>
             </ng-container>
             <ng-container *appHasRole="'AUTH'">
-              <app-notification-bell *appHasRole="'USER'"></app-notification-bell>
-              <a *appHasRole="'USER'" routerLink="/account" class="pill pill-indigo navbar-user" (click)="closeMenu()">{{ auth.user()?.name }}</a>
-              <a *appHasRole="'ADMIN'" routerLink="/admin" class="pill pill-red navbar-user" (click)="closeMenu()">{{ auth.user()?.name }}</a>
-              <p-button label="Logout" severity="secondary" [outlined]="true" styleClass="p-button-sm" (onClick)="logout()" />
+              <app-notification-bell></app-notification-bell>
+              <a routerLink="/account" routerLinkActive="active" class="navbar-user" (click)="closeMenu()"
+                 [attr.aria-label]="'Account settings for ' + (auth.user()?.name || 'you')">
+                <span class="navbar-avatar" aria-hidden="true">{{ initials() }}</span>
+                <span class="navbar-user-name">{{ auth.user()?.name }}</span>
+              </a>
+              <button type="button" class="btn btn-ghost btn-sm" appPressable (click)="logout()">Sign out</button>
             </ng-container>
           </div>
         </div>
@@ -136,6 +132,13 @@ export class MainLayoutComponent {
     this.router.events
       .pipe(filter((event) => event instanceof NavigationEnd))
       .subscribe(() => this.closeMenu());
+  }
+
+  /** Up to two initials for the account button, e.g. "Eid Rawaf" -> "ER". */
+  initials(): string {
+    const parts = (this.auth.user()?.name || '').trim().split(/\s+/).filter(Boolean);
+    const letters = parts.length > 1 ? parts[0][0] + parts[parts.length - 1][0] : (parts[0] || '?').slice(0, 2);
+    return letters.toUpperCase();
   }
 
   toggleMenu() {

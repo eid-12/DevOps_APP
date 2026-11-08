@@ -99,47 +99,62 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
             Your account is suspended. You cannot deploy or manage projects.
           </div>
         } @else if (!canDeploy()) {
-          <div class="pill pill-red railway-alert">
-            Deploy access is locked. You can browse existing projects, but create, deploy, edit, stop, and delete are blocked until an admin enables Deploy for your account.
+          <div class="pill pill-indigo railway-alert" role="status">
+            <strong>Your account is waiting for approval.</strong>
+            An admin enables deploys for new accounts, usually soon. Meanwhile you can connect GitHub and look around.
           </div>
         }
 
         @if (showOnboarding()) {
-          <section class="panel onboarding-card">
+          <section class="panel onboarding-card" aria-labelledby="onboarding-title">
             <div class="svc-panel-head">
-              <h3>Getting started</h3>
+              <div>
+                <h3 id="onboarding-title">Getting started</h3>
+                <p class="onboarding-progress-text">{{ onboardingDone() }} of 4 done</p>
+              </div>
               <button type="button" class="btn btn-ghost btn-sm" (click)="dismissOnboarding()">Dismiss</button>
             </div>
-            <div class="onboarding-steps">
-              <label [class.done]="auth.isGitHubConnected()">
-                <input type="checkbox" [checked]="auth.isGitHubConnected()" disabled />
-                <span>Connect GitHub</span>
-                <a routerLink="/account">Open</a>
-              </label>
-              <label [class.done]="projects().length > 0">
-                <input type="checkbox" [checked]="projects().length > 0" disabled />
-                <span>Create a project</span>
-                <button type="button" (click)="openCreateModal()" [disabled]="!canCreate()">New</button>
-              </label>
-              <label [class.done]="hasAnyDeploy()">
-                <input type="checkbox" [checked]="hasAnyDeploy()" disabled />
-                <span>Deploy a service</span>
-                <a routerLink="/help">How?</a>
-              </label>
-              <label [class.done]="hasDomain()">
-                <input type="checkbox" [checked]="hasDomain()" disabled />
-                <span>Assign a public URL</span>
-                <a routerLink="/help">Docs</a>
-              </label>
+            <div class="onboarding-bar" role="progressbar" aria-label="Setup progress"
+                 [attr.aria-valuenow]="onboardingDone()" aria-valuemin="0" aria-valuemax="4">
+              <span [style.width.%]="onboardingDone() * 25"></span>
             </div>
+            <ol class="onboarding-list">
+              <li [class.done]="auth.isGitHubConnected()">
+                <span class="onboarding-mark" aria-hidden="true">{{ auth.isGitHubConnected() ? '✓' : '1' }}</span>
+                <span class="onboarding-text">Connect GitHub<small>Deploy straight from your repositories</small></span>
+                @if (!auth.isGitHubConnected()) {
+                  <a routerLink="/account" fragment="github-connect" class="btn btn-ghost btn-sm">Connect</a>
+                } @else { <span class="sr-only">Done</span> }
+              </li>
+              <li [class.done]="projects().length > 0">
+                <span class="onboarding-mark" aria-hidden="true">{{ projects().length > 0 ? '✓' : '2' }}</span>
+                <span class="onboarding-text">Create a project<small>A project groups an app with its databases</small></span>
+                @if (projects().length === 0) {
+                  <button type="button" class="btn btn-primary btn-sm" (click)="openCreateModal()" [disabled]="!canCreate()">New project</button>
+                } @else { <span class="sr-only">Done</span> }
+              </li>
+              <li [class.done]="hasAnyDeploy()">
+                <span class="onboarding-mark" aria-hidden="true">{{ hasAnyDeploy() ? '✓' : '3' }}</span>
+                <span class="onboarding-text">Deploy a service<small>From GitHub, a Docker image or a database</small></span>
+                @if (!hasAnyDeploy()) {
+                  <a routerLink="/help" class="btn btn-ghost btn-sm">How?</a>
+                } @else { <span class="sr-only">Done</span> }
+              </li>
+              <li [class.done]="hasDomain()">
+                <span class="onboarding-mark" aria-hidden="true">{{ hasDomain() ? '✓' : '4' }}</span>
+                <span class="onboarding-text">Get a public URL<small>Every app gets an HTTPS address</small></span>
+                @if (!hasDomain()) {
+                  <a routerLink="/help" class="btn btn-ghost btn-sm">Learn more</a>
+                } @else { <span class="sr-only">Done</span> }
+              </li>
+            </ol>
           </section>
         }
 
-        @if (!auth.isGitHubConnected() && canDeploy() && !isSuspended()) {
+        @if (!auth.isGitHubConnected() && canDeploy() && !isSuspended() && !showOnboarding()) {
           <div class="pill pill-amber railway-alert github-banner">
-            GitHub is not connected.
-            <a routerLink="/account" fragment="github-connect" class="link-inline">Account</a>
-            — connect to deploy from GitHub.
+            Connect GitHub to deploy straight from your repositories.
+            <a routerLink="/account" fragment="github-connect" class="link-inline">Connect GitHub</a>
           </div>
         }
 
@@ -157,12 +172,12 @@ type CreateKind = 'empty' | 'github' | 'docker' | 'database';
             <div class="usage-strip-item">
               <span>Deploys</span><strong>{{ u.deploymentsThisMonth }}</strong>
             </div>
-            <a routerLink="/billing" class="btn btn-ghost btn-sm">Billing</a>
+            <a routerLink="/billing" class="btn btn-ghost btn-sm">View usage</a>
           </div>
           @if (isOverPlan()) {
             <div class="pill pill-red railway-alert">
               Free plan resource limit exceeded. Downsize RAM/CPU/storage before creating more.
-              <a routerLink="/billing" class="link-inline">Billing</a>
+              <a routerLink="/billing" class="link-inline">Usage</a>
             </div>
           }
         }
@@ -1114,15 +1129,22 @@ export class DashboardPageComponent implements OnInit {
     return ({ GITHUB: '⊙', DOCKER: '◈', DATABASE: '◉' } as Record<string, string>)[type] ?? '◌';
   }
 
+  /** Finished setup steps, for the Getting started progress bar. */
+  onboardingDone(): number {
+    return [this.auth.isGitHubConnected(), this.projects().length > 0, this.hasAnyDeploy(), this.hasDomain()]
+      .filter(Boolean).length;
+  }
+
   envSeverity(env?: string): 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast' {
     switch (env) {
       case 'staging':
         return 'warn';
       case 'development':
         return 'info';
+      // Red is reserved for failures; production is the normal state, not an alarm.
       case 'production':
       default:
-        return 'danger';
+        return 'secondary';
     }
   }
 

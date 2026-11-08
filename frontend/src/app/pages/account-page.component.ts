@@ -40,7 +40,7 @@ const STRONG_PASSWORD_PATTERN = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#.
         <p class="railway-page-sub">Integrations, security, usage, and preferences</p>
       </div>
       <div class="railway-topbar-actions flex align-items-center gap-2">
-        <a routerLink="/billing" class="btn btn-ghost btn-sm">Billing</a>
+        <a routerLink="/billing" class="btn btn-ghost btn-sm">Usage</a>
         <p-button label="Dashboard" icon="pi pi-arrow-left" [outlined]="true" size="small" (onClick)="router.navigate(['/dashboard'])" />
       </div>
     </header>
@@ -287,7 +287,7 @@ const STRONG_PASSWORD_PATTERN = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#.
       <section class="panel svc-panel account-span-2">
         <div class="svc-panel-head">
           <h3>Usage</h3>
-          <a routerLink="/billing" class="btn btn-ghost btn-sm">Billing →</a>
+          <a routerLink="/billing" class="btn btn-ghost btn-sm">View usage →</a>
         </div>
         @defer (on viewport; prefetch on idle) {
           @if (usage(); as u) {

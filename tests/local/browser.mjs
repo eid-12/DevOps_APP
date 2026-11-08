@@ -199,7 +199,7 @@ try {
 
   // 7. sign out
   step = 'sign out';
-  await admin.getByRole('button', { name: 'Logout' }).click();
+  await admin.getByRole('button', { name: 'Sign out' }).click();
   await admin.waitForTimeout(800);
   check('sign out clears the stored session', !(await admin.evaluate(() => localStorage.getItem('cloudbase.token'))));
 } catch (e) {

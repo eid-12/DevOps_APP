@@ -330,17 +330,11 @@ public class AdminServiceImpl implements AdminService {
         HostSnapshot snap = readHostSnapshot();
         return new PlatformStatusResponse(
                 snap.online,
-                snap.portainerStatus,
-                snap.npmStatus,
-                snap.tunnelStatus,
                 snap.activeContainers,
                 snap.totalContainers,
                 snap.stacks,
                 snap.images,
-                snap.volumes,
-                snap.hostCpu,
-                snap.hostRam,
-                snap.dockerVersion
+                snap.volumes
         );
     }
 

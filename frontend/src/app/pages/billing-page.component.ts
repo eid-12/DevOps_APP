@@ -13,7 +13,7 @@ import { PlanInfo, UsageSummary } from '../core/models';
   <div class="container account-wrap">
     <header class="railway-topbar">
       <div>
-        <h1 class="railway-page-title">Billing</h1>
+        <h1 class="railway-page-title">Usage &amp; plan</h1>
         <p class="railway-page-sub">Free plan usage and limits</p>
       </div>
       <div class="railway-topbar-actions">
@@ -47,9 +47,7 @@ import { PlanInfo, UsageSummary } from '../core/models';
             <li>Community support</li>
           </ul>
 
-          <div class="pill pill-amber u-mt-16 u-block">
-            Every account uses the Free plan on this host. There is no paid upgrade.
-          </div>
+          <p class="plan-note">Every account is on the Free plan. There is nothing to pay and no upgrade to buy.</p>
         } @else if (planError()) {
           <p class="muted">Could not load plan details. Refresh the page to try again.</p>
         } @else {

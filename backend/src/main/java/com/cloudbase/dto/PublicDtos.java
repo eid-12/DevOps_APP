@@ -16,19 +16,17 @@ public final class PublicDtos {
     }
 
     /** Safe host metrics for the public landing page (no secrets). */
+    /**
+     * Unauthenticated landing-page status. Only aggregate counts: no software versions, hardware or component
+     * names, which would let anyone fingerprint the host and pick exploits. Admins get the details elsewhere.
+     */
     public record PlatformStatusResponse(
             boolean online,
-            String portainerStatus,
-            String npmStatus,
-            String tunnelStatus,
             int activeContainers,
             int totalContainers,
             int stacks,
             int images,
-            int volumes,
-            String hostCpu,
-            String hostRam,
-            String dockerVersion
+            int volumes
     ) {
     }
 }

@@ -9,17 +9,11 @@ import { catchError, of, timeout } from 'rxjs';
 
 interface PlatformStatus {
   online: boolean;
-  portainerStatus: string;
-  npmStatus: string;
-  tunnelStatus: string;
   activeContainers: number;
   totalContainers: number;
   stacks: number;
   images: number;
   volumes: number;
-  hostCpu: string;
-  hostRam: string;
-  dockerVersion: string;
 }
 
 @Component({
@@ -48,14 +42,8 @@ interface PlatformStatus {
             </div>
             <p class="hero-note">No credit card required · Free plan for every account</p>
 
-            <div class="live-bar">
+            <div class="live-bar" role="status" aria-live="polite">
               <span>{{ liveStatus() }}</span>
-              <span>·</span>
-              <span>CPU cores: {{ hostCpu() }}</span>
-              <span>·</span>
-              <span>RAM: {{ hostRam() }}</span>
-              <span>·</span>
-              <span>Docker: {{ dockerVersion() }}</span>
               <span>·</span>
               <span>{{ connectionLabel() }}</span>
             </div>
@@ -80,13 +68,13 @@ interface PlatformStatus {
       <section class="container section-spaced-sm">
         <div class="metrics-bar">
           <span class="pill" [class.pill-emerald]="portainerOk()" [class.pill-red]="!portainerOk()" [class.pill-dot]="portainerOk()">
-            {{ portainerOk() ? 'Live from Portainer' : 'Portainer offline' }}
+            {{ portainerOk() ? 'Live platform status' : 'Status unavailable' }}
           </span>
           <button class="btn btn-ghost btn-sm" (click)="loadPortainerMetrics()" [disabled]="metricsLoading()">
             {{ metricsLoading() ? 'Refreshing...' : '↻ Refresh metrics' }}
           </button>
         </div>
-        <div class="grid grid-4">
+        <div class="grid grid-4 landing-stats">
           <div class="panel stat-card" *ngFor="let stat of stats()">
             <div class="stat-value">{{ stat.value }}</div>
             <div class="stat-label">{{ stat.label }}</div>
@@ -154,11 +142,8 @@ export class LandingPageComponent implements OnInit, OnDestroy {
 
   readonly metricsLoading = signal(false);
   readonly portainerOk = signal(false);
-  readonly liveStatus = signal('Connecting to Mini PC...');
-  readonly hostCpu = signal('—');
-  readonly hostRam = signal('—');
-  readonly dockerVersion = signal('—');
-  readonly connectionLabel = signal('Checking...');
+  readonly liveStatus = signal('Checking platform status…');
+  readonly connectionLabel = signal('One moment');
 
   readonly steps: Array<{ icon: IconName; tone: IconTone; title: string; desc: string }> = [
     { icon: 'github-link', tone: 'indigo', title: 'Link GitHub', desc: 'Connect GitHub with OAuth and pick a repository you can push to. CloudBase adds a Dockerfile if it has none, a build workflow and a deploy webhook.' },
@@ -173,21 +158,20 @@ export class LandingPageComponent implements OnInit, OnDestroy {
   ];
 
   readonly stack = [
-    { role: 'Host OS', name: 'Windows 11 + WSL2' },
-    { role: 'Container Runtime', name: 'Docker Desktop' },
-    { role: 'Container API', name: 'Portainer CE' },
-    { role: 'Reverse Proxy', name: 'Nginx Proxy Manager' },
-    { role: 'Secure Ingress', name: 'Cloudflare Tunnel' },
-    { role: 'Backend API', name: 'Spring Boot' },
-    { role: 'Frontend UI', name: 'Angular' },
-    { role: 'Build Runner', name: 'GitHub Actions' }
+    // Product-level choices only: naming the host OS, runtime or admin panels would help attackers fingerprint it.
+    { role: 'Containers', name: 'Docker' },
+    { role: 'Edge & HTTPS', name: 'Cloudflare' },
+    { role: 'Builds', name: 'GitHub Actions' },
+    { role: 'Registry', name: 'GitHub Container Registry' },
+    { role: 'Databases', name: 'PostgreSQL · MySQL · MongoDB · Redis' },
+    { role: 'Platform', name: 'Spring Boot · Angular' }
   ];
 
   readonly terminalLines = [
     { text: 'GitHub Actions → building image...', cls: '' },
     { text: '✓ Published ghcr.io/you/portfolio:3f9c2a1', cls: 'success' },
     { text: '✓ Webhook received → deploy queued', cls: 'success' },
-    { text: '✓ Stack updated via Portainer', cls: 'success' },
+    { text: '✓ Container started on an isolated network', cls: 'success' },
     { text: '✓ HTTPS live → cloudbase8472.cloudbase.website', cls: 'success' },
     { text: '══ Deploy succeeded ══', cls: 'highlight' }
   ];
@@ -219,17 +203,11 @@ export class LandingPageComponent implements OnInit, OnDestroy {
         catchError(() =>
           of({
             online: false,
-            portainerStatus: 'disconnected',
-            npmStatus: 'error',
-            tunnelStatus: 'unknown',
             activeContainers: 0,
             totalContainers: 0,
             stacks: 0,
             images: 0,
-            volumes: 0,
-            hostCpu: '—',
-            hostRam: '—',
-            dockerVersion: '—'
+            volumes: 0
           } satisfies PlatformStatus)
         )
       )
@@ -238,11 +216,8 @@ export class LandingPageComponent implements OnInit, OnDestroy {
         this.portainerOk.set(metrics.online);
 
         if (!metrics.online) {
-          this.liveStatus.set('Portainer unreachable');
-          this.connectionLabel.set('Offline');
-          this.hostCpu.set('—');
-          this.hostRam.set('—');
-          this.dockerVersion.set('—');
+          this.liveStatus.set('Live status is unavailable right now');
+          this.connectionLabel.set('Deployed apps keep running');
           this.stats.set([
             { value: '— / —', label: 'Active Containers' },
             { value: '—', label: 'Active Stacks' },
@@ -252,11 +227,8 @@ export class LandingPageComponent implements OnInit, OnDestroy {
           return;
         }
 
-        this.liveStatus.set('Live from Mini PC');
-        this.connectionLabel.set('System Healthy');
-        this.hostCpu.set(metrics.hostCpu || '—');
-        this.hostRam.set(metrics.hostRam || '—');
-        this.dockerVersion.set(metrics.dockerVersion || '—');
+        this.liveStatus.set('All systems operational');
+        this.connectionLabel.set(`${metrics.activeContainers} containers running`);
         this.stats.set([
           {
             value: `${metrics.activeContainers} / ${metrics.totalContainers || metrics.activeContainers}`,

@@ -290,3 +290,9 @@
     flex: 1 1 100%;
   }
 }
+
+/* Landing stats stay a compact 2×2 on phones instead of four full-width rows. */
+@media (max-width: 640px) {
+  .grid-4.landing-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .grid-4.landing-stats .stat-card { padding: 18px 12px; }
+}

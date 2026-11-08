@@ -231,10 +231,48 @@
 }
 
 .navbar-user {
-  max-width: 180px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 200px;
+  padding: 4px 12px 4px 4px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted-light);
+  font-size: 13px;
+  font-weight: 600;
+  transition: border-color 0.2s, background 0.2s, color 0.2s;
+}
+
+.navbar-user:hover,
+.navbar-user.active {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.navbar-user-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.navbar-avatar {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #a78bfa, #6d5bd0);
+  color: #0b0d10;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.nav-link-admin {
+  color: #fca5a5;
 }
 
 .navbar-brand {
@@ -295,7 +333,18 @@
 .nav-link:hover,
 .nav-link.active {
   color: var(--text);
-  background: rgba(107, 154, 196, 0.08);
+  background: rgba(196, 181, 253, 0.1);
+}
+
+.nav-link.active {
+  box-shadow: inset 0 -2px 0 var(--primary);
+}
+
+.nav-link:focus-visible,
+.navbar-user:focus-visible,
+.navbar-brand:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 
@@ -787,11 +836,49 @@
 
 @media (max-width: 900px) {
   .auth-layout { grid-template-columns: 1fr; }
+  // On a phone the form is the point of the page: show it first, the welcome text after it.
+  .auth-form-panel { order: -1; }
 }
 
 .auth-side,
 .auth-form-panel {
   padding: 28px;
+}
+
+.auth-side {
+  background:
+    radial-gradient(120% 80% at 0% 0%, rgba(167, 139, 250, 0.12), transparent 60%),
+    var(--surface);
+}
+
+.auth-points {
+  list-style: none;
+  margin: 24px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.auth-points li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted-light);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.auth-point-icon {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: rgba(196, 181, 253, 0.12);
+  color: var(--primary);
+  font-size: 14px;
+  font-weight: 700;
 }
 
 /* ── Toast ── */
@@ -1356,10 +1443,22 @@
   border-radius: 12px;
 }
 
-.railway-alert {
+// Alerts are sentences for people, not badges: readable sans text that wraps, with an accent bar.
+.railway-alert,
+.pill.railway-alert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  width: 100%;
   padding: 12px 16px;
   margin-bottom: 16px;
   border-radius: 12px;
+  border-left-width: 3px;
+  font-family: var(--font-family);
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.5;
 }
 
 .railway-toolbar {
@@ -2053,4 +2152,13 @@
   &.badge-failed, &.badge-crashed { color: var(--danger); }
   &.badge-deploying, &.badge-building { color: var(--amber); }
   &.badge-pending { color: var(--primary-light); }
+}
+
+/* Bell: icon only in the desktop bar, labelled inside the phone menu where it is a full-width row. */
+.notif-bell-label { display: none; }
+@media (max-width: 768px) {
+  .navbar-menu .notif-bell,
+  .navbar-menu .notif-bell-btn { width: 100%; }
+  .navbar-menu .notif-bell-btn { display: inline-flex; flex-direction: row; align-items: center; justify-content: center; gap: 8px; position: relative; }
+  .navbar-menu .notif-bell-label { display: inline; }
 }
