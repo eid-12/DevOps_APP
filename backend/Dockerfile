@@ -7,7 +7,10 @@ RUN mvn package -DskipTests -q
 
 FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
-COPY --from=build /app/target/*.jar app.jar
+# The API writes no files (tenant volumes are managed through Portainer), so it runs without root.
+RUN addgroup -S cloudbase && adduser -S -G cloudbase -H -s /sbin/nologin cloudbase
+COPY --from=build --chown=root:root /app/target/*.jar app.jar
+USER cloudbase
 EXPOSE 8080
 ENV SPRING_PROFILES_ACTIVE=prod
 ENTRYPOINT ["java", "-jar", "app.jar"]

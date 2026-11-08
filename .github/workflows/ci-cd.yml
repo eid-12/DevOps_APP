@@ -56,6 +56,9 @@ jobs:
       - name: npm ci
         working-directory: frontend
         run: npm ci
+      - name: No known high/critical vulnerabilities in shipped dependencies
+        working-directory: frontend
+        run: npm audit --omit=dev --audit-level=high
       - name: Production build (strict type/template check)
         working-directory: frontend
         run: npm run build

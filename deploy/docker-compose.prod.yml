@@ -67,8 +67,10 @@ services:
       RESEND_ADMIN_NOTIFY: ${RESEND_ADMIN_NOTIFY:-}
       DOCKER_HUB_USERNAME: ${DOCKER_HUB_USERNAME:-minipcer}
       DOCKER_HUB_TOKEN: ${DOCKER_HUB_TOKEN:-}
-    volumes:
-      - /var/lib/cloudbase/users:/var/lib/cloudbase/users
+    # No tenant data mount: the API never reads or writes volumes itself (Portainer does), and mounting
+    # /var/lib/cloudbase/users here would hand every tenant's files to anyone who compromised the API.
+    security_opt:
+      - no-new-privileges:true
     networks:
       - cloudbase
 
