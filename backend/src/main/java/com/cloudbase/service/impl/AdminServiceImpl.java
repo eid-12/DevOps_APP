@@ -129,6 +129,10 @@ public class AdminServiceImpl implements AdminService {
 
     @Override
     public UserAccount updateAccountStatus(UserEntity actor, String userId, AccountStatus status) {
+        requireNotSelf(actor, userId, "change your own account status");
+        if (status == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Account status is required");
+        }
         UserEntity user = requireUser(userId);
         if (status == AccountStatus.ACTIVE && !user.isEmailVerified()) {
             throw new ResponseStatusException(
@@ -249,6 +253,10 @@ public class AdminServiceImpl implements AdminService {
 
     @Override
     public UserAccount updateRole(UserEntity actor, String userId, UserRole role) {
+        requireNotSelf(actor, userId, "change your own role");
+        if (role == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Role is required");
+        }
         UserEntity user = requireUser(userId);
         user.setRole(role);
         UserEntity saved = userRepository.save(user);
@@ -480,6 +488,13 @@ public class AdminServiceImpl implements AdminService {
             );
         }
         return saved;
+    }
+
+    /** Another admin must do it, so the platform is never left without an admin by a misclick. */
+    private static void requireNotSelf(UserEntity actor, String userId, String what) {
+        if (actor != null && actor.getId().equals(userId)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "You cannot " + what + ". Ask another admin.");
+        }
     }
 
     private UserEntity requireUser(String userId) {

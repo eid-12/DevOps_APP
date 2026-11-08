@@ -38,7 +38,12 @@ public class VanitySubdomainService {
             "oauth", "pop", "portainer", "prod", "production", "proxy", "register", "root", "signup",
             "smtp", "ssl", "staging", "static", "status", "support", "test", "txt", "webhook", "www",
             "ws", "wss", "null", "undefined", "localhost", "base", "system", "owner", "staff",
-            "panel", "portal", "edge", "mawrid"
+            "panel", "portal", "edge", "mawrid",
+            // Tenant apps share the platform's site: these would make convincing credential-phishing pages.
+            "account", "accounts", "signin", "sign-in", "logon", "sso", "id", "identity", "secure", "security",
+            "verify", "verification", "password", "passwords", "reset", "recover", "recovery", "session",
+            "user", "users", "my", "pay", "payment", "payments", "invoice", "invoices", "checkout", "update",
+            "webmail", "autodiscover", "autoconfig", "official", "service", "services", "team", "abuse"
     );
 
     private final UserRepository userRepository;
@@ -324,8 +329,9 @@ public class VanitySubdomainService {
         if (slug.matches("cloudbase\\d{4}")) {
             return "This format is reserved for automatic random URLs";
         }
-        if (slug.startsWith("cloudbase") && slug.length() > 9 && slug.substring(9).chars().allMatch(Character::isDigit)) {
-            return "Slugs starting with cloudbase+digits are reserved";
+        // Covers cloudbase+digits (automatic URLs) and look-alikes such as cloudbase-login or login-cloudbase.
+        if (slug.contains("cloudbase") || slug.contains("c1oudbase") || slug.contains("cloud-base")) {
+            return "Subdomains containing the platform name are reserved";
         }
         return null;
     }

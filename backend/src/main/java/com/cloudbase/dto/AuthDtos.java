@@ -3,6 +3,7 @@ package com.cloudbase.dto;
 import com.cloudbase.model.UserAccount;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 
 public final class AuthDtos {
 
@@ -10,15 +11,15 @@ public final class AuthDtos {
     }
 
     public record LoginRequest(
-            @Email @NotBlank String email,
-            @NotBlank String password
+            @Email @NotBlank @Size(max = 254) String email,
+            @NotBlank @Size(max = 1024) String password
     ) {
     }
 
     public record RegisterRequest(
-            @NotBlank String name,
-            @Email @NotBlank String email,
-            @NotBlank String password
+            @NotBlank @Size(max = 120) String name,
+            @Email @NotBlank @Size(max = 254) String email,
+            @NotBlank @Size(max = 1024) String password
     ) {
     }
 
@@ -34,15 +35,6 @@ public final class AuthDtos {
         public AuthResponse(String token, UserAccount user, String message) {
             this(token, user, message, null, 0L);
         }
-    }
-
-    /**
-     * Step 1 stub: username-only connect (matches Account page mock input).
-     * Step 2 replaces this with GitHub OAuth callback exchange.
-     */
-    public record ConnectGitHubRequest(
-            @NotBlank String username
-    ) {
     }
 
     /** Frontend sends the OAuth ?code= here; secret stays on the server. */

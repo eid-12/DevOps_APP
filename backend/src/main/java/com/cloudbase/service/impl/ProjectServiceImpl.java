@@ -1116,6 +1116,10 @@ public class ProjectServiceImpl implements ProjectService {
             saved.put("updatedAt", Instant.now().toString());
             vars.set(idx, saved);
         } else {
+            if (vars.size() >= com.cloudbase.dto.ProjectDtos.MAX_ENV_VARS) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "A project can hold at most " + com.cloudbase.dto.ProjectDtos.MAX_ENV_VARS + " shared variables");
+            }
             for (Map<String, Object> v : vars) {
                 if (key.equals(String.valueOf(v.get("key")))) {
                     throw new ResponseStatusException(HttpStatus.CONFLICT, "Variable key already exists");
@@ -1154,6 +1158,8 @@ public class ProjectServiceImpl implements ProjectService {
     public ProjectEntity updateProject(String projectId, UserEntity user, UpdateProjectRequest request) {
         requireDeploymentEnabled(user);
         ProjectEntity project = getProject(projectId, user);
+        requireMaxLength(request.name(), com.cloudbase.dto.ProjectDtos.MAX_NAME, "Name");
+        requireMaxLength(request.description(), com.cloudbase.dto.ProjectDtos.MAX_DESCRIPTION, "Description");
         if (request.name() != null && !request.name().isBlank()) {
             project.setName(request.name().trim());
         }
@@ -1171,6 +1177,10 @@ public class ProjectServiceImpl implements ProjectService {
         requireDeploymentEnabled(user);
         ServiceEntity service = getService(serviceId, user);
         boolean refreshCi = false;
+        requireMaxLength(request.name(), com.cloudbase.dto.ProjectDtos.MAX_NAME, "Name");
+        if (request.sourceDetails() != null && request.sourceDetails().size() > 50) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Too many source settings");
+        }
         if (request.name() != null && !request.name().isBlank()) {
             service.setName(request.name().trim());
         }
@@ -1371,6 +1381,9 @@ public class ProjectServiceImpl implements ProjectService {
         if (envVars == null) return map;
         for (EnvironmentVariable ev : envVars) {
             if (ev == null || ev.key() == null || ev.key().isBlank()) continue;
+            if (ev.value() != null && ev.value().length() > com.cloudbase.dto.ProjectDtos.MAX_ENV_VALUE) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Environment variable values are limited to 32 KB");
+            }
             map.put(ComposeInputValidator.requireEnvKey(ev.key().trim()), Map.of(
                     "value", ev.value() == null ? "" : ev.value(),
                     "isSecret", ev.isSecret()
@@ -1408,6 +1421,12 @@ public class ProjectServiceImpl implements ProjectService {
         if (!user.isDeploymentEnabled()) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "Deployment access is disabled. An admin must enable Deploy before you can manage projects or services.");
+        }
+    }
+
+    private static void requireMaxLength(String value, int max, String field) {
+        if (value != null && value.length() > max) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, field + " is limited to " + max + " characters");
         }
     }
 

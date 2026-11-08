@@ -14,7 +14,6 @@ JSON. JWT in `Authorization: Bearer`. Validation errors come back as messages th
 | POST | `/api/auth/reset-password` | Password-reset JWT |
 | POST | `/api/auth/verify-email` | 6-digit code, 15 min TTL |
 | POST | `/api/auth/resend-verification` | 60 s cooldown; **5 / hour** site-wide |
-| GET | `/api/auth/github/callback` | OAuth redirect handler on the API |
 | GET | `/api/public/platform-status` | Landing metrics |
 | GET | `/api/public/app-config` | GitHub client id, `emailEnabled` |
 | POST | `/api/webhooks/github` | HMAC required |

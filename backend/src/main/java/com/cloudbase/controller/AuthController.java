@@ -1,19 +1,15 @@
 package com.cloudbase.controller;
 
 import com.cloudbase.dto.AuthDtos.AuthResponse;
-import com.cloudbase.dto.AuthDtos.ConnectGitHubRequest;
 import com.cloudbase.dto.AuthDtos.LoginRequest;
 import com.cloudbase.dto.AuthDtos.RegisterRequest;
 import com.cloudbase.entity.UserEntity;
 import com.cloudbase.model.UserAccount;
 import com.cloudbase.service.AuthService;
 import jakarta.validation.Valid;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
-import java.net.URI;
 import java.util.Map;
 
 @RestController
@@ -113,44 +109,9 @@ public class AuthController {
         );
     }
 
-    /** Legacy stub connect (username only). Prefer OAuth authorize. */
-    @PostMapping("/github/connect")
-    public UserAccount connectGitHub(
-            @AuthenticationPrincipal UserEntity user,
-            @Valid @RequestBody ConnectGitHubRequest request
-    ) {
-        return authService.connectGitHub(user, request);
-    }
-
-    /** Start real GitHub OAuth - returns authorize URL for the browser. */
-    @GetMapping("/github/authorize")
-    public Map<String, String> githubAuthorize(@AuthenticationPrincipal UserEntity user) {
-        return Map.of("authorizeUrl", authService.beginGitHubOAuth(user));
-    }
-
-    /**
-     * GitHub redirects here with ?code=&state=.
-     * Public (permitAll) - CSRF protection is the signed state JWT.
-     */
-    @GetMapping("/github/callback")
-    public ResponseEntity<Void> githubCallback(
-            @RequestParam(required = false) String code,
-            @RequestParam(required = false) String state,
-            @RequestParam(required = false) String error,
-            @RequestParam(name = "error_description", required = false) String errorDescription
-    ) {
-        String redirectUrl;
-        if (error != null && !error.isBlank()) {
-            redirectUrl = authService.githubOAuthErrorRedirect(
-                    errorDescription != null ? errorDescription : error
-            );
-        } else {
-            redirectUrl = authService.completeGitHubOAuth(code, state);
-        }
-        return ResponseEntity.status(HttpStatus.FOUND)
-                .location(URI.create(redirectUrl))
-                .build();
-    }
+    // GitHub is linked only through POST /github/exchange: the SPA checks the OAuth state against the browser that
+    // started the flow, and the code is stored on the signed-in caller. There is deliberately no unauthenticated
+    // callback here: one would link whichever browser followed the link to whoever generated the state.
 
     @DeleteMapping("/github")
     public UserAccount disconnectGitHub(@AuthenticationPrincipal UserEntity user) {

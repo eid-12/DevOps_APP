@@ -89,25 +89,6 @@ public class JwtService {
         return claims;
     }
 
-    /** Short-lived CSRF state for GitHub OAuth (bound to CloudBase userId). */
-    public String generateOAuthState(String userId) {
-        return Jwts.builder()
-                .subject(userId)
-                .claim("purpose", "github_oauth")
-                .issuedAt(new Date())
-                .expiration(new Date(System.currentTimeMillis() + 10 * 60 * 1000L))
-                .signWith(key)
-                .compact();
-    }
-
-    public String parseOAuthStateUserId(String state) {
-        Claims claims = parseToken(state);
-        if (!"github_oauth".equals(claims.get("purpose", String.class))) {
-            throw new IllegalArgumentException("Invalid OAuth state purpose");
-        }
-        return claims.getSubject();
-    }
-
     public Claims parseToken(String token) {
         return Jwts.parser()
                 .verifyWith(key)

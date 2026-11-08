@@ -13,7 +13,10 @@ Admin Hosting shows “configured” hints, not the raw secret, unless I type a 
 - BCrypt passwords
 - JWT session, **2 hours** (`JWT_EXPIRATION_MS`)
 - Password-reset JWT, **30 minutes**, `purpose=password_reset` (rejected as a session)
-- GitHub OAuth state JWT, **10 minutes**
+- GitHub OAuth: the SPA checks `state` against the browser that started the flow, then posts the code to `/api/auth/github/exchange` with the user's session. There is no unauthenticated callback on the API
+- Vanity subdomains: platform/infra names and anything containing the platform name (e.g. `cloudbase-login`) are reserved, because tenant apps share `cloudbase.website`
+- Request bodies are size-limited (names 100–120 chars, env values 32 KB, ≤ 200 env/shared variables, terminal command 4 KB)
+- An admin cannot change their own role or account status
 - Email send: **60 s** cooldown; **5 / hour** per inbox, per IP, and for the whole API (verification + reset). Slot taken before Resend. **5** wrong codes → **15 min** lock. See [email.md](email.md).
 - Missing, invalid or expired JWT, or a suspended/deleted user → **401** JSON (`{timestamp,status,error,message}`). The SPA logs out on 401 only, so this must never be 403.
 - `/api/admin/**` needs `ROLE_ADMIN`; a signed-in non-admin gets **403** JSON

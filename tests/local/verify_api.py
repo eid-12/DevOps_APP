@@ -114,7 +114,7 @@ call('GET', '/api/auth/me', token=bt, expected=401)
 check('suspended account cannot sign in', request('POST', '/api/auth/login', {'email': 'other@cloudbase.test', 'password': PASSWORD})[0] == 403)
 check('suspended account is refused on project APIs too', request('GET', '/api/projects', token=bt)[0] == 401)
 call('POST', '/api/auth/forgot-password', {'email': 'owner@cloudbase.test'}, expected=503)
-call('GET', '/api/auth/github/authorize', token=ot, expected=503)
+call('GET', '/api/auth/github/callback?code=x&state=y', expected=401)  # no unauthenticated OAuth callback
 call('POST', '/api/auth/github/exchange', {'code': 'synthetic-never-valid'}, ot, 503)
 call('GET', '/api/projects/proj-missing', token=ot, expected=404)
 # Free plan resources are enforced by the API, also for direct and concurrent requests (row lock per owner).

@@ -1,7 +1,6 @@
 package com.cloudbase.service.impl;
 
 import com.cloudbase.dto.AuthDtos.AuthResponse;
-import com.cloudbase.dto.AuthDtos.ConnectGitHubRequest;
 import com.cloudbase.dto.AuthDtos.LoginRequest;
 import com.cloudbase.dto.AuthDtos.MessageResponse;
 import com.cloudbase.dto.AuthDtos.RegisterRequest;
@@ -44,7 +43,6 @@ public class AuthServiceImpl implements AuthService {
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AuthServiceImpl.class);
 
-    private static final List<String> STEP1_SCOPES = List.of("read:user", "repo", "user:email", "workflow");
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private static final int CODE_TTL_MINUTES = 15;
 
@@ -58,8 +56,6 @@ public class AuthServiceImpl implements AuthService {
     private final LoginRateLimiter loginRateLimiter;
     private final ResendProperties resendProperties;
     private final PlanQuotaService planQuotaService;
-    private final String oauthSuccessRedirect;
-    private final String oauthFailureRedirect;
 
     public AuthServiceImpl(
             UserRepository userRepository,
@@ -84,8 +80,6 @@ public class AuthServiceImpl implements AuthService {
         this.loginRateLimiter = loginRateLimiter;
         this.resendProperties = resendProperties;
         this.planQuotaService = planQuotaService;
-        this.oauthSuccessRedirect = gitHubOAuthProperties.successRedirect();
-        this.oauthFailureRedirect = gitHubOAuthProperties.failureRedirect();
     }
 
     @Override
@@ -333,26 +327,6 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    public UserAccount connectGitHub(UserEntity user, ConnectGitHubRequest request) {
-        String username = request.username().trim().replace("@", "");
-        if (username.isBlank() || !username.matches("^[A-Za-z0-9-]{1,39}$")) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid GitHub username");
-        }
-
-        UserEntity managed = userRepository.findById(user.getId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
-
-        managed.setGithubUsername(username);
-        managed.setGithubAvatarUrl("https://github.com/" + username + ".png");
-        managed.setGithubConnectedAt(Instant.now());
-        managed.setGithubScopes(String.join(",", STEP1_SCOPES));
-        // Token stays null until OAuth (Step 2)
-        managed.setGithubAccessToken(null);
-
-        return toModel(userRepository.save(managed));
-    }
-
-    @Override
     public UserAccount disconnectGitHub(UserEntity user) {
         UserEntity managed = userRepository.findById(user.getId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
@@ -365,63 +339,6 @@ public class AuthServiceImpl implements AuthService {
         managed.setGithubAccessToken(null);
 
         return toModel(userRepository.save(managed));
-    }
-
-    @Override
-    public String beginGitHubOAuth(UserEntity user) {
-        if (!gitHubOAuthClient.isConfigured()) {
-            throw new ResponseStatusException(
-                    HttpStatus.SERVICE_UNAVAILABLE,
-                    "GitHub OAuth is not configured on the server"
-            );
-        }
-        String state = jwtService.generateOAuthState(user.getId());
-        return gitHubOAuthClient.buildAuthorizeUrl(state);
-    }
-
-    @Override
-    public String completeGitHubOAuth(String code, String state) {
-        try {
-            if (code == null || code.isBlank() || state == null || state.isBlank()) {
-                return failureRedirect("missing_code_or_state");
-            }
-
-            String userId = jwtService.parseOAuthStateUserId(state);
-            UserEntity user = userRepository.findById(userId)
-                    .orElseThrow(() -> new IllegalArgumentException("User not found for OAuth state"));
-
-            GitHubOAuthService.ExchangeResult result = gitHubOAuthService.exchangeCodeFull(code);
-            List<String> scopes = gitHubOAuthClient.parseScopes(result.token().scope());
-
-            user.setGithubUsername(result.user().login());
-            user.setGithubAvatarUrl(result.user().avatarUrl());
-            user.setGithubDisplayName(result.user().name());
-            user.setGithubConnectedAt(Instant.now());
-            user.setGithubScopes(String.join(",", scopes));
-            user.setGithubAccessToken(result.token().accessToken());
-            userRepository.save(user);
-
-            return oauthSuccessRedirect;
-        } catch (Exception e) {
-            return failureRedirect(e.getMessage() != null ? e.getMessage() : "oauth_failed");
-        }
-    }
-
-    private String failureRedirect(String reason) {
-        String safe = reason == null || reason.isBlank() ? "oauth_failed" : reason;
-        if (safe.length() > 120) {
-            safe = safe.substring(0, 120);
-        }
-        return UriComponentsBuilder.fromUriString(oauthFailureRedirect)
-                .replaceQueryParam("github", "error")
-                .replaceQueryParam("reason", safe)
-                .build()
-                .toUriString();
-    }
-
-    @Override
-    public String githubOAuthErrorRedirect(String reason) {
-        return failureRedirect(reason != null ? reason : "access_denied");
     }
 
     @Override

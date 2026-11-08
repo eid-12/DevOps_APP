@@ -29,9 +29,8 @@ class JwtServicePasswordResetTest {
     }
 
     @Test
-    void sessionAndOAuthTokensAreNotResetTokens() {
+    void sessionTokensAreNotResetTokens() {
         assertThrows(IllegalArgumentException.class, () -> jwt.parsePasswordResetUserId(jwt.generateToken("u-1", "USER", 0)));
-        assertThrows(IllegalArgumentException.class, () -> jwt.parsePasswordResetUserId(jwt.generateOAuthState("u-1")));
     }
 
     @Test

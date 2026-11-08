@@ -7,6 +7,7 @@ import com.cloudbase.model.ServiceSourceType;
 import com.cloudbase.model.VolumeMount;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 
 import java.util.List;
 import java.util.Map;
@@ -16,17 +17,23 @@ public final class ProjectDtos {
     private ProjectDtos() {
     }
 
+    /** Upper bounds on tenant-supplied text, so one account cannot store or echo back unbounded payloads. */
+    public static final int MAX_NAME = 100;
+    public static final int MAX_DESCRIPTION = 2000;
+    public static final int MAX_ENV_VARS = 200;
+    public static final int MAX_ENV_VALUE = 32_768;
+
     public record CreateProjectRequest(
-            @NotBlank String name,
-            String description
+            @NotBlank @Size(max = MAX_NAME) String name,
+            @Size(max = MAX_DESCRIPTION) String description
     ) {
     }
 
     public record CreateServiceRequest(
-            @NotBlank String name,
+            @NotBlank @Size(max = MAX_NAME) String name,
             @NotNull ServiceSourceType sourceType,
-            @NotNull Map<String, Object> sourceDetails,
-            List<EnvironmentVariable> envVars,
+            @NotNull @Size(max = 50) Map<String, Object> sourceDetails,
+            @Size(max = MAX_ENV_VARS) List<EnvironmentVariable> envVars,
             VolumeMount volume,
             ResourceQuota quota
     ) {
@@ -59,7 +66,7 @@ public final class ProjectDtos {
     }
 
     public record UpdateEnvVarsRequest(
-            @NotNull List<EnvironmentVariable> envVars
+            @NotNull @Size(max = MAX_ENV_VARS) List<EnvironmentVariable> envVars
     ) {
     }
 
@@ -99,16 +106,16 @@ public final class ProjectDtos {
     }
 
     public record ExecRequest(
-            @NotBlank String command
+            @NotBlank @Size(max = 4096) String command
     ) {
     }
 
     public record UpsertSharedVariableRequest(
             String id,
-            @NotBlank String key,
-            String value,
+            @NotBlank @Size(max = 128) String key,
+            @Size(max = MAX_ENV_VALUE) String value,
             boolean isSecret,
-            List<String> serviceIds
+            @Size(max = 100) List<String> serviceIds
     ) {
     }
 

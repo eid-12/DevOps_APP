@@ -1,7 +1,6 @@
 package com.cloudbase.service;
 
 import com.cloudbase.dto.AuthDtos.AuthResponse;
-import com.cloudbase.dto.AuthDtos.ConnectGitHubRequest;
 import com.cloudbase.dto.AuthDtos.LoginRequest;
 import com.cloudbase.dto.AuthDtos.RegisterRequest;
 import com.cloudbase.entity.UserEntity;
@@ -14,23 +13,8 @@ public interface AuthService {
     UserEntity resolveEntity(String token);
     UserAccount resolveUserFromId(String userId);
 
-    /** Persist GitHub connection on the authenticated user (Step 1 stub - keep for tests). */
-    UserAccount connectGitHub(UserEntity user, ConnectGitHubRequest request);
-
     /** Clear GitHub fields on the authenticated user. */
     UserAccount disconnectGitHub(UserEntity user);
-
-    /** Build GitHub authorize URL for the logged-in CloudBase user. */
-    String beginGitHubOAuth(UserEntity user);
-
-    /**
-     * Handle GitHub redirect: validate state, exchange code, persist token + profile.
-     * @return frontend redirect URL
-     */
-    String completeGitHubOAuth(String code, String state);
-
-    /** Frontend redirect when GitHub itself returns error=access_denied etc. */
-    String githubOAuthErrorRedirect(String reason);
 
     /**
      * Exchange authorization code for profile, persist token + GitHub fields on the user.
