@@ -91,8 +91,21 @@ public class ApiExceptionHandler {
         return ResponseEntity.badRequest().body(errorBody(
                 HttpStatus.BAD_REQUEST.value(),
                 "bad_request",
-                ex.getMessage() != null ? ex.getMessage() : "Bad request"
+                clientSafeMessage(ex.getMessage())
         ));
+    }
+
+    /**
+     * Our validators write messages for users; JDK and library messages name internal classes and packages
+     * (e.g. "No enum constant com.cloudbase.model.DatabaseType.X"). Those are replaced with a generic text.
+     */
+    static String clientSafeMessage(String message) {
+        if (message == null || message.isBlank()
+                || message.startsWith("No enum constant")
+                || message.matches("(?s).*\\b(?:com|org|java|javax|jakarta)\\.[a-z]+\\.[A-Za-z].*")) {
+            return "Bad request";
+        }
+        return message;
     }
 
     @ExceptionHandler(Exception.class)

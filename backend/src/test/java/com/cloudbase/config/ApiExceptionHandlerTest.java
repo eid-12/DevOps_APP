@@ -38,4 +38,14 @@ class ApiExceptionHandlerTest {
         assertEquals(500, res.getStatusCode().value());
         assertEquals("An unexpected error occurred", res.getBody().get("message"));
     }
+
+    @Test
+    void validatorMessagesReachTheUserButJdkInternalsDoNot() {
+        String ours = "Invalid image name: use a Docker reference like nginx:1.27 or org/app:v1";
+        assertEquals(ours, handler.handleIllegalArgument(new IllegalArgumentException(ours)).getBody().get("message"));
+        assertEquals("Bad request", handler.handleIllegalArgument(new IllegalArgumentException(
+                "No enum constant com.cloudbase.model.DatabaseType.ORACLE")).getBody().get("message"));
+        assertEquals("Bad request", handler.handleIllegalArgument(new IllegalArgumentException(
+                "Cannot deserialize value of type `java.util.Map` from Array")).getBody().get("message"));
+    }
 }

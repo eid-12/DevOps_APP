@@ -17,6 +17,7 @@ import com.cloudbase.entity.DeploymentEntity;
 import com.cloudbase.entity.ProjectEntity;
 import com.cloudbase.entity.ServiceEntity;
 import com.cloudbase.entity.UserEntity;
+import com.cloudbase.security.TerminalRateLimiter;
 import com.cloudbase.service.ProjectService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -31,9 +32,11 @@ import java.util.Map;
 public class ProjectController {
 
     private final ProjectService projectService;
+    private final TerminalRateLimiter terminalRateLimiter;
 
-    public ProjectController(ProjectService projectService) {
+    public ProjectController(ProjectService projectService, TerminalRateLimiter terminalRateLimiter) {
         this.projectService = projectService;
+        this.terminalRateLimiter = terminalRateLimiter;
     }
 
     // ── Projects ──────────────────────────────────────────────
@@ -278,6 +281,7 @@ public class ProjectController {
             @PathVariable String serviceId,
             @Valid @RequestBody ExecRequest request
     ) {
+        terminalRateLimiter.acquire(user.getId());
         return Map.of("output", projectService.execInService(serviceId, user, request));
     }
 

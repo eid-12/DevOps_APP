@@ -87,7 +87,10 @@ public class AuthServiceImpl implements AuthService {
         // Throttle before any password work so a locked attacker cannot keep guessing.
         loginRateLimiter.checkAllowed(request.email());
         UserEntity user = findUserByEmail(request.email()).orElse(null);
-        if (user == null || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+        // An unknown email still pays for one BCrypt check, so response time does not reveal which accounts exist.
+        boolean passwordOk = passwordEncoder.matches(request.password(),
+                user != null ? user.getPasswordHash() : timingDummyHash());
+        if (user == null || !passwordOk) {
             loginRateLimiter.recordFailure(request.email());
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid email or password");
         }
@@ -115,6 +118,20 @@ public class AuthServiceImpl implements AuthService {
                 exp.toInstant().toString(),
                 jwtService.getExpiresInSeconds()
         );
+    }
+
+    private volatile String dummyHash;
+
+    /** A real hash at the encoder's cost factor, made once; it matches no password anyone can send. */
+    private String timingDummyHash() {
+        String h = dummyHash;
+        if (h == null) {
+            byte[] random = new byte[24];
+            SECURE_RANDOM.nextBytes(random);
+            h = passwordEncoder.encode(java.util.HexFormat.of().formatHex(random));
+            dummyHash = h;
+        }
+        return h;
     }
 
     @Override
