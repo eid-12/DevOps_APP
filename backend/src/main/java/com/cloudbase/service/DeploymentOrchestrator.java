@@ -63,6 +63,9 @@ public class DeploymentOrchestrator {
     private final EmailService emailService;
     private final EdgeRouter edgeRouter;
     private final TenantIsolationVerifier isolationVerifier;
+    /** Asked to run soon after a deploy replaces an image. Optional so unit tests can build the orchestrator. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private DockerJanitor dockerJanitor;
 
     public DeploymentOrchestrator(
             ServiceRepository serviceRepository,
@@ -838,6 +841,37 @@ public class DeploymentOrchestrator {
      * If the service ever had runtime infra, Portainer must confirm stack/container removal.
      * Failures abort the call — callers must NOT delete DB rows when this throws.
      */
+    /** Image id and anonymous volume names of a container, captured before it is removed. */
+    record Leftovers(String imageId, List<String> anonymousVolumes) {
+        static final Leftovers NONE = new Leftovers(null, List.of());
+    }
+
+    private static final java.util.regex.Pattern ANONYMOUS_VOLUME = java.util.regex.Pattern.compile("^[0-9a-f]{64}$");
+
+    @SuppressWarnings("unchecked")
+    Leftovers leftoversOf(String containerName) {
+        try {
+            String id = portainerClient.findContainerIdByName(containerName).block(Duration.ofSeconds(10));
+            if (id == null) return Leftovers.NONE;
+            Map<String, Object> inspect = portainerClient.inspectContainer(id).block(Duration.ofSeconds(10));
+            if (inspect == null) return Leftovers.NONE;
+            List<String> volumes = new ArrayList<>();
+            if (inspect.get("Mounts") instanceof List<?> mounts) {
+                for (Object m : mounts) {
+                    if (m instanceof Map<?, ?> mount && "volume".equals(String.valueOf(mount.get("Type")))
+                            && mount.get("Name") != null && ANONYMOUS_VOLUME.matcher(String.valueOf(mount.get("Name"))).matches()) {
+                        volumes.add(String.valueOf(mount.get("Name")));
+                    }
+                }
+            }
+            Object image = inspect.get("Image");
+            return new Leftovers(image == null ? null : String.valueOf(image), volumes);
+        } catch (Exception e) {
+            log.debug("Could not read leftovers of {}: {}", containerName, e.getMessage());
+            return Leftovers.NONE;
+        }
+    }
+
     public void removeInfrastructure(ServiceEntity service) {
         if (service == null) {
             return;
@@ -861,6 +895,10 @@ public class DeploymentOrchestrator {
                         "Portainer is unreachable. Delete aborted — nothing was removed from CloudBase.", e);
             }
         }
+
+        // 0) What the app container leaves behind once removed: its image and anonymous volumes (e.g. MongoDB's
+        //    /data/configdb). Read now, because removing the stack does not delete anonymous volumes.
+        Leftovers leftovers = leftoversOf(appName);
 
         // 1) Portainer stack
         try {
@@ -897,7 +935,25 @@ public class DeploymentOrchestrator {
             log.warn("Volume wipe failed for {}: {}", volumePath, e.getMessage());
         }
 
-        // 4) NPM proxy host (best effort)
+        // 4) Image and anonymous volumes (best effort). Never forced: an image another service still runs stays.
+        for (String volume : leftovers.anonymousVolumes()) {
+            try {
+                portainerClient.removeVolumeIfUnused(volume).block(Duration.ofSeconds(20));
+            } catch (Exception e) {
+                log.warn("Volume cleanup failed for {}: {}", service.getId(), e.getMessage());
+            }
+        }
+        if (leftovers.imageId() != null) {
+            try {
+                Boolean removed = portainerClient.removeImageIfUnused(leftovers.imageId()).block(Duration.ofSeconds(30));
+                log.info("Image of deleted service={} {}", service.getId(),
+                        Boolean.TRUE.equals(removed) ? "removed" : "kept (still used elsewhere or already gone)");
+            } catch (Exception e) {
+                log.warn("Image cleanup failed for {}: {}", service.getId(), e.getMessage());
+            }
+        }
+
+        // 5) NPM proxy host (best effort)
         if (service.getNpmProxyHostId() != null) {
             try {
                 npmClient.deleteProxyHost(service.getNpmProxyHostId())
@@ -1097,6 +1153,7 @@ public class DeploymentOrchestrator {
                 eventPublisher.publishDeploymentUpdate(deployment);
             });
             log.info("Deploy succeeded service={} deployment={}", serviceId, deploymentId);
+            if (dockerJanitor != null) dockerJanitor.requestPass(); // the image this deploy replaced is now unused
         });
     }
 

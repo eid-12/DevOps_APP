@@ -90,6 +90,8 @@ public class ProjectServiceImpl implements ProjectService {
     private com.cloudbase.repository.IdempotencyKeyRepository idempotencyKeys;
     @org.springframework.beans.factory.annotation.Autowired
     private org.springframework.transaction.support.TransactionTemplate transactions;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.cloudbase.service.DockerJanitor dockerJanitor;
     @jakarta.persistence.PersistenceContext
     private jakarta.persistence.EntityManager entityManager;
     private final UserRepository userRepository;
@@ -239,6 +241,7 @@ public class ProjectServiceImpl implements ProjectService {
             serviceRepository.delete(service);
         }
         projectRepository.delete(project);
+        if (dockerJanitor != null) dockerJanitor.requestPass();
         log.info("DELETE project complete id={} — {} services torn down from Portainer/NPM then DB",
                 projectId, services.size());
     }
@@ -445,6 +448,7 @@ public class ProjectServiceImpl implements ProjectService {
         vanitySubdomainService.clearIfServiceDeleted(serviceId, ownerId);
         deploymentRepository.deleteByServiceId(serviceId);
         serviceRepository.delete(service);
+        if (dockerJanitor != null) dockerJanitor.requestPass(); // clear anything the teardown could not (e.g. an image freed by this delete)
         log.info("DELETE service DB row removed id={} — Portainer/NPM teardown previously verified", serviceId);
     }
 

@@ -51,4 +51,7 @@ public interface DeploymentRepository extends JpaRepository<DeploymentEntity, St
     void deleteByServiceId(String serviceId);
 
     void deleteByProjectId(String projectId);
+
+    /** True while any deploy anywhere is still running (the Docker cleanup leaves images alone then). */
+    boolean existsByStatusInAndFinishedAtIsNull(List<DeploymentStatus> statuses);
 }

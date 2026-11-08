@@ -397,7 +397,36 @@ def main():
         mark_apps(tenants)
         isolation_checks('guard restarted', tenants)
 
-        # 6. Docker restart while tenants run.
+        # 6. Deleting a service leaves nothing behind: its container, its anonymous volumes and its image go,
+        #    while an image other services still run (postgres) stays and other tenants are untouched.
+        had_mongo = docker('images', '-q', 'mongo:7', check_rc=False) != ''
+        docker('pull', '-q', 'mongo:7', check_rc=False)  # pulled up front so the deploy is not timed on a download
+        tn = tenants[0]
+        code, m = api('POST', f"/api/projects/{tn['pid']}/services", {
+            'name': f"{tn['tag']}-mongo", 'sourceType': 'DATABASE', 'sourceDetails': {'dbType': 'MONGODB'},
+            'quota': {'memoryMb': 256, 'cpuMilli': 200, 'storageGb': 1}}, tn['token'])
+        mongo_deployed = code == 201 and wait(lambda: (api('GET', f"/api/projects/services/{m['id']}/deployments",
+                                                           token=tn['token'])[1] or [{}])[0].get('status') == 'SUCCESS', 240, 2)
+        check('[delete cleanup] a MongoDB database deploys', mongo_deployed)
+        mongo_name = 'cb-' + m['id'] if code == 201 else ''
+        mongo_volumes = [v for v in docker('inspect', '-f', '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}} {{end}}{{end}}',
+                                           mongo_name, check_rc=False).split() if len(v) == 64]
+        note(f'[delete cleanup] MongoDB anonymous volumes before delete: {len(mongo_volumes)}')
+        check('[delete cleanup] the MongoDB container has an anonymous volume to clean up', len(mongo_volumes) > 0, mongo_volumes)
+        code, _ = api('DELETE', f"/api/projects/services/{m['id']}", token=tn['token'])
+        check('[delete cleanup] delete succeeds', code == 204, code)
+        check('[delete cleanup] its container is gone', not docker('ps', '-aq', '--filter', f'name=^{mongo_name}$', check_rc=False))
+        left = [v for v in mongo_volumes if docker('volume', 'ls', '-q', '--filter', f'name={v}', check_rc=False)]
+        check('[delete cleanup] its anonymous volumes are gone', not left, left)
+        check('[delete cleanup] its image is removed (nothing else uses it)',
+              wait(lambda: docker('images', '-q', 'mongo:7', check_rc=False) == '', 30, 2))
+        check('[delete cleanup] the postgres image other databases use is kept',
+              docker('images', '-q', 'postgres:16-alpine', check_rc=False) != '')
+        check('[delete cleanup] the other tenant is untouched', all_running(tenants[1:]))
+        if had_mongo:
+            docker('pull', '-q', 'mongo:7', check_rc=False)  # put back what this machine had before the run
+
+        # 7. Docker restart while tenants run.
         if args.docker_restart:
             docker_restart()
             up_at = time.time()

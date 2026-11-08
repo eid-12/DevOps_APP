@@ -218,6 +218,75 @@ public class PortainerClient {
                 });
     }
 
+    // ── Housekeeping: images and volumes CloudBase pulled or created ─────────────────────────────────────
+
+    /** Images on the endpoint (Docker /images/json). */
+    public Mono<List<Map<String, Object>>> listImages() {
+        return webClient.get()
+                .uri("/api/endpoints/{eid}/docker/images/json", endpointId)
+                .retrieve()
+                .bodyToMono(LIST_MAP_TYPE)
+                .doOnError(e -> log.warn("Image list failed: {}", e.getMessage()));
+    }
+
+    /**
+     * Remove an image only if nothing uses it: never forced, so Docker itself refuses (409) while any container,
+     * running or stopped, still references it. Returns true when removed; in-use or already-gone images are false.
+     */
+    public Mono<Boolean> removeImageIfUnused(String imageIdOrRef) {
+        if (imageIdOrRef == null || imageIdOrRef.isBlank()) {
+            return Mono.just(false);
+        }
+        return webClient.delete()
+                .uri(b -> b.path("/api/endpoints/{eid}/docker/images/{name}")
+                        .queryParam("force", "false")
+                        .build(endpointId, imageIdOrRef))
+                .exchangeToMono(resp -> resp.releaseBody().thenReturn(resp.statusCode().is2xxSuccessful()))
+                .onErrorResume(e -> {
+                    log.debug("Image remove skipped {}: {}", imageIdOrRef, e.getMessage());
+                    return Mono.just(false);
+                });
+    }
+
+    /** Remove untagged (dangling) images no container uses, e.g. what re-pulling a moving tag leaves behind. */
+    public Mono<Void> pruneDanglingImages() {
+        return webClient.post()
+                .uri(b -> b.path("/api/endpoints/{eid}/docker/images/prune")
+                        .queryParam("filters", "{filters}")
+                        .build(endpointId, "{\"dangling\":[\"true\"]}"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{}")
+                .retrieve()
+                .bodyToMono(byte[].class)
+                .then()
+                .doOnError(e -> log.warn("Dangling image prune failed: {}", e.getMessage()));
+    }
+
+    /** Remove anonymous volumes no container uses (named volumes are never touched: all=false). */
+    public Mono<Void> pruneAnonymousVolumes() {
+        return webClient.post()
+                .uri(b -> b.path("/api/endpoints/{eid}/docker/volumes/prune")
+                        .queryParam("filters", "{filters}")
+                        .build(endpointId, "{\"all\":[\"false\"]}"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{}")
+                .retrieve()
+                .bodyToMono(byte[].class)
+                .then()
+                .doOnError(e -> log.warn("Volume prune failed: {}", e.getMessage()));
+    }
+
+    /** Remove one volume if unused (Docker refuses while a container uses it). */
+    public Mono<Boolean> removeVolumeIfUnused(String name) {
+        if (name == null || name.isBlank()) {
+            return Mono.just(false);
+        }
+        return webClient.delete()
+                .uri("/api/endpoints/{eid}/docker/volumes/{name}", endpointId, name)
+                .exchangeToMono(resp -> resp.releaseBody().thenReturn(resp.statusCode().is2xxSuccessful()))
+                .onErrorResume(e -> Mono.just(false));
+    }
+
     /** Force-remove a container (running or stopped). 404 = already gone. */
     public Mono<Void> forceRemoveContainer(String containerId) {
         if (containerId == null || containerId.isBlank()) {

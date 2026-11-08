@@ -193,6 +193,10 @@ I do not squash these. Production has already applied them in order.
 
 UI requires the exact project or service name. Runtime first: Portainer stack (and Watchtower), then NPM host, then the row. If Portainer fails, the row stays. Orphan record beats a live container with no UI.
 
+A delete also removes the service's anonymous volumes (MongoDB's `/data/configdb`) and its image, without force: Docker refuses while any other container still uses the image, so a shared `postgres:16-alpine` stays as long as another database runs it.
+
+**Docker cleanup (`DockerJanitor`).** Every 6 hours, and soon after a deploy or delete, the API removes what CloudBase left behind: containers and stacks of services no longer in the database (older than 30 min), exited volume-wipe and isolation-probe helpers, unused images it pulled (database engines, `ghcr.io/*`, the Docker Hub namespace, tenant image repositories, older Watchtower versions), untagged images, and unused anonymous volumes. It never touches `cloudbase-backend`/`cloudbase-frontend` images (rollback), anything else on the host, named volumes, or images while any deploy is in flight.
+
 ## First admin
 
 Empty `users` after V18. I create the first admin myself (SQL on `cloudbase-postgres`, or bootstrap env on first boot). See [accounts.md](accounts.md).
