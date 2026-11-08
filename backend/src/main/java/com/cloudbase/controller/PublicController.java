@@ -74,6 +74,10 @@ public class PublicController {
 
     private void enforceRateLimit(String ip) {
         long now = System.currentTimeMillis();
+        if (windows.size() > 10_000) {
+            // One entry per client IP: drop finished windows so many addresses cannot grow memory forever.
+            windows.values().removeIf(w -> now - w.windowStartMs >= RATE_WINDOW_MS);
+        }
         RateWindow window = windows.compute(ip, (key, existing) -> {
             if (existing == null || now - existing.windowStartMs >= RATE_WINDOW_MS) {
                 return new RateWindow(now, 1);

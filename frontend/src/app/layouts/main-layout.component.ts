@@ -90,10 +90,6 @@ import { PressableDirective } from '../shared/directives/pressable.directive';
             <app-icon name="mail" tone="sky" size="sm"></app-icon>
             {{ contactEmail }}
           </a>
-          <a class="footer-contact-link" [href]="'tel:' + contactPhoneHref">
-            <app-icon name="phone" tone="emerald" size="sm"></app-icon>
-            {{ contactPhone }}
-          </a>
           <a class="footer-contact-link" [href]="linkedInUrl" target="_blank" rel="noopener noreferrer">
             <app-icon name="linkedin" tone="indigo" size="sm"></app-icon>
             Eid Rawaf
@@ -103,10 +99,6 @@ import { PressableDirective } from '../shared/directives/pressable.directive';
           <a class="footer-contact-link" [href]="'mailto:' + contactEmail">
             <app-icon name="mail" tone="sky" size="sm"></app-icon>
             {{ contactEmail }}
-          </a>
-          <a class="footer-contact-link" [href]="'tel:' + contactPhoneHref">
-            <app-icon name="phone" tone="emerald" size="sm"></app-icon>
-            {{ contactPhone }}
           </a>
           <a class="footer-contact-link" [href]="linkedInUrl" target="_blank" rel="noopener noreferrer">
             <app-icon name="linkedin" tone="indigo" size="sm"></app-icon>
@@ -124,8 +116,7 @@ export class MainLayoutComponent {
   readonly menuOpen = signal(false);
 
   readonly contactEmail = 'eid.rawwaf@gmail.com';
-  readonly contactPhone = '0531957455';
-  readonly contactPhoneHref = '+966531957455';
+  // No phone number on the public site: it invites spam calls and phone-based social engineering.
   readonly linkedInUrl = 'https://www.linkedin.com/in/eid-rawaf-alrashidi-09b260256';
 
   constructor() {

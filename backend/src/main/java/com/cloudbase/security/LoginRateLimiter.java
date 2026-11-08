@@ -32,6 +32,8 @@ public class LoginRateLimiter {
     static final int MAX_PER_EMAIL = 30;
     static final int MAX_PER_IP = 100;
     static final Duration WINDOW = Duration.ofMinutes(15);
+    /** Above this many tracked keys, expired ones are dropped: random emails cannot grow memory without bound. */
+    static final int PRUNE_ABOVE = 10_000;
 
     private final Clock clock;
     private final Object lock = new Object();
@@ -74,6 +76,9 @@ public class LoginRateLimiter {
     void recordFailure(String email, String ip) {
         Instant now = clock.instant();
         synchronized (lock) {
+            prune(byPair, now);
+            prune(byEmail, now);
+            prune(byIp, now);
             bump(byPair.computeIfAbsent(pair(email, ip), k -> new Bucket()), now, MAX_PER_PAIR);
             bump(byEmail.computeIfAbsent(normalize(email), k -> new Bucket()), now, MAX_PER_EMAIL);
             bump(byIp.computeIfAbsent(normalize(ip), k -> new Bucket()), now, MAX_PER_IP);
@@ -84,6 +89,18 @@ public class LoginRateLimiter {
         synchronized (lock) {
             byPair.remove(pair(email, ip));
         }
+    }
+
+    private static void prune(Map<String, Bucket> map, Instant now) {
+        if (map.size() > PRUNE_ABOVE) {
+            map.values().removeIf(b -> !isLocked(b, now)
+                    && (b.windowStart == null || Duration.between(b.windowStart, now).compareTo(WINDOW) > 0));
+        }
+    }
+
+    /** Tracked keys across all maps (for tests). */
+    int trackedKeys() {
+        return byPair.size() + byEmail.size() + byIp.size();
     }
 
     private static boolean isLocked(Bucket b, Instant now) {

@@ -89,7 +89,7 @@ public class TenantIsolationVerifier {
                     }
                     Mono<Void> fresh = existing.isPresent() ? portainer.removeContainer(CANARY) : Mono.empty();
                     Map<String, Object> body = Map.of(
-                            "Image", EdgeRouter.IMAGE + ":" + EdgeRouter.TAG,
+                            "Image", EdgeRouter.imageRef(),
                             "ExposedPorts", Map.of("80/tcp", Map.of()),
                             "Labels", Map.of("cloudbase.role", "isolation-canary"),
                             "HostConfig", Map.of(
@@ -110,7 +110,7 @@ public class TenantIsolationVerifier {
         String script = "if nc -z -w 2 " + canaryIp + " 80; then echo EXPOSED; else echo BLOCKED; fi; "
                 + "if nc -z -w 2 " + edge.edgeName() + " 80; then echo CONTROL_OK; else echo CONTROL_FAIL; fi";
         Map<String, Object> body = Map.of(
-                "Image", EdgeRouter.IMAGE + ":" + EdgeRouter.TAG,
+                "Image", EdgeRouter.imageRef(),
                 "Cmd", List.of("sh", "-c", script),
                 "Labels", Map.of("cloudbase.role", "isolation-probe"),
                 "HostConfig", Map.of(

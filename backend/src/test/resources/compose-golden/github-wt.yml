@@ -20,7 +20,7 @@ services:
     networks:
       - project-proj-1
   watchtower:
-    image: nickfedor/watchtower:1.21.0
+    image: nickfedor/watchtower@sha256:d76a95a54ab636968f77cb1780fb597b3e28511b535a86e3af212a290ef4d743
     container_name: cb-wt-svc-gh1
     restart: unless-stopped
     volumes:

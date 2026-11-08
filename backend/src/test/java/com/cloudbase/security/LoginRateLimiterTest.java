@@ -94,6 +94,17 @@ class LoginRateLimiterTest {
         assertDoesNotThrow(() -> limiter.checkAllowed("a@x.com", "1.1.1.1"));
     }
 
+    @Test
+    void randomEmailsCannotGrowMemoryForever() {
+        for (int i = 0; i < LoginRateLimiter.PRUNE_ABOVE + 500; i++) {
+            limiter.recordFailure("ghost" + i + "@x.test", "10.0." + (i / 50) + "." + (i % 50));
+        }
+        clock.plus(LoginRateLimiter.WINDOW.plusSeconds(1));
+        limiter.recordFailure("one-more@x.test", "10.9.9.9");
+        org.junit.jupiter.api.Assertions.assertTrue(limiter.trackedKeys() < 10,
+                "expired entries are dropped, left: " + limiter.trackedKeys());
+    }
+
     private static final class MutableClock extends Clock {
         private Instant now;
 

@@ -14,6 +14,9 @@ public interface EmailService {
 
     void sendPasswordReset(String toEmail, String name, String resetUrl);
 
+    /** Someone tried to sign up with an address that already has an account (sign-up does not reveal that). */
+    void sendAccountAlreadyExists(String toEmail, String name);
+
     /** Optional deploy outcome mail (honours user notification prefs in the caller). */
     void sendDeployResult(String toEmail, String name, String serviceName, boolean success, String detail, String relativePath);
 

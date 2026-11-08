@@ -60,7 +60,9 @@ public class UserEntity {
     private Instant githubConnectedAt;
     /** Comma-separated scopes, e.g. read:user,repo */
     private String githubScopes;
+    /** Encrypted at rest (AES-GCM); plain here. See {@link com.cloudbase.security.TokenCipher}. */
     @Column(length = 2048)
+    @Convert(converter = com.cloudbase.security.GitHubTokenConverter.class)
     private String githubAccessToken;
 
     @Column(nullable = false)

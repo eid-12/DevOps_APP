@@ -27,8 +27,15 @@ import java.util.regex.Pattern;
 public class EdgeRouter {
 
     private static final Logger log = LoggerFactory.getLogger(EdgeRouter.class);
+    // Pinned by content digest (nginx 1.27-alpine, multi-platform index): a tag can be re-pushed, a digest cannot.
+    // The edge sits between the public proxy and every tenant app, so its image must never change silently.
     static final String IMAGE = "nginx";
-    static final String TAG = "1.27-alpine";
+    static final String TAG = "sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10";
+
+    /** Reference for container create; {@link #TAG} doubles as the digest Docker pulls when the image is missing. */
+    static String imageRef() {
+        return IMAGE + "@" + TAG;
+    }
     static final String SUBNET_LABEL = "cloudbase.edge.subnet";
     private static final Pattern HOST = Pattern.compile("^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$");
     private static final Pattern UPSTREAM = Pattern.compile("^cb-[a-z0-9-]+:[0-9]{1,5}$");
@@ -83,7 +90,7 @@ public class EdgeRouter {
 
     private Mono<Void> create(String subnet) {
         Map<String, Object> body = Map.of(
-                "Image", IMAGE + ":" + TAG,
+                "Image", imageRef(),
                 "Cmd", List.of("sh", "-c", startScript(subnet)),
                 "Labels", Map.of("cloudbase.role", "edge", SUBNET_LABEL, subnet),
                 "HostConfig", Map.of(

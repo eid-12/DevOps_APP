@@ -542,6 +542,9 @@ public class PortainerClient {
         return "unknown";
     }
 
+    static final String WIPE_IMAGE = "alpine";
+    static final String WIPE_DIGEST = "sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc";
+
     /**
      * Wipe bind-mount data for a path on the Docker host (used to recover crash-looping DBs).
      */
@@ -550,12 +553,24 @@ public class PortainerClient {
             return Mono.empty();
         }
         Map<String, Object> body = new HashMap<>();
-        body.put("Image", "alpine:3.20");
+        // Pinned by digest (alpine 3.20): this helper mounts tenant data on the host, so its image must not change silently.
+        body.put("Image", WIPE_IMAGE + "@" + WIPE_DIGEST);
         body.put("Cmd", List.of("sh", "-c", "rm -rf /data/* /data/.[!.]* /data/..?* ; ls -la /data || true"));
         body.put("HostConfig", Map.of("Binds", List.of(hostPath + ":/data")));
         body.put("Labels", Map.of("cloudbase.temp", "volume-wipe"));
 
-        return webClient.post()
+        // Pull first (a no-op when present): a digest-pinned image is not satisfied by an older local alpine:3.20.
+        Mono<Void> pull = webClient.post()
+                .uri(b -> b.path("/api/endpoints/{eid}/docker/images/create")
+                        .queryParam("fromImage", WIPE_IMAGE).queryParam("tag", WIPE_DIGEST).build(endpointId))
+                .retrieve()
+                .bodyToMono(byte[].class)
+                .then()
+                .onErrorResume(e -> {
+                    log.warn("Pulling the volume-wipe image failed: {}", e.getMessage());
+                    return Mono.empty();
+                });
+        return pull.then(webClient.post()
                 .uri(uriBuilder -> uriBuilder
                         .path("/api/endpoints/{eid}/docker/containers/create")
                         .queryParam("name", "cb-wipe-" + System.currentTimeMillis())
@@ -585,7 +600,7 @@ public class PortainerClient {
                 })
                 .doOnSuccess(v -> log.info("Wiped bind mount {}", hostPath))
                 .doOnError(e -> log.warn("Wipe bind mount {} failed: {}", hostPath, e.getMessage()))
-                .then();
+                .then());
     }
 
     /** Network inspect by name; empty when it does not exist. */

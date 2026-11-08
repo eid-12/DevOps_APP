@@ -137,10 +137,30 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public AuthResponse register(RegisterRequest request) {
         String email = normalizeEmail(request.email());
-        if (userRepository.existsByEmailIgnoreCase(email)) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already registered");
-        }
         PasswordPolicy.require(request.password());
+        if (userRepository.existsByEmailIgnoreCase(email)) {
+            if (!emailService.isEnabled()) {
+                // Without email there is no way to tell the real owner privately; the address must be refused here.
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already registered");
+            }
+            // Same answer as a new sign-up, so this form cannot be used to find out who has an account.
+            // The owner is told by email instead (same send limits as a verification code).
+            emailRateLimiter.acquireSend(EmailRateLimiter.Action.VERIFICATION, email);
+            passwordEncoder.encode(request.password()); // same work as a real sign-up, so timing matches too
+            findUserByEmail(email).ifPresent(existing -> {
+                try {
+                    emailService.sendAccountAlreadyExists(existing.getEmail(), existing.getName());
+                } catch (RuntimeException e) {
+                    log.warn("Account-exists notice failed for an existing account");
+                }
+            });
+            // Shaped exactly like a new account (random id in the same format): nothing marks this answer as different.
+            UserAccount echo = new UserAccount("u-" + UUID.randomUUID().toString().substring(0, 8), request.name(), email, UserRole.USER,
+                    AccountStatus.PENDING_ACTIVATION, false, false, GitHubConnection.disconnected(), false,
+                    new com.cloudbase.model.NotificationPrefs(true, true, false));
+            return new AuthResponse(null, echo,
+                    "We sent a 6-digit verification code to your email. Enter it to confirm your address.");
+        }
 
         if (emailService.isEnabled()) {
             emailRateLimiter.acquireSend(EmailRateLimiter.Action.VERIFICATION, email);

@@ -79,6 +79,33 @@ class EmailRateLimiterTest {
     }
 
     @Test
+    void wrongCodesFromOneNetworkAreCappedAcrossAddresses() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-08-27T08:00:00Z"));
+        EmailRateLimiter limiter = new EmailRateLimiter(clock);
+        for (int i = 0; i < EmailRateLimiter.MAX_VERIFY_FAILURES_PER_IP; i++) {
+            limiter.checkVerifyAllowed("guess" + i + "@x.com");
+            limiter.recordVerifyFailure("guess" + i + "@x.com");
+        }
+        org.junit.jupiter.api.Assertions.assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> limiter.checkVerifyAllowed("another@x.com"));
+        clock.plusSeconds(EmailRateLimiter.VERIFY_LOCK.getSeconds() + 1);
+        limiter.checkVerifyAllowed("another@x.com");
+    }
+
+    @Test
+    void randomAddressesCannotGrowMemoryForever() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-08-27T08:00:00Z"));
+        EmailRateLimiter limiter = new EmailRateLimiter(clock);
+        for (int i = 0; i < EmailRateLimiter.PRUNE_ABOVE + 500; i++) {
+            limiter.recordVerifyFailure("ghost" + i + "@x.com");
+        }
+        clock.plusSeconds(EmailRateLimiter.VERIFY_LOCK.getSeconds() + 1);
+        limiter.recordVerifyFailure("one-more@x.com");
+        org.junit.jupiter.api.Assertions.assertTrue(limiter.trackedKeys() < 10,
+                "expired entries are dropped, left: " + limiter.trackedKeys());
+    }
+
+    @Test
     void unknownInboxDoesNotEatGlobalBudget() {
         MutableClock clock = new MutableClock(Instant.parse("2026-08-27T08:00:00Z"));
         EmailRateLimiter limiter = new EmailRateLimiter(clock);

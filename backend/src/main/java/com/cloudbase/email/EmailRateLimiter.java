@@ -38,6 +38,12 @@ public class EmailRateLimiter {
     /** Whole JVM: verification + password-reset combined. Never more than 5/hour. */
     static final int MAX_GLOBAL = 5;
     static final int MAX_VERIFY_FAILURES = 5;
+    /** Lookups of addresses that have no account, per client IP and hour (they send nothing, but are tracked). */
+    static final int MAX_UNKNOWN_PER_IP = 30;
+    /** Wrong verification codes per client IP, across all addresses, per {@link #VERIFY_LOCK}. */
+    static final int MAX_VERIFY_FAILURES_PER_IP = 30;
+    /** Above this many tracked keys, expired ones are dropped so random addresses cannot grow memory forever. */
+    static final int PRUNE_ABOVE = 10_000;
     static final Duration VERIFY_LOCK = Duration.ofMinutes(15);
 
     private final Clock clock;
@@ -46,6 +52,8 @@ public class EmailRateLimiter {
     private final Map<String, SendBucket> byIp = new ConcurrentHashMap<>();
     private final SendBucket global = new SendBucket();
     private final Map<String, VerifyBucket> verifies = new ConcurrentHashMap<>();
+    private final Map<String, SendBucket> unknownByIp = new ConcurrentHashMap<>();
+    private final Map<String, SendBucket> verifyFailuresByIp = new ConcurrentHashMap<>();
 
     public EmailRateLimiter() {
         this(Clock.systemUTC());
@@ -68,6 +76,7 @@ public class EmailRateLimiter {
         String ipKey = normalize(ip).isEmpty() ? "unknown" : normalize(ip);
 
         synchronized (lock) {
+            prune(now);
             SendBucket emailBucket = byEmail.get(emailKey);
             if (emailBucket != null && emailBucket.lastSentAt != null) {
                 Instant cooldownEnds = emailBucket.lastSentAt.plus(COOLDOWN);
@@ -93,7 +102,11 @@ public class EmailRateLimiter {
     public void noteUnknownInbox(Action action, String email) {
         Instant now = Instant.now(clock);
         String emailKey = key(action, email);
+        String ipKey = normalize(currentIp()).isEmpty() ? "unknown" : normalize(currentIp());
         synchronized (lock) {
+            prune(now);
+            rejectIfCapped(unknownByIp.get(ipKey), now, MAX_UNKNOWN_PER_IP, "Too many requests from this network. Try again in about ");
+            bump(unknownByIp.computeIfAbsent(ipKey, k -> new SendBucket()), now);
             SendBucket emailBucket = byEmail.get(emailKey);
             if (emailBucket != null && emailBucket.lastSentAt != null) {
                 Instant cooldownEnds = emailBucket.lastSentAt.plus(COOLDOWN);
@@ -108,11 +121,16 @@ public class EmailRateLimiter {
     }
 
     public void checkVerifyAllowed(String email) {
+        Instant now = Instant.now(clock);
+        SendBucket ipBucket = verifyFailuresByIp.get(ipKey(currentIp()));
+        if (ipBucket != null && ipBucket.windowStart != null && now.isBefore(ipBucket.windowStart.plus(VERIFY_LOCK))
+                && ipBucket.count >= MAX_VERIFY_FAILURES_PER_IP) {
+            throw tooMany("Too many wrong codes from this network. Try again in a few minutes.");
+        }
         VerifyBucket b = verifies.get(normalize(email));
         if (b == null) {
             return;
         }
-        Instant now = Instant.now(clock);
         if (b.lockedUntil != null && now.isBefore(b.lockedUntil)) {
             long wait = Math.max(1, Duration.between(now, b.lockedUntil).getSeconds());
             throw tooMany("Too many wrong codes. Request a new code in " + wait + " seconds.");
@@ -122,6 +140,15 @@ public class EmailRateLimiter {
     public boolean recordVerifyFailure(String email) {
         String key = normalize(email);
         Instant now = Instant.now(clock);
+        synchronized (lock) {
+            prune(now);
+            SendBucket ipBucket = verifyFailuresByIp.computeIfAbsent(ipKey(currentIp()), k -> new SendBucket());
+            if (ipBucket.windowStart == null || !now.isBefore(ipBucket.windowStart.plus(VERIFY_LOCK))) {
+                ipBucket.windowStart = now;
+                ipBucket.count = 0;
+            }
+            ipBucket.count++;
+        }
         VerifyBucket updated = verifies.compute(key, (k, existing) -> {
             VerifyBucket b = existing == null ? new VerifyBucket() : existing;
             if (b.lockedUntil != null && now.isAfter(b.lockedUntil)) {
@@ -129,6 +156,7 @@ public class EmailRateLimiter {
                 b.lockedUntil = null;
             }
             b.failures++;
+            b.lastFailureAt = now;
             if (b.failures >= MAX_VERIFY_FAILURES) {
                 b.lockedUntil = now.plus(VERIFY_LOCK);
             }
@@ -139,6 +167,34 @@ public class EmailRateLimiter {
 
     public void clearVerifyFailures(String email) {
         verifies.remove(normalize(email));
+    }
+
+    /** Drops entries whose windows and locks have all ended, once a map is large. Caller holds {@link #lock}. */
+    private void prune(Instant now) {
+        if (byEmail.size() > PRUNE_ABOVE) byEmail.values().removeIf(b -> sendExpired(b, now, WINDOW));
+        if (byIp.size() > PRUNE_ABOVE) byIp.values().removeIf(b -> sendExpired(b, now, WINDOW));
+        if (unknownByIp.size() > PRUNE_ABOVE) unknownByIp.values().removeIf(b -> sendExpired(b, now, WINDOW));
+        if (verifyFailuresByIp.size() > PRUNE_ABOVE) verifyFailuresByIp.values().removeIf(b -> sendExpired(b, now, VERIFY_LOCK));
+        if (verifies.size() > PRUNE_ABOVE) {
+            verifies.values().removeIf(v -> (v.lockedUntil == null || !now.isBefore(v.lockedUntil))
+                    && (v.lastFailureAt == null || !now.isBefore(v.lastFailureAt.plus(VERIFY_LOCK))));
+        }
+    }
+
+    private static boolean sendExpired(SendBucket b, Instant now, Duration window) {
+        boolean windowOver = b.windowStart == null || !now.isBefore(b.windowStart.plus(window));
+        boolean cooldownOver = b.lastSentAt == null || !now.isBefore(b.lastSentAt.plus(COOLDOWN));
+        return windowOver && cooldownOver;
+    }
+
+    private static String ipKey(String ip) {
+        String n = normalize(ip);
+        return n.isEmpty() ? "unknown" : n;
+    }
+
+    /** Tracked keys across all maps (for tests). */
+    int trackedKeys() {
+        return byEmail.size() + byIp.size() + unknownByIp.size() + verifyFailuresByIp.size() + verifies.size();
     }
 
     private static void rejectIfCapped(SendBucket b, Instant now, int max, String prefix) {
@@ -203,5 +259,6 @@ public class EmailRateLimiter {
     private static final class VerifyBucket {
         int failures;
         Instant lockedUntil;
+        Instant lastFailureAt;
     }
 }

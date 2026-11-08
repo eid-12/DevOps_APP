@@ -122,6 +122,22 @@ public class ResendEmailService implements EmailService {
     }
 
     @Override
+    public void sendAccountAlreadyExists(String toEmail, String name) {
+        String body = """
+                <p style="margin:0 0 12px;font-size:16px;color:#0f172a">Hi %s,</p>
+                <p style="margin:0 0 24px;font-size:15px;color:#334155;line-height:1.6">
+                  Someone tried to create a CloudBase account with this email address, but you already have one.
+                  Sign in instead, or reset your password if you have forgotten it.
+                </p>
+                %s
+                <p style="margin:24px 0 0;font-size:13px;color:#94a3b8;line-height:1.5">
+                  If this wasn't you, you can ignore this email. Nothing about your account has changed.
+                </p>
+                """.formatted(escape(name), cta(properties.appBaseUrl() + "/auth?mode=login", "Sign in to CloudBase"));
+        send(toEmail, "CloudBase - you already have an account", wrap("Security", "Account already exists", body));
+    }
+
+    @Override
     public void sendDeployResult(
             String toEmail,
             String name,

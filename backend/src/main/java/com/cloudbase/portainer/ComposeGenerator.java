@@ -272,7 +272,9 @@ public class ComposeGenerator {
     private Map<String, Object> watchtower(ServiceEntity service) {
         Map<String, Object> wt = new LinkedHashMap<>();
         // nickfedor fork: containrrr 1.7.1 speaks Docker API 1.25; modern engines require >= 1.40
-        wt.put("image", "nickfedor/watchtower:1.21.0");
+        // Pinned by digest (nickfedor/watchtower 1.21.0): this sidecar holds the Docker socket, so a re-pushed tag
+        // would hand the host to whoever pushed it. Change only by updating the digest deliberately.
+        wt.put("image", WATCHTOWER_IMAGE);
         wt.put("container_name", resolveWatchtowerContainerName(service));
         wt.put("restart", "unless-stopped");
         wt.put("volumes", List.of("/var/run/docker.sock:/var/run/docker.sock"));
@@ -305,6 +307,9 @@ public class ComposeGenerator {
      * services that should be running (after a crash or a daemon/host restart) once isolation is proven.
      */
     static final String TENANT_RESTART = "no";
+
+    static final String WATCHTOWER_IMAGE =
+            "nickfedor/watchtower@sha256:d76a95a54ab636968f77cb1780fb597b3e28511b535a86e3af212a290ef4d743";
 
     /** Caps process count so one tenant cannot fork-bomb the shared host. */
     static final String PIDS_LIMIT = "512";

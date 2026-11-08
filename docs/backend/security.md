@@ -20,6 +20,18 @@ Admin Hosting shows “configured” hints, not the raw secret, unless I type a 
 - Terminal: **30 commands / minute** per user (each one costs several Docker calls on the shared host)
 - Login does one BCrypt check even for an unknown email, so response time does not reveal which accounts exist
 - 400 responses never echo JDK/library messages that name internal classes
+- Request bodies are capped before anything reads them: 8 MB for the API, 5 MB for `/api/webhooks/**` (a declared larger body gets 413; a chunked one stops being read at the limit)
+- Rate limiters forget expired entries once a map passes 10,000 keys, so random emails or IPs cannot grow memory without bound. Unknown-address lookups (forgot password, resend) are capped at 30/hour per IP, wrong verification codes at 30 per 15 min per IP across all addresses
+- Sign-up does not reveal whether an address is registered (when email is on): a taken address gets the same answer and response shape as a new one, and the real owner receives an "account already exists" email. With email off it still answers 409, since nobody could otherwise be told
+- Images that run with elevated trust are pinned by digest, not tag: Watchtower (holds the Docker socket), the edge router and isolation canary/probes (nginx), and the volume-wipe helper (alpine, mounts tenant data). Update a digest deliberately; never go back to a tag
+- GitHub access tokens are encrypted at rest (AES-256-GCM, key derived from `JWT_SECRET` with a purpose label); plaintext rows are encrypted on startup. Rotating `JWT_SECRET` makes them read as disconnected, and users reconnect GitHub
+- Public status endpoint returns only container counts: no versions, hardware or component names
+- Spring Boot 3.5.x (supported line); builds on Windows behind TLS inspection need `MAVEN_OPTS=-Djavax.net.ssl.trustStoreType=Windows-ROOT`
+
+## Known limits (not code-fixable)
+
+- Tenant apps are served on `*.cloudbase.website`, the same site as the dashboard. Look-alike names are reserved, but the complete fix is a separate registrable domain for apps (on the Public Suffix List)
+- Hosting secrets (Portainer API key, NPM password, Resend key) are stored unencrypted in Postgres; protect database backups accordingly. Encrypting them needs a dedicated key in the production environment, because losing them on a secret rotation would stop the platform
 - Email send: **60 s** cooldown; **5 / hour** per inbox, per IP, and for the whole API (verification + reset). Slot taken before Resend. **5** wrong codes → **15 min** lock. See [email.md](email.md).
 - Missing, invalid or expired JWT, or a suspended/deleted user → **401** JSON (`{timestamp,status,error,message}`). The SPA logs out on 401 only, so this must never be 403.
 - `/api/admin/**` needs `ROLE_ADMIN`; a signed-in non-admin gets **403** JSON
