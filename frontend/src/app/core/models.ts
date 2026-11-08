@@ -169,6 +169,8 @@ export interface EnvironmentVariable {
   key: string;
   value: string;
   isSecret: boolean;
+  /** A copy of a project shared variable, kept in step by the API on every deploy (not edited per service). */
+  fromShared?: boolean;
 }
 
 export interface VolumeMount {

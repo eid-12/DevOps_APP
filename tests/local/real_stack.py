@@ -304,6 +304,9 @@ def docker_restart():
 
 
 def cleanup(tenants):
+    # Stop the API first: its isolation guard otherwise recreates the canary, probes and project networks while they
+    # are being removed, leaving them behind (and making the next run refuse to start).
+    docker('stop', '-t', '5', RUN + '-api', check_rc=False)
     for name in docker('ps', '-a', '--format', '{{.Names}}', check_rc=False).split():
         if name.startswith(('cb-svc-', 'cb-wt-svc-', 'cb-probe-')) or name in ('cloudbase-edge', 'cloudbase-guard-canary'):
             docker('rm', '-f', '-v', name, check_rc=False)

@@ -19,6 +19,10 @@ Deleting a CloudBase **service** row does not wipe Docker Hub images. Deleting t
 
 **Project** — a folder for one person's work: name, optional description, status `ACTIVE` or `ARCHIVED`. A project does not run; its services do. Shared variables live on the project and can be attached to any of its services, so the same `DATABASE_URL` is not pasted five times.
 
+**Variables at deploy time.** Shared variables are copied into each attached service marked `fromShared`, and are re-synced on every deploy: a deleted or unassigned one disappears, a changed value is picked up, and a service's own variable with the same key wins. Values may reference `${{Project.KEY}}` or `${{service.KEY}}` (another service in the same project, by display name or by its host name); they are resolved once at deploy, never across projects, and unresolved ones are left as written with a warning in the deploy log.
+
+**Database services** pin `dbName` and `hostName` in `sourceDetails` at creation (older ones on their first edit), so renaming a database never changes its address or schema. `GET …/db-connection` builds `url` (standard), `jdbcUrl` and `appVariable` (a `DATABASE_URL=…${{host.DB_PASSWORD}}…` line to paste into an app) from the same names the compose file uses. Generated passwords are 32 random alphanumerics.
+
 **Service** — one container (or a small compose: app + optional Watchtower).
 
 | `sourceType` | Meaning |

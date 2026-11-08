@@ -2529,3 +2529,37 @@ form.ng-submitted input.ng-invalid {
   color: var(--muted-light);
   font-size: 13px;
 }
+
+.conn-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  h4 { margin: 0; }
+}
+
+.conn-help {
+  margin: 8px 0 10px;
+  color: var(--muted-light);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.conn-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+
+  span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}
+
+.btn.btn-xs {
+  flex: none;
+  padding: 2px 8px;
+  font-size: 11px;
+  border-radius: 6px;
+}

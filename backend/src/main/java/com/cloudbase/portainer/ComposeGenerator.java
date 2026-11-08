@@ -183,7 +183,7 @@ public class ComposeGenerator {
         app.put("volumes", List.of(volumePath + ":" + mountPath));
         app.put("security_opt", List.of("no-new-privileges:true"));
         app.put("networks", List.of(projectNetworkName(service.getProject().getId())));
-        return stack(sanitizeName(service.getName()), app, service);
+        return stack(serviceHostName(service), app, service);
     }
 
     private String generateDatabaseCompose(ServiceEntity service, String userId) {
@@ -191,7 +191,7 @@ public class ComposeGenerator {
         String dbTypeStr = String.valueOf(src.getOrDefault("dbType", "POSTGRESQL"));
         DatabaseType dbType = DatabaseType.valueOf(dbTypeStr);
         String volumePath = resolveVolumePath(userId, service.getProject().getId(), service.getId());
-        String dbName = sanitizeDbIdentifier(service.getName());
+        String dbName = databaseName(service);
         // Passwords are ${...} references; Portainer's stack env supplies the generated values.
         return switch (dbType) {
             case POSTGRESQL -> databaseBlock(service, volumePath, "postgres:16-alpine", orderedMap(
@@ -242,7 +242,7 @@ public class ComposeGenerator {
         db.put("networks", List.of(projectNetworkName(service.getProject().getId())));
         // Still ship Watchtower so stopped app siblings in same scope can revive;
         // DB itself stays disabled via enable=false.
-        return stack(sanitizeName(service.getName()), db, service);
+        return stack(serviceHostName(service), db, service);
     }
 
     /** One stack: the service, the optional Watchtower sidecar, and the network definitions. */
@@ -373,13 +373,41 @@ public class ComposeGenerator {
         return volumeRoot() + "/" + userId + "/" + projectId + "/" + serviceId;
     }
 
+    /** Keys in a database service's sourceDetails that pin its address and schema name at creation. */
+    public static final String DB_NAME_KEY = "dbName";
+    public static final String HOST_NAME_KEY = "hostName";
+    private static final java.util.regex.Pattern DB_NAME = java.util.regex.Pattern.compile("^[a-z_][a-z0-9_]{0,62}$");
+    private static final java.util.regex.Pattern HOST_NAME = java.util.regex.Pattern.compile("^[a-z0-9][a-z0-9-]{0,62}$");
+
+    /**
+     * The name other services in the project use to reach this one (the compose service key). Databases keep the
+     * name they were created with, so renaming one never breaks the apps that connect to it.
+     */
+    public static String serviceHostName(ServiceEntity service) {
+        Object pinned = service.getSourceDetails() == null ? null : service.getSourceDetails().get(HOST_NAME_KEY);
+        if (service.getSourceType() == ServiceSourceType.DATABASE && pinned != null
+                && HOST_NAME.matcher(String.valueOf(pinned)).matches()) {
+            return String.valueOf(pinned);
+        }
+        return sanitizeName(service.getName());
+    }
+
+    /** Database (schema) name created inside a PostgreSQL/MySQL container, pinned at creation like the host name. */
+    public static String databaseName(ServiceEntity service) {
+        Object pinned = service.getSourceDetails() == null ? null : service.getSourceDetails().get(DB_NAME_KEY);
+        if (pinned != null && DB_NAME.matcher(String.valueOf(pinned)).matches()) {
+            return String.valueOf(pinned);
+        }
+        return sanitizeDbIdentifier(service.getName());
+    }
+
     /** Compose service key / container-friendly slug (hyphens ok). */
-    private String sanitizeName(String name) {
+    public static String sanitizeName(String name) {
         return name.toLowerCase().replaceAll("[^a-z0-9-]", "-");
     }
 
     /** MySQL/Postgres DB names cannot contain hyphens. */
-    private String sanitizeDbIdentifier(String name) {
+    public static String sanitizeDbIdentifier(String name) {
         String s = name.toLowerCase().replaceAll("[^a-z0-9_]", "_").replaceAll("_+", "_");
         if (s.isBlank()) {
             return "appdb";

@@ -33,6 +33,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -172,7 +173,8 @@ public class DeploymentOrchestrator {
         deploymentRepository.save(deployment);
         appendStage(deploymentId, DeploymentStatus.BUILDING, "building", "Compose file generated");
 
-        List<Map<String, String>> env = composeGenerator.buildPortainerEnv(service, extras);
+        List<Map<String, String>> env = resolveReferences(service,
+                composeGenerator.buildPortainerEnv(service, extras), deploymentId);
         String stackName = stackName(service);
 
         Integer existingStackId = service.getPortainerStackId();
@@ -1177,42 +1179,134 @@ public class DeploymentOrchestrator {
         serviceRepository.save(service);
     }
 
-    @SuppressWarnings("unchecked")
-    private void mergeSharedVariables(ServiceEntity service, Map<String, String> extras) {
-        if (service.getProject() == null || service.getProject().getSharedVariables() == null) {
-            return;
+    /** {@code ${{Project.KEY}}} or {@code ${{service-name.KEY}}}, as offered by the Variables tab's reference picker. */
+    static final java.util.regex.Pattern VAR_REF = java.util.regex.Pattern.compile(
+            "\\$\\{\\{\\s*([^.{}]+?)\\s*\\.\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*}}");
+
+    /**
+     * Replaces variable references with values from the same project only: a shared variable, or a variable of
+     * another service (for example a database's generated DB_PASSWORD). One pass, no nesting, so a value can never
+     * pull in more than it names. Anything that does not resolve is left as written and reported in the deploy log.
+     */
+    List<Map<String, String>> resolveReferences(ServiceEntity service, List<Map<String, String>> env, String deploymentId) {
+        if (env.stream().noneMatch(e -> e.get("value") != null && e.get("value").contains("${{"))) {
+            return env;
         }
-        Map<String, Object> env = service.getEnvVars() != null
-                ? new HashMap<>(service.getEnvVars())
-                : new HashMap<>();
-        boolean changed = false;
-        for (Map<String, Object> var : service.getProject().getSharedVariables()) {
-            if (var == null) continue;
-            Object idsObj = var.get("serviceIds");
-            boolean applies = false;
-            if (idsObj instanceof List<?> ids) {
-                for (Object id : ids) {
-                    if (service.getId().equals(String.valueOf(id))) {
-                        applies = true;
-                        break;
+        Map<String, String> projectVars = new HashMap<>();
+        Map<String, Map<String, String>> serviceVars = new HashMap<>();
+        if (service.getProject() != null) {
+            List<Map<String, Object>> shared = service.getProject().getSharedVariables();
+            if (shared != null) {
+                for (Map<String, Object> v : shared) {
+                    if (v != null && v.get("key") != null) {
+                        projectVars.put(String.valueOf(v.get("key")).trim(), v.get("value") == null ? "" : String.valueOf(v.get("value")));
                     }
                 }
             }
-            if (!applies) continue;
-            String key = String.valueOf(var.getOrDefault("key", "")).trim();
-            if (key.isBlank()) continue;
-            String value = var.get("value") == null ? "" : String.valueOf(var.get("value"));
-            boolean isSecret = Boolean.TRUE.equals(var.get("isSecret"));
-            if (!env.containsKey(key)) {
-                env.put(key, Map.of("value", value, "isSecret", isSecret));
+            // Reachable by display name (what the reference picker inserts) and by host name, which stays the same
+            // when a database is renamed. Host names are applied last, so a display name never shadows one.
+            Map<String, Map<String, String>> byHost = new HashMap<>();
+            for (ServiceEntity other : serviceRepository.findByProject_Id(service.getProject().getId())) {
+                if (other.getId().equals(service.getId()) || other.getEnvVars() == null) continue;
+                Map<String, String> vars = new HashMap<>();
+                other.getEnvVars().forEach((k, v) -> vars.put(k, plainValue(v)));
+                serviceVars.put(other.getName().trim().toLowerCase(Locale.ROOT), vars);
+                byHost.put(ComposeGenerator.serviceHostName(other), vars);
+            }
+            serviceVars.putAll(byHost);
+        }
+        List<String> unresolved = new ArrayList<>();
+        List<Map<String, String>> out = new ArrayList<>(env.size());
+        for (Map<String, String> entry : env) {
+            String value = entry.get("value");
+            if (value == null || !value.contains("${{")) {
+                out.add(entry);
+                continue;
+            }
+            java.util.regex.Matcher m = VAR_REF.matcher(value);
+            StringBuilder sb = new StringBuilder();
+            while (m.find()) {
+                String scope = m.group(1).trim();
+                String key = m.group(2);
+                String found = "project".equalsIgnoreCase(scope)
+                        ? projectVars.get(key)
+                        : serviceVars.getOrDefault(scope.toLowerCase(Locale.ROOT), Map.of()).get(key);
+                if (found == null) {
+                    unresolved.add(entry.get("name") + " → " + m.group());
+                    found = m.group();
+                }
+                m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(found));
+            }
+            m.appendTail(sb);
+            out.add(Map.of("name", entry.get("name"), "value", sb.toString()));
+        }
+        if (!unresolved.isEmpty() && deploymentId != null) {
+            appendStage(deploymentId, DeploymentStatus.BUILDING, "building",
+                    "Warning: could not resolve " + String.join(", ", unresolved)
+                            + ". Check the service name and key (deploy a database once to create its password).");
+        }
+        return out;
+    }
+
+    /** Marks a service variable that is a copy of a project shared variable (and not the service's own). */
+    public static final String SHARED_MARKER = "fromShared";
+
+    /**
+     * Copies the project's shared variables into this service (the compose file references every service variable),
+     * marked as shared copies so they stay in step with the project on every deploy:
+     * <ul>
+     *   <li>a shared variable removed from the project or unassigned from this service disappears from it;</li>
+     *   <li>a changed value is picked up;</li>
+     *   <li>a variable the service defines itself with the same key wins over the shared one.</li>
+     * </ul>
+     * Copies made before the marker existed are adopted when their value still equals the shared value.
+     */
+    void mergeSharedVariables(ServiceEntity service, Map<String, String> extras) {
+        Map<String, Object> env = service.getEnvVars() != null
+                ? new LinkedHashMap<>(service.getEnvVars())
+                : new LinkedHashMap<>();
+        Map<String, Map<String, Object>> applicable = new LinkedHashMap<>();
+        List<Map<String, Object>> shared = service.getProject() == null ? null : service.getProject().getSharedVariables();
+        if (shared != null) {
+            for (Map<String, Object> var : shared) {
+                if (var == null || !(var.get("serviceIds") instanceof List<?> ids)) continue;
+                if (ids.stream().noneMatch(id -> service.getId().equals(String.valueOf(id)))) continue;
+                String key = String.valueOf(var.getOrDefault("key", "")).trim();
+                if (!key.isBlank()) applicable.put(key, var);
+            }
+        }
+        boolean changed = env.entrySet().removeIf(e -> isSharedCopy(e.getValue()) && !applicable.containsKey(e.getKey()));
+        for (Map.Entry<String, Map<String, Object>> entry : applicable.entrySet()) {
+            String key = entry.getKey();
+            String value = entry.getValue().get("value") == null ? "" : String.valueOf(entry.getValue().get("value"));
+            boolean isSecret = Boolean.TRUE.equals(entry.getValue().get("isSecret"));
+            Object existing = env.get(key);
+            boolean ownValue = existing != null && !isSharedCopy(existing) && !value.equals(plainValue(existing));
+            if (ownValue) {
+                continue; // the service's own variable overrides the project-wide one
+            }
+            Map<String, Object> copy = new LinkedHashMap<>();
+            copy.put("value", value);
+            copy.put("isSecret", isSecret);
+            copy.put(SHARED_MARKER, true);
+            if (!copy.equals(existing)) {
+                env.put(key, copy);
                 changed = true;
             }
-            extras.putIfAbsent(key, value);
         }
         if (changed) {
             service.setEnvVars(env);
             serviceRepository.save(service);
         }
+    }
+
+    private static boolean isSharedCopy(Object value) {
+        return value instanceof Map<?, ?> m && Boolean.TRUE.equals(m.get(SHARED_MARKER));
+    }
+
+    private static String plainValue(Object value) {
+        if (value instanceof Map<?, ?> m) return m.get("value") == null ? "" : String.valueOf(m.get("value"));
+        return value == null ? "" : String.valueOf(value);
     }
 
     private static void putSecretIfAbsent(Map<String, Object> env, Map<String, String> extras, String key) {
@@ -1224,10 +1318,21 @@ public class DeploymentOrchestrator {
             value = String.valueOf(existing);
         }
         if (value == null || value.isBlank()) {
-            value = UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+            value = generatePassword();
             env.put(key, Map.of("value", value, "isSecret", true));
         }
         extras.put(key, value);
+    }
+
+    private static final java.security.SecureRandom PASSWORD_RANDOM = new java.security.SecureRandom();
+    private static final char[] PASSWORD_CHARS =
+            "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789".toCharArray();
+
+    /** 32 characters from a 57-letter alphabet (~186 bits); URL- and shell-safe, so connection strings never break. */
+    static String generatePassword() {
+        char[] out = new char[32];
+        for (int i = 0; i < out.length; i++) out[i] = PASSWORD_CHARS[PASSWORD_RANDOM.nextInt(PASSWORD_CHARS.length)];
+        return new String(out);
     }
 
     private static Integer asInt(Object value) {

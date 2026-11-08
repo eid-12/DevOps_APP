@@ -161,10 +161,6 @@ export class ProjectService {
     return this.api.getLogs(serviceId);
   }
 
-  nextLiveLog(serviceId: string): ServiceLogLine | null {
-    return null;
-  }
-
   updateEnvVars(serviceId: string, envVars: EnvironmentVariable[]): Observable<Service> {
     return this.api.updateEnvVars(serviceId, envVars);
   }

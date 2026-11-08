@@ -419,8 +419,8 @@ function mapService(s: BackendService): Service {
   if (s.envVars) {
     for (const [key, raw] of Object.entries(s.envVars)) {
       if (raw && typeof raw === 'object' && 'value' in (raw as object)) {
-        const o = raw as { value?: string; isSecret?: boolean };
-        envVars.push({ key, value: String(o.value ?? ''), isSecret: !!o.isSecret });
+        const o = raw as { value?: string; isSecret?: boolean; fromShared?: boolean };
+        envVars.push({ key, value: String(o.value ?? ''), isSecret: !!o.isSecret, fromShared: !!o.fromShared });
       } else {
         envVars.push({ key, value: String(raw ?? ''), isSecret: false });
       }

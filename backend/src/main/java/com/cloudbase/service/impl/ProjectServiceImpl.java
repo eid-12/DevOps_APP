@@ -288,6 +288,11 @@ public class ProjectServiceImpl implements ProjectService {
             ciBootstrapService.assertCanPush(serviceOwner(project), String.valueOf(details.getOrDefault("repositoryUrl", "")));
         }
         validateImageDetails(details);
+        if (request.sourceType() == ServiceSourceType.DATABASE) {
+            // Pinned now: apps keep reaching this database by the same host and schema name after any rename.
+            details.put(ComposeGenerator.DB_NAME_KEY, ComposeGenerator.sanitizeDbIdentifier(request.name()));
+            details.put(ComposeGenerator.HOST_NAME_KEY, ComposeGenerator.sanitizeName(request.name()));
+        }
 
         ServiceEntity service = ServiceEntity.builder()
                 .id("svc-" + UUID.randomUUID().toString().substring(0, 8))
@@ -613,7 +618,21 @@ public class ProjectServiceImpl implements ProjectService {
     public ServiceEntity updateEnvVars(String serviceId, UserEntity user, UpdateEnvVarsRequest request) {
         requireDeploymentEnabled(user);
         ServiceEntity service = getService(serviceId, user);
-        service.setEnvVars(toEnvMap(request.envVars()));
+        Map<String, Object> previous = service.getEnvVars() != null ? service.getEnvVars() : Map.of();
+        Map<String, Object> next = toEnvMap(request.envVars());
+        // A project shared variable saved back unchanged stays a shared copy (it keeps following the project).
+        next.replaceAll((key, value) -> {
+            if (previous.get(key) instanceof Map<?, ?> old && Boolean.TRUE.equals(old.get(DeploymentOrchestrator.SHARED_MARKER))
+                    && value instanceof Map<?, ?> now && java.util.Objects.equals(String.valueOf(old.get("value")), String.valueOf(now.get("value")))) {
+                Map<String, Object> kept = new LinkedHashMap<>();
+                kept.put("value", now.get("value"));
+                kept.put("isSecret", now.get("isSecret"));
+                kept.put(DeploymentOrchestrator.SHARED_MARKER, true);
+                return kept;
+            }
+            return value;
+        });
+        service.setEnvVars(next);
         service.setEnvPendingDeploy(true);
         ServiceEntity saved = serviceRepository.save(service);
         log.info("Env vars updated for {} - pending deploy", serviceId);
@@ -1029,8 +1048,9 @@ public class ProjectServiceImpl implements ProjectService {
         String host = service.getContainerName() != null
                 ? service.getContainerName()
                 : composeGenerator.resolveContainerName(service);
-        // Apps on the project network use the compose service key (sanitized name)
-        String networkHost = service.getName().toLowerCase().replaceAll("[^a-z0-9-]", "-");
+        // Same definitions the compose file uses, so the address and schema shown always match the container.
+        String networkHost = ComposeGenerator.serviceHostName(service);
+        String database = ComposeGenerator.databaseName(service);
         int port = composeGenerator.resolveContainerPort(service);
         String password = envValue(service, switch (dbType) {
             case REDIS -> "REDIS_PASSWORD";
@@ -1044,27 +1064,38 @@ public class ProjectServiceImpl implements ProjectService {
         info.put("containerName", host);
         info.put("port", String.valueOf(port));
         info.put("internal", "true");
+        // "url" is the standard form most apps read (Node, Python, Go, PHP); Java gets "jdbcUrl".
+        // "appVariable" is a line to paste into an app's variables: it references the password instead of copying
+        // it, and CloudBase fills it in at deploy time (see DeploymentOrchestrator.resolveReferences).
+        // By the pinned host name, not the display name: the reference keeps working after the database is renamed.
+        String ref = "${{" + networkHost + ".";
         switch (dbType) {
             case POSTGRESQL -> {
-                info.put("database", networkHost);
+                info.put("database", database);
                 info.put("username", "cbuser");
                 info.put("password", password);
-                info.put("url", "jdbc:postgresql://" + networkHost + ":" + port + "/" + networkHost);
+                info.put("url", "postgresql://cbuser:" + urlEncode(password) + "@" + networkHost + ":" + port + "/" + database);
+                info.put("jdbcUrl", "jdbc:postgresql://" + networkHost + ":" + port + "/" + database);
+                info.put("appVariable", "DATABASE_URL=postgresql://cbuser:" + ref + "DB_PASSWORD}}@" + networkHost + ":" + port + "/" + database);
             }
             case MYSQL -> {
-                info.put("database", networkHost);
+                info.put("database", database);
                 info.put("username", "cbuser");
                 info.put("password", password);
-                info.put("url", "jdbc:mysql://" + networkHost + ":" + port + "/" + networkHost);
+                info.put("url", "mysql://cbuser:" + urlEncode(password) + "@" + networkHost + ":" + port + "/" + database);
+                info.put("jdbcUrl", "jdbc:mysql://" + networkHost + ":" + port + "/" + database);
+                info.put("appVariable", "DATABASE_URL=mysql://cbuser:" + ref + "DB_PASSWORD}}@" + networkHost + ":" + port + "/" + database);
             }
             case REDIS -> {
                 info.put("password", password);
-                info.put("url", "redis://:" + password + "@" + networkHost + ":" + port);
+                info.put("url", "redis://:" + urlEncode(password) + "@" + networkHost + ":" + port);
+                info.put("appVariable", "REDIS_URL=redis://:" + ref + "REDIS_PASSWORD}}@" + networkHost + ":" + port);
             }
             case MONGODB -> {
                 info.put("username", "cbuser");
                 info.put("password", password);
-                info.put("url", "mongodb://cbuser:" + password + "@" + networkHost + ":" + port);
+                info.put("url", "mongodb://cbuser:" + urlEncode(password) + "@" + networkHost + ":" + port + "/?authSource=admin");
+                info.put("appVariable", "MONGO_URL=mongodb://cbuser:" + ref + "MONGO_PASSWORD}}@" + networkHost + ":" + port + "/?authSource=admin");
             }
         }
         return info;
@@ -1176,6 +1207,9 @@ public class ProjectServiceImpl implements ProjectService {
     public ServiceEntity updateService(String serviceId, UserEntity user, UpdateServiceRequest request) {
         requireDeploymentEnabled(user);
         ServiceEntity service = getService(serviceId, user);
+        if (service.getSourceType() == ServiceSourceType.DATABASE) {
+            pinDatabaseNames(service); // databases made before pinning: freeze today's names before any rename
+        }
         boolean refreshCi = false;
         requireMaxLength(request.name(), com.cloudbase.dto.ProjectDtos.MAX_NAME, "Name");
         if (request.sourceDetails() != null && request.sourceDetails().size() > 50) {
@@ -1193,8 +1227,11 @@ public class ProjectServiceImpl implements ProjectService {
             details.putAll(request.sourceDetails());
             validateImageDetails(details);
 
-            // Database engine + internal port are immutable after create.
+            // Database engine, internal port, host name and schema name are immutable after create.
             if (service.getSourceType() == ServiceSourceType.DATABASE) {
+                for (String pinned : List.of(ComposeGenerator.DB_NAME_KEY, ComposeGenerator.HOST_NAME_KEY)) {
+                    if (previousDetails.get(pinned) != null) details.put(pinned, previousDetails.get(pinned));
+                }
                 Object lockedType = previousDetails.get("dbType");
                 if (lockedType != null) {
                     details.put("dbType", lockedType);
@@ -1352,6 +1389,23 @@ public class ProjectServiceImpl implements ProjectService {
             }
         }
         return false;
+    }
+
+    /** A password chosen by the user may contain characters that would break a connection URL. */
+    private static String urlEncode(String value) {
+        return java.net.URLEncoder.encode(value == null ? "" : value, java.nio.charset.StandardCharsets.UTF_8)
+                .replace("+", "%20");
+    }
+
+    private void pinDatabaseNames(ServiceEntity service) {
+        Map<String, Object> details = service.getSourceDetails() != null
+                ? new HashMap<>(service.getSourceDetails()) : new HashMap<>();
+        if (details.containsKey(ComposeGenerator.DB_NAME_KEY) && details.containsKey(ComposeGenerator.HOST_NAME_KEY)) {
+            return;
+        }
+        details.putIfAbsent(ComposeGenerator.DB_NAME_KEY, ComposeGenerator.databaseName(service));
+        details.putIfAbsent(ComposeGenerator.HOST_NAME_KEY, ComposeGenerator.serviceHostName(service));
+        service.setSourceDetails(details);
     }
 
     private static String envValue(ServiceEntity service, String key) {

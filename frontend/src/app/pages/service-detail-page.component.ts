@@ -273,24 +273,43 @@ const ROLLBACK_WATCH_ATTEMPTS = 100; // 3 s apart: five minutes
               } @else {
                 <div>
                   <dt>Private host</dt>
-                  <dd class="mono">{{ service()!.containerName || ('cb-' + service()!.id) }}</dd>
+                  <!-- One answer: the same host the connection details below use (stays the same after a rename). -->
+                  <dd class="mono">{{ dbConn()?.['host'] || service()!.containerName || ('cb-' + service()!.id) }}</dd>
                 </div>
               }
               <div><dt>Latest deploy</dt><dd>{{ service()!.latestDeploymentId || '—' }}</dd></div>
             </dl>
 
-            @if (service()!.sourceType === 'DATABASE' && dbConn()) {
-              <h4 class="u-mt-18">Connection</h4>
-              <div class="conn-box">
-                <code class="mono">{{ dbConn()!['url'] }}</code>
-                <button type="button" class="btn btn-ghost btn-sm" (click)="copyText(dbConn()!['url'])">Copy URL</button>
+            @if (service()!.sourceType === 'DATABASE' && dbConn(); as conn) {
+              <div class="conn-head u-mt-18">
+                <h4>Connect your app</h4>
+                <button type="button" class="btn btn-ghost btn-sm" (click)="dbSecretShown.set(!dbSecretShown())"
+                        [attr.aria-pressed]="dbSecretShown()">
+                  {{ dbSecretShown() ? 'Hide password' : 'Show password' }}
+                </button>
               </div>
+              @if (conn['appVariable']) {
+                <p class="conn-help">
+                  Add this line to your app service's variables. CloudBase fills in the password when it deploys,
+                  so you never copy the secret by hand.
+                </p>
+                <div class="conn-box">
+                  <code class="mono">{{ conn['appVariable'] }}</code>
+                  <button type="button" class="btn btn-primary btn-sm" (click)="copyText(conn['appVariable'])">Copy</button>
+                </div>
+              }
               <dl class="svc-dl u-mt-10">
                 @for (key of dbConnKeys(); track key) {
-                  @if (key !== 'url') {
+                  @if (key !== 'appVariable') {
                     <div>
-                      <dt>{{ key }}</dt>
-                      <dd class="mono">{{ dbConn()![key] }}</dd>
+                      <dt>{{ dbConnLabel(key) }}</dt>
+                      <dd class="mono conn-value">
+                        <span>{{ dbConnDisplay(key) }}</span>
+                        @if (key === 'url' || key === 'jdbcUrl' || key === 'password') {
+                          <button type="button" class="btn btn-ghost btn-xs" (click)="copyText(conn[key])"
+                                  [attr.aria-label]="'Copy ' + dbConnLabel(key)">Copy</button>
+                        }
+                      </dd>
                     </div>
                   }
                 }
@@ -1331,7 +1350,8 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
 
   private applyService(service: Service) {
     this.service.set(service);
-    this.envDraft = service.envVars.map(e => ({ ...e }));
+    // Copies of project variables are listed under "Inherited from Project"; only the service's own are editable.
+    this.envDraft = service.envVars.filter(e => !e.fromShared).map(e => ({ ...e }));
     this.showSecrets = this.envDraft.map(() => false);
     this.varsDirty.set(false);
     this.refPickerOpen.set(false);
@@ -1801,7 +1821,7 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
     this.stopMetricsPoll();
     this.refreshLiveMetrics();
     this.metricsPollTimer = setInterval(() => {
-      if (this.tab() === 'metrics') this.refreshLiveMetrics();
+      if (this.tab() === 'metrics' && !document.hidden) this.refreshLiveMetrics();
     }, 15000);
   }
 
@@ -2230,25 +2250,15 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
   private startLiveLogs() {
     this.stopLiveLogs();
     this.liveTimer = setInterval(() => {
-      // Prefer re-fetching real container logs when API is on
+      if (document.hidden) return; // no polling for a tab nobody is looking at
       this.projectService.getLogs(this.serviceId).subscribe({
         next: lines => {
           if (lines.length) {
             this.logs.set(lines);
             this.shouldScrollLogs = true;
-            return;
           }
-          const line = this.projectService.nextLiveLog(this.serviceId);
-          if (!line) return;
-          this.logs.update(list => [...list.slice(-200), line]);
-          this.shouldScrollLogs = true;
         },
-        error: () => {
-          const line = this.projectService.nextLiveLog(this.serviceId);
-          if (!line) return;
-          this.logs.update(list => [...list.slice(-200), line]);
-          this.shouldScrollLogs = true;
-        }
+        error: () => { /* keep the last lines on screen; the next tick retries */ }
       });
     }, 6000);
   }
@@ -2542,8 +2552,30 @@ export class ServiceDetailPageComponent implements OnInit, OnDestroy, AfterViewC
     );
   }
 
+  /** Password stays masked (also inside URLs) until asked for: safe when sharing a screen. */
+  readonly dbSecretShown = signal(false);
+
+  private static readonly DB_CONN_LABELS: Record<string, string> = {
+    url: 'Connection URL', jdbcUrl: 'JDBC URL (Java)', host: 'Host (inside the project)', port: 'Port',
+    database: 'Database', username: 'Username', password: 'Password', dbType: 'Engine'
+  };
+
+  dbConnLabel(key: string): string {
+    return ServiceDetailPageComponent.DB_CONN_LABELS[key] ?? key;
+  }
+
+  dbConnDisplay(key: string): string {
+    const conn = this.dbConn() ?? {};
+    const value = conn[key] ?? '';
+    const password = conn['password'];
+    if (this.dbSecretShown() || !password) return value;
+    if (key === 'password') return '••••••••••••';
+    return value.split(encodeURIComponent(password)).join('••••••••').split(password).join('••••••••');
+  }
+
   dbConnKeys(): string[] {
-    return Object.keys(this.dbConn() ?? {});
+    // Internal plumbing is not something a user acts on, and the engine is already shown above.
+    return Object.keys(this.dbConn() ?? {}).filter(k => !['containerName', 'internal', 'dbType'].includes(k));
   }
 
   addVar() {

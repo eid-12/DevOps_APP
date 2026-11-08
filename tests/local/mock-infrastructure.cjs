@@ -135,7 +135,8 @@ http.createServer((req, res) => {
     else if (req.method === 'POST' && path.includes('/stacks/create/')) {
       const b = json();
       const names = [...String(b.stackFileContent ?? b.StackFileContent ?? '').matchAll(/container_name:\s*"?([\w.-]+)/g)].map(m => m[1]);
-      const s = { Id: nextId++, Name: b.name ?? b.Name, containers: names };
+      // env: what the API passed to the stack (synthetic lab values), so tests can check variable resolution.
+      const s = { Id: nextId++, Name: b.name ?? b.Name, containers: names, env: b.env ?? b.Env ?? [] };
       stacks.set(s.Id, s);
       body = { Id: s.Id, Name: s.Name };
       if (fs.existsSync('/tmp/slow-deploy')) return setTimeout(send, 8000);
@@ -143,7 +144,9 @@ http.createServer((req, res) => {
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ status: 'Status: Downloaded newer image for synthetic' }) + String.fromCharCode(10));
     } else if (req.method === 'PUT' && /\/api\/stacks\/\d+/.test(path)) {
-      body = stacks.get(Number(path.split('/').at(-1))) ?? {};
+      const st = stacks.get(Number(path.split('/').at(-1)));
+      if (st) { const u = json(); st.env = u.env ?? u.Env ?? st.env; }
+      body = st ?? {};
       if (fs.existsSync('/tmp/slow-deploy')) return setTimeout(send, 20000);
     } else if (req.method === 'DELETE' && /\/api\/stacks\/\d+/.test(path)) {
       if (fs.existsSync('/tmp/fail-delete')) { code = 500; body = { message: 'synthetic delete failure' }; }

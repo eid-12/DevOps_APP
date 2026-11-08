@@ -266,6 +266,22 @@ public class PortainerClient {
                 .doOnError(e -> log.warn("Container list failed: {}", e.getMessage()));
     }
 
+    private static final java.util.regex.Pattern SAFE_CONTAINER_NAME = java.util.regex.Pattern.compile("^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$");
+
+    /** Containers whose name is exactly {@code name} (Docker's name filter is a regex; it is anchored here). */
+    Mono<Object[]> getContainersNamed(String name) {
+        // JSON-in-Java: "\\\\." is the two characters \\ in JSON, i.e. the regex \. (a literal dot).
+        String filters = "{\"name\":[\"^/" + name.replace(".", "\\\\.") + "$\"]}";
+        return webClient.get()
+                .uri(b -> b.path("/api/endpoints/{eid}/docker/containers/json")
+                        .queryParam("all", "true")
+                        .queryParam("filters", "{filters}")
+                        .build(endpointId, filters))
+                .retrieve()
+                .bodyToMono(Object[].class)
+                .doOnError(e -> log.warn("Container lookup failed name={}: {}", name, e.getMessage()));
+    }
+
     /** @deprecated prefer {@link #getContainers()} */
     public Mono<Object[]> getContainers(int ignoredEndpointId) {
         return getContainers();
@@ -280,7 +296,12 @@ public class PortainerClient {
             return Mono.empty();
         }
         String want = containerName.startsWith("/") ? containerName.substring(1) : containerName;
-        return getContainers().flatMap(arr -> {
+        // Ask Docker for this one name instead of listing every tenant's containers on each page load or poll.
+        // The exact-name loop below still decides, so a looser filter on the engine side can never pick another.
+        Mono<Object[]> candidates = SAFE_CONTAINER_NAME.matcher(want).matches()
+                ? getContainersNamed(want)
+                : getContainers();
+        return candidates.flatMap(arr -> {
             if (arr == null) return Mono.empty();
             for (Object o : arr) {
                 if (!(o instanceof Map<?, ?> m)) continue;
