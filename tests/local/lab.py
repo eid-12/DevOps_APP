@@ -175,7 +175,7 @@ def start(args):
                    '--mount', f'type=bind,source={snippet},target=/etc/nginx/snippets/security-headers.conf,readonly',
                    # nginx stays the main process (its access log is the container log, read by the CSP gate)
                    # but starts only once the cloudbase-backend upstream resolves on the lab network.
-                   '--entrypoint', 'sh', 'nginx:1.27-alpine', '-c',
+                   '--entrypoint', 'sh', 'nginx:1.30.6-alpine', '-c',
                    'until getent hosts cloudbase-backend >/dev/null; do sleep 0.2; done; exec nginx -g "daemon off;"')
             docker('network', 'connect', prefix, web)
             s['web'] = 'http://127.0.0.1:' + docker('port', web, '3000').rsplit(':', 1)[1]

@@ -55,6 +55,7 @@ public class NpmClient {
         this.sslForced = settings.getBoolean(PlatformSettingsService.NPM_SSL_FORCED);
         this.webClient = webClientBuilder.clone()
                 .baseUrl(npmUrl == null || npmUrl.isBlank() ? "http://localhost:81" : npmUrl)
+                .defaultHeaders(h -> settings.cloudflareAccessHeaders().forEach(h::set))
                 .build();
         cachedToken.set(null);
         log.info("NPM client reloaded (enabled={})", this.enabled);

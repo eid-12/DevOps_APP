@@ -185,6 +185,15 @@ const STRONG_PASSWORD = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&#._-]).{8,
                       <small class="muted u-text-13">Tenant apps and databases join only their project's network; this setting no longer applies.</small>
                     </div>
                     <div class="field"><label for="cb-adm-19">Volume root</label><input id="cb-adm-19" [(ngModel)]="hostingDraft.volumeRoot" name="volumeRoot" /></div>
+                    <div class="field">
+                      <label for="cb-adm-20">Cloudflare Access client ID</label>
+                      <input id="cb-adm-20" [(ngModel)]="hostingDraft.cfAccessClientId" name="cfAccessClientId" autocomplete="off" placeholder="xxxxxxxx.access" />
+                      <small class="muted u-text-13">Service token for Portainer and NPM when they are behind Cloudflare Access. Set it before turning Access on.</small>
+                    </div>
+                    <div class="field">
+                      <label for="cb-adm-21">Cloudflare Access client secret {{ hosting()?.cfAccessClientSecretConfigured ? '(set ' + hosting()?.cfAccessClientSecretHint + ')' : '' }}</label>
+                      <input id="cb-adm-21" [(ngModel)]="hostingDraft.cfAccessClientSecret" name="cfAccessClientSecret" type="password" placeholder="Leave blank to keep" autocomplete="new-password" />
+                    </div>
                   </div>
 
                   <div class="hosting-actions">
@@ -525,6 +534,8 @@ export class AdminPageComponent implements OnInit {
     publicApiUrl: string;
     dockerNetwork: string;
     volumeRoot: string;
+    cfAccessClientId: string;
+    cfAccessClientSecret: string;
   } = this.emptyHostingDraft();
 
   searchQuery = '';
@@ -704,6 +715,8 @@ export class AdminPageComponent implements OnInit {
     setText('publicApiUrl', d.publicApiUrl, baseline.publicApiUrl);
     setText('dockerNetwork', d.dockerNetwork, baseline.dockerNetwork);
     setText('volumeRoot', d.volumeRoot, baseline.volumeRoot);
+    setText('cfAccessClientId', d.cfAccessClientId, baseline.cfAccessClientId);
+    setSecret('cfAccessClientSecret', d.cfAccessClientSecret);
 
     return patch;
   }
@@ -779,7 +792,9 @@ export class AdminPageComponent implements OnInit {
       baseDomain: '',
       publicApiUrl: '',
       dockerNetwork: '',
-      volumeRoot: ''
+      volumeRoot: '',
+      cfAccessClientId: '',
+      cfAccessClientSecret: ''
     };
   }
 
@@ -805,7 +820,9 @@ export class AdminPageComponent implements OnInit {
       baseDomain: s.baseDomain || '',
       publicApiUrl: s.publicApiUrl || '',
       dockerNetwork: s.dockerNetwork || '',
-      volumeRoot: s.volumeRoot || ''
+      volumeRoot: s.volumeRoot || '',
+      cfAccessClientId: s.cfAccessClientId || '',
+      cfAccessClientSecret: ''
     };
   }
 

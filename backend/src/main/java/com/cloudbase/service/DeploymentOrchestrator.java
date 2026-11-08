@@ -808,7 +808,8 @@ public class DeploymentOrchestrator {
             return;
         }
         try {
-            edgeRouter.ensureEdge()
+            edgeRouter.retireIfOutdated().onErrorResume(e -> Mono.just(false))
+                    .then(edgeRouter.ensureEdge())
                     .thenMany(reactor.core.publisher.Flux.fromIterable(projects).concatMap(pid -> portainerClient
                             .ensureProjectNetwork(composeGenerator.projectNetworkName(pid), edgeRouter.edgeName(), true)
                             .onErrorResume(e -> Mono.empty())))

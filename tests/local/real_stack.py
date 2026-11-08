@@ -397,6 +397,18 @@ def main():
         mark_apps(tenants)
         isolation_checks('guard restarted', tenants)
 
+        # 6a. Edge replaced (what an image upgrade does in production): the API recreates it on the pinned image,
+        #     reattaches project networks and rewrites routes, so every tenant is reachable again.
+        docker('rm', '-f', 'cloudbase-edge')
+        removed_edge_at = time.time()
+        check('[edge replaced] tenants route again after the edge is recreated',
+              wait(lambda: all('tenant-' in public(tn['host']) for tn in tenants), 240, 5),
+              [public(tn['host'])[:60] for tn in tenants])
+        note(f'[edge replaced] routing restored after {round(time.time() - removed_edge_at)} s')
+        check('[edge replaced] the new edge runs the pinned image',
+              'cloudbase.edge.image' in docker('inspect', '-f', '{{json .Config.Labels}}', 'cloudbase-edge', check_rc=False))
+        isolation_checks('edge replaced', tenants)
+
         # 6. Deleting a service leaves nothing behind: its container, its anonymous volumes and its image go,
         #    while an image other services still run (postgres) stays and other tenants are untouched.
         had_mongo = docker('images', '-q', 'mongo:7', check_rc=False) != ''

@@ -171,6 +171,9 @@ public class DockerJanitor {
         for (Map<String, Object> image : images) {
             String id = String.valueOf(image.get("Id"));
             if (usedImageIds.contains(id)) continue;
+            // Only images pulled from a registry (they carry a RepoDigest), so anything removed can be pulled again.
+            // A locally built image never qualifies, whatever a tenant names its own image.
+            if (!(image.get("RepoDigests") instanceof List<?> digests) || digests.isEmpty()) continue;
             if (!isCloudBaseImage(refsOf(image), tenantRepos, namespace)) continue;
             if (Boolean.TRUE.equals(portainer.removeImageIfUnused(id).block(Duration.ofSeconds(60)))) {
                 removed++;

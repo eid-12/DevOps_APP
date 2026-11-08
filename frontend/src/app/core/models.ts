@@ -379,6 +379,9 @@ export interface HostingSettings {
   publicApiUrl: string;
   dockerNetwork: string;
   volumeRoot: string;
+  cfAccessClientId: string;
+  cfAccessClientSecretConfigured: boolean;
+  cfAccessClientSecretHint: string;
 }
 
 export type HostingSettingsUpdate = Partial<{
@@ -403,4 +406,6 @@ export type HostingSettingsUpdate = Partial<{
   publicApiUrl: string;
   dockerNetwork: string;
   volumeRoot: string;
+  cfAccessClientId: string;
+  cfAccessClientSecret: string;
 }>;

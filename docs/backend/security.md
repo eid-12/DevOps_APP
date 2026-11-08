@@ -28,7 +28,17 @@ Admin Hosting shows “configured” hints, not the raw secret, unless I type a 
 - Public status endpoint returns only container counts: no versions, hardware or component names
 - Spring Boot 3.5.x (supported line); builds on Windows behind TLS inspection need `MAVEN_OPTS=-Djavax.net.ssl.trustStoreType=Windows-ROOT`
 
+- Libraries are checked against OSV (`api.osv.dev`). The Spring Boot BOM is overridden in `pom.xml` where it lags on security fixes (Tomcat, Jackson, Netty, PostgreSQL driver, Log4j API). Two Spring advisories remain on 6.2.x and do not apply: SSE fragment rendering, WebFlux server routes and `XsltView` are not used (fixed only in Spring 7 / Boot 4)
+- nginx 1.30.6 (current stable) for the website and the edge, pinned by digest. The edge reconcile replaces an edge built from an older pinned image and rewrites routes in the same pass
+- Cloudflare Access service token (Admin → Hosting, or `CF_ACCESS_CLIENT_ID`/`CF_ACCESS_CLIENT_SECRET`) is sent on every Portainer and NPM call, so both admin hosts can sit behind Access
+
 ## Known limits (not code-fixable)
+
+- **The admin hosts are public.** `manage.cloudbase.website` (Portainer) and `npm.cloudbase.website` (Nginx Proxy Manager) answer anyone on the internet, over HTTP too, and Portainer's `/api/status` discloses its version. Close them with Cloudflare Access, in this order so nothing breaks:
+  1. Zero Trust → Access → Service Auth: create a service token
+  2. Put its id/secret in Admin → Hosting (API) and in GitHub secrets `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` (deploys)
+  3. Access → Applications: one app for `manage.cloudbase.website` and `npm.cloudbase.website`, policies "your email" (Allow) and the service token (Service Auth)
+  4. SSL/TLS → Edge Certificates: Always Use HTTPS on; redirect the bare `cloudbase.website` to `www`
 
 - Tenant apps are served on `*.cloudbase.website`, the same site as the dashboard. Look-alike names are reserved, but the complete fix is a separate registrable domain for apps (on the Public Suffix List)
 - Hosting secrets (Portainer API key, NPM password, Resend key) are stored unencrypted in Postgres; protect database backups accordingly. Encrypting them needs a dedicated key in the production environment, because losing them on a secret rotation would stop the platform

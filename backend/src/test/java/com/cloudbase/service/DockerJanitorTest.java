@@ -46,8 +46,9 @@ class DockerJanitorTest {
                 "Created", created, "Labels", labels);
     }
 
+    /** A pulled image: it has a registry digest, so removing it is always recoverable by pulling again. */
     private static Map<String, Object> image(String id, String... tags) {
-        return Map.of("Id", id, "RepoTags", List.of(tags), "RepoDigests", List.of());
+        return Map.of("Id", id, "RepoTags", List.of(tags), "RepoDigests", List.of(tags[0].split(":")[0] + "@sha256:" + "0".repeat(64)));
     }
 
     @BeforeEach
@@ -121,6 +122,19 @@ class DockerJanitorTest {
         verify(portainer, never()).removeImageIfUnused("sha256:platform");
         verify(portainer, never()).removeImageIfUnused("sha256:foreign");
         verify(portainer).pruneDanglingImages();
+    }
+
+    @Test
+    void neverRemovesALocallyBuiltImageEvenIfATenantNamesItsRepository() {
+        when(services.findAll()).thenReturn(List.of(ServiceEntity.builder().id("svc-live")
+                .sourceDetails(Map.of("imageName", "cloudbase-egress-guard")).build()));
+        when(portainer.getContainers()).thenReturn(Mono.just(new Object[0]));
+        when(portainer.listImages()).thenReturn(Mono.just(List.of(
+                Map.of("Id", "sha256:local", "RepoTags", List.of("cloudbase-egress-guard:latest"), "RepoDigests", List.of()))));
+
+        janitor.runPass();
+
+        verify(portainer, never()).removeImageIfUnused("sha256:local");
     }
 
     @Test

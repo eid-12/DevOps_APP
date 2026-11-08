@@ -52,6 +52,7 @@ public class PortainerClient {
         this.webClient = webClientBuilder.clone()
                 .baseUrl(url == null || url.isBlank() ? "http://localhost:9000" : url)
                 .defaultHeader("X-API-Key", apiKey == null ? "" : apiKey)
+                .defaultHeaders(h -> settings.cloudflareAccessHeaders().forEach(h::set))
                 .build();
         log.info("Portainer client reloaded (endpointId={})", this.endpointId);
     }

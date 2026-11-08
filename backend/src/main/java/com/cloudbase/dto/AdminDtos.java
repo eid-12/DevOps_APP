@@ -75,7 +75,10 @@ public final class AdminDtos {
             String baseDomain,
             String publicApiUrl,
             String dockerNetwork,
-            String volumeRoot
+            String volumeRoot,
+            String cfAccessClientId,
+            boolean cfAccessClientSecretConfigured,
+            String cfAccessClientSecretHint
     ) {
     }
 
@@ -100,7 +103,9 @@ public final class AdminDtos {
             String baseDomain,
             String publicApiUrl,
             String dockerNetwork,
-            String volumeRoot
+            String volumeRoot,
+            String cfAccessClientId,
+            String cfAccessClientSecret
     ) {
     }
 }

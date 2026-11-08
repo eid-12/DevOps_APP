@@ -50,6 +50,13 @@ public class PlatformSettingsService {
     public static final String DOCKER_NETWORK = "cloudbase.docker.network";
     public static final String VOLUME_ROOT = "cloudbase.volume.root";
 
+    /**
+     * Cloudflare Access service token. When the admin hosts (Portainer, NPM) are behind Cloudflare Access, the API
+     * sends it with every call to them; without it, putting them behind Access would cut the API off.
+     */
+    public static final String CF_ACCESS_CLIENT_ID = "cloudflare.access.client-id";
+    public static final String CF_ACCESS_CLIENT_SECRET = "cloudflare.access.client-secret";
+
     private final PlatformSettingRepository repository;
     private final Map<String, String> defaults = new ConcurrentHashMap<>();
     private final Map<String, String> overrides = new ConcurrentHashMap<>();
@@ -77,7 +84,9 @@ public class PlatformSettingsService {
             @Value("${cloudbase.base-domain:cloudbase.website}") String baseDomain,
             @Value("${cloudbase.public-api-url:}") String publicApiUrl,
             @Value("${cloudbase.docker.network:cloudbase}") String dockerNetwork,
-            @Value("${cloudbase.volume.root:/var/lib/cloudbase/users}") String volumeRoot
+            @Value("${cloudbase.volume.root:/var/lib/cloudbase/users}") String volumeRoot,
+            @Value("${cloudflare.access.client-id:}") String cfAccessClientId,
+            @Value("${cloudflare.access.client-secret:}") String cfAccessClientSecret
     ) {
         this.repository = repository;
         putDefault(PORTAINER_URL, portainerUrl);
@@ -101,6 +110,8 @@ public class PlatformSettingsService {
         putDefault(PUBLIC_API_URL, publicApiUrl);
         putDefault(DOCKER_NETWORK, dockerNetwork);
         putDefault(VOLUME_ROOT, volumeRoot);
+        putDefault(CF_ACCESS_CLIENT_ID, cfAccessClientId);
+        putDefault(CF_ACCESS_CLIENT_SECRET, cfAccessClientSecret);
     }
 
     @PostConstruct
@@ -142,6 +153,16 @@ public class PlatformSettingsService {
         return overrides.containsKey(key);
     }
 
+    /** Cloudflare Access headers for calls to the admin hosts, or none when no service token is set. */
+    public Map<String, String> cloudflareAccessHeaders() {
+        String id = get(CF_ACCESS_CLIENT_ID).trim();
+        String secret = get(CF_ACCESS_CLIENT_SECRET).trim();
+        if (id.isEmpty() || secret.isEmpty()) {
+            return Map.of();
+        }
+        return Map.of("CF-Access-Client-Id", id, "CF-Access-Client-Secret", secret);
+    }
+
     public boolean getBoolean(String key) {
         return Boolean.parseBoolean(get(key));
     }
@@ -181,7 +202,10 @@ public class PlatformSettingsService {
                 get(BASE_DOMAIN),
                 get(PUBLIC_API_URL),
                 get(DOCKER_NETWORK),
-                get(VOLUME_ROOT)
+                get(VOLUME_ROOT),
+                get(CF_ACCESS_CLIENT_ID),
+                configured(CF_ACCESS_CLIENT_SECRET),
+                hint(CF_ACCESS_CLIENT_SECRET)
         );
     }
 
@@ -217,6 +241,8 @@ public class PlatformSettingsService {
         putIfPresent(next, PUBLIC_API_URL, req.publicApiUrl());
         putIfPresent(next, DOCKER_NETWORK, req.dockerNetwork());
         putIfPresent(next, VOLUME_ROOT, req.volumeRoot());
+        putIfPresent(next, CF_ACCESS_CLIENT_ID, req.cfAccessClientId());
+        putSecretIfPresent(next, CF_ACCESS_CLIENT_SECRET, req.cfAccessClientSecret());
 
         String actorLabel = actor != null ? actor.getEmail() : "admin";
         if (next.isEmpty()) {

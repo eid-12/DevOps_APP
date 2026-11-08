@@ -27,10 +27,11 @@ import java.util.regex.Pattern;
 public class EdgeRouter {
 
     private static final Logger log = LoggerFactory.getLogger(EdgeRouter.class);
-    // Pinned by content digest (nginx 1.27-alpine, multi-platform index): a tag can be re-pushed, a digest cannot.
+    // Pinned by content digest (nginx 1.30.6-alpine, multi-platform index): a tag can be re-pushed, a digest cannot.
     // The edge sits between the public proxy and every tenant app, so its image must never change silently.
     static final String IMAGE = "nginx";
-    static final String TAG = "sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10";
+    static final String TAG = "sha256:583b7f2fce1cdb8da5ad5c39ebd3c33b98b87d493190e548bdee1fa8c619c311";
+    static final String IMAGE_LABEL = "cloudbase.edge.image";
 
     /** Reference for container create; {@link #TAG} doubles as the digest Docker pulls when the image is missing. */
     static String imageRef() {
@@ -60,6 +61,21 @@ public class EdgeRouter {
     /** Container NPM forwards to, and the only shared member of tenant project networks. */
     public String edgeName() {
         return edgeName;
+    }
+
+    /**
+     * Removes an edge built from an older pinned image, so the next {@link #ensureEdge()} recreates it on the current
+     * one. Called only from the edge reconcile, which then reattaches project networks and rewrites routes in the same
+     * pass, so tenant routing is down for seconds, once per image change.
+     */
+    public Mono<Boolean> retireIfOutdated() {
+        return portainer.findContainer(edgeName)
+                .flatMap(c -> imageRef().equals(label(c, IMAGE_LABEL))
+                        ? Mono.just(false)
+                        : portainer.removeContainer(edgeName)
+                                .doOnSuccess(v -> log.info("Edge {} runs an outdated image; recreating it on {}", edgeName, imageRef()))
+                                .thenReturn(true))
+                .defaultIfEmpty(false);
     }
 
     /** Edge network with the proxy on it, and a running edge whose access rule matches that network. */
@@ -92,7 +108,7 @@ public class EdgeRouter {
         Map<String, Object> body = Map.of(
                 "Image", imageRef(),
                 "Cmd", List.of("sh", "-c", startScript(subnet)),
-                "Labels", Map.of("cloudbase.role", "edge", SUBNET_LABEL, subnet),
+                "Labels", Map.of("cloudbase.role", "edge", SUBNET_LABEL, subnet, IMAGE_LABEL, imageRef()),
                 "HostConfig", Map.of(
                         "NetworkMode", edgeNetwork,
                         "RestartPolicy", Map.of("Name", "unless-stopped"),
