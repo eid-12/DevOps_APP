@@ -1,0 +1,36 @@
+name: Public homepage languages
+on:
+  push:
+    branches: [seo/cloudbase-localized]
+  pull_request:
+    branches: [master]
+    paths: ['frontend/**', '.github/workflows/localized-home.yml']
+permissions:
+  contents: read
+jobs:
+  frontend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install and audit frontend dependencies
+        working-directory: frontend
+        run: npm ci && npm audit --omit=dev --audit-level=high
+      - name: Build both public homepage languages
+        working-directory: frontend
+        run: npm run build
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
+        with:
+          context: frontend
+          push: false
+          load: true
+          tags: cloudbase-frontend:locales
+      - name: Test localized pages in the actual frontend image
+        run: bash frontend/scripts/smoke-locales.sh cloudbase-frontend:locales

@@ -1,62 +1,39 @@
-import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { AuthService } from '../core/auth.service';
+import { PublicLocaleService } from '../core/public-locale.service';
 import { IconComponent, IconName, IconTone } from '../shared/icon.component';
 import { environment } from '../../environments/environment';
 import { catchError, of, timeout } from 'rxjs';
-
-interface PlatformStatus {
-  online: boolean;
-  activeContainers: number;
-  totalContainers: number;
-  stacks: number;
-  images: number;
-  volumes: number;
-}
-
+interface PlatformStatus { online: boolean; activeContainers: number; totalContainers: number; stacks: number; images: number; volumes: number; }
+const stepIcons: IconName[] = ['github-link', 'shield-check', 'rocket'];
+const stepTones: IconTone[] = ['indigo', 'emerald', 'violet'];
+const featureIcons: IconName[] = ['pipeline', 'lock-shield', 'terminal-live'];
+const featureTones: IconTone[] = ['amber', 'emerald', 'sky'];
 @Component({
   standalone: true,
   imports: [CommonModule, RouterLink, IconComponent],
   template: `
     <div class="page">
-      <!-- Hero -->
       <section class="container hero">
         <div class="hero-grid">
           <div>
-            <span class="pill pill-emerald pill-dot">Now live on cloudbase.website · Self-hosted · Zero cloud bills</span>
-            <h1 class="hero-title">
-              CloudBase: Deploy Your Apps on <span>Private Cloud Infrastructure</span>.
-            </h1>
-            <p class="hero-sub">
-              Zero configuration. Automated GitHub pipelines. Isolated Docker containers.
-              Running entirely on secure private hardware — no AWS, no GCP, no cloud bills.
-            </p>
-            <p class="hero-sub" lang="ar" dir="rtl">&#1603;&#1604;&#1575;&#1608;&#1583; &#1576;&#1610;&#1587; &#1605;&#1606;&#1589;&#1577; &#1604;&#1606;&#1588;&#1585; &#1575;&#1604;&#1578;&#1591;&#1576;&#1610;&#1602;&#1575;&#1578; &#1608;&#1573;&#1583;&#1575;&#1585;&#1578;&#1607;&#1575; &#1593;&#1604;&#1609; &#1576;&#1606;&#1610;&#1577; &#1587;&#1581;&#1575;&#1576;&#1610;&#1577; &#1582;&#1575;&#1589;&#1577;&#1548; &#1605;&#1593; &#1585;&#1576;&#1591; GitHub &#1608;&#1571;&#1578;&#1605;&#1578;&#1577; &#1575;&#1604;&#1606;&#1588;&#1585;.</p>
+            <span class="pill pill-emerald pill-dot">{{ copy().badge }}</span>
+            <h1 class="hero-title">{{ copy().headline }} <span>{{ copy().highlight }}</span></h1>
+            <p class="hero-sub">{{ copy().description }}</p>
             <div class="hero-actions">
-              <a *ngIf="!auth.isAuthenticated()" routerLink="/auth" [queryParams]="{ mode: 'register' }" class="btn btn-primary btn-lg">Get Started Free</a>
-              <a *ngIf="auth.isAuthenticated() && !auth.isAdmin()" routerLink="/dashboard" class="btn btn-primary btn-lg">Open Dashboard</a>
-              <a *ngIf="auth.isAdmin()" routerLink="/admin" class="btn btn-primary btn-lg">Open Admin Console</a>
-              <a *ngIf="!auth.isAuthenticated()" routerLink="/auth" [queryParams]="{ mode: 'login' }" class="btn btn-ghost btn-lg">Sign In</a>
-              <a *ngIf="auth.isAuthenticated() && !auth.isAdmin()" routerLink="/dashboard" class="btn btn-ghost btn-lg">My Projects</a>
+              <a *ngIf="!auth.isAuthenticated()" routerLink="/auth" [queryParams]="{ mode: 'register' }" class="btn btn-primary btn-lg">{{ copy().register }}</a>
+              <a *ngIf="auth.isAuthenticated() && !auth.isAdmin()" routerLink="/dashboard" class="btn btn-primary btn-lg">{{ copy().dashboard }}</a>
+              <a *ngIf="auth.isAdmin()" routerLink="/admin" class="btn btn-primary btn-lg">{{ copy().admin }}</a>
+              <a *ngIf="!auth.isAuthenticated()" routerLink="/auth" [queryParams]="{ mode: 'login' }" class="btn btn-ghost btn-lg">{{ copy().login }}</a>
             </div>
-            <p class="hero-note">No credit card required · Free plan for every account</p>
-
-            <div class="live-bar" role="status" aria-live="polite">
-              <span>{{ liveStatus() }}</span>
-              <span>·</span>
-              <span>{{ connectionLabel() }}</span>
-            </div>
+            <p class="hero-note">{{ copy().note }}</p>
+            <div class="live-bar" role="status" aria-live="polite"><span>{{ liveStatus() }}</span><span>·</span><span>{{ connectionLabel() }}</span></div>
           </div>
-
-          <div class="terminal" aria-hidden="true">
-            <div class="terminal-bar">
-              <span class="terminal-dot red"></span>
-              <span class="terminal-dot yellow"></span>
-              <span class="terminal-dot green"></span>
-              <span class="terminal-title">bash — ~/portfolio</span>
-            </div>
+          <div class="terminal" aria-hidden="true" dir="ltr">
+            <div class="terminal-bar"><span class="terminal-dot red"></span><span class="terminal-dot yellow"></span><span class="terminal-dot green"></span><span class="terminal-title">bash — ~/portfolio</span></div>
             <div class="terminal-body">
               <div><span class="prompt">you&#64;laptop:~/portfolio$</span> <span class="cmd">{{ typedCommand() }}</span><span class="cursor">▊</span></div>
               <div *ngFor="let line of visibleLines()" [class]="line.cls">{{ line.text }}</div>
@@ -64,67 +41,38 @@ interface PlatformStatus {
           </div>
         </div>
       </section>
-
-      <!-- Platform Metrics -->
       <section class="container section-spaced-sm">
         <div class="metrics-bar">
-          <span class="pill" [class.pill-emerald]="portainerOk()" [class.pill-red]="!portainerOk()" [class.pill-dot]="portainerOk()">
-            {{ portainerOk() ? 'Live platform status' : 'Status unavailable' }}
-          </span>
-          <button class="btn btn-ghost btn-sm" (click)="loadPortainerMetrics()" [disabled]="metricsLoading()">
-            {{ metricsLoading() ? 'Refreshing...' : '↻ Refresh metrics' }}
-          </button>
+          <span class="pill" [class.pill-emerald]="portainerOk()" [class.pill-red]="!portainerOk()" [class.pill-dot]="portainerOk()">{{ portainerOk() ? copy().live : copy().unavailable }}</span>
+          <button class="btn btn-ghost btn-sm" (click)="loadPortainerMetrics()" [disabled]="metricsLoading()">{{ metricsLoading() ? copy().refreshing : copy().refresh }}</button>
         </div>
-        <div class="grid grid-4 landing-stats">
-          <div class="panel stat-card" *ngFor="let stat of stats()">
-            <div class="stat-value">{{ stat.value }}</div>
-            <div class="stat-label">{{ stat.label }}</div>
-          </div>
-        </div>
+        <div class="grid grid-4 landing-stats"><div class="panel stat-card" *ngFor="let stat of stats()"><div class="stat-value">{{ stat.value }}</div><div class="stat-label">{{ stat.label }}</div></div></div>
       </section>
-
-      <!-- How It Works -->
       <section class="container section-spaced">
-        <p class="section-label">How It Works</p>
-        <h2 class="section-title">Infrastructure Flow</h2>
+        <p class="section-label">{{ copy().how }}</p><h2 class="section-title">{{ copy().flow }}</h2>
         <div class="steps-flow section-gap">
-          <ng-container *ngFor="let step of steps; let i = index; let last = last">
-            <article class="panel step-card">
-              <app-icon [name]="step.icon" [tone]="step.tone" size="lg"></app-icon>
-              <div class="pill pill-slate">0{{ i + 1 }}</div>
-              <h3>{{ step.title }}</h3>
-              <p class="muted">{{ step.desc }}</p>
-            </article>
-            <div class="step-arrow" *ngIf="!last" aria-hidden="true">→</div>
+          <ng-container *ngFor="let step of steps(); let i = index; let last = last">
+            <article class="panel step-card"><app-icon [name]="step.icon" [tone]="step.tone" size="lg"></app-icon><div class="pill pill-slate">0{{ i + 1 }}</div><h3>{{ step.title }}</h3><p class="muted">{{ step.desc }}</p></article>
+            <div class="step-arrow" *ngIf="!last" aria-hidden="true">{{ copy().arrow }}</div>
           </ng-container>
         </div>
       </section>
-
-      <!-- Core Capabilities -->
       <section class="container section-spaced">
-        <p class="section-label">Core Capabilities</p>
-        <h2 class="section-title">Everything you need, nothing you don't</h2>
-        <div class="grid grid-3 section-gap">
-          <article class="panel panel-glow feature-card" *ngFor="let feat of features">
-            <app-icon [name]="feat.icon" [tone]="feat.tone"></app-icon>
-            <h3 class="feature-card-title">{{ feat.title }}</h3>
-            <p class="muted feature-card-desc">{{ feat.desc }}</p>
-            <div class="feature-tags">
-              <span class="pill pill-indigo" *ngFor="let tag of feat.tags">{{ tag }}</span>
-            </div>
-          </article>
-        </div>
+        <p class="section-label">{{ copy().capabilities }}</p><h2 class="section-title">{{ copy().capabilitiesTitle }}</h2>
+        <div class="grid grid-3 section-gap"><article class="panel panel-glow feature-card" *ngFor="let feat of features()">
+          <app-icon [name]="feat.icon" [tone]="feat.tone"></app-icon><h3 class="feature-card-title">{{ feat.title }}</h3><p class="muted feature-card-desc">{{ feat.desc }}</p>
+          <div class="feature-tags"><span class="pill pill-indigo" *ngFor="let tag of feat.tags">{{ tag }}</span></div>
+        </article></div>
       </section>
-
-      <!-- Infrastructure Stack -->
       <section class="container section-spaced">
-        <p class="section-label">Infrastructure Stack</p>
-        <h2 class="section-title">Battle-tested open-source, zero vendor lock-in</h2>
-        <div class="stack-grid section-gap">
-          <div class="stack-badge" *ngFor="let item of stack">
-            <strong>{{ item.role }}</strong>
-            {{ item.name }}
-          </div>
+        <p class="section-label">{{ copy().infrastructure }}</p><h2 class="section-title">{{ copy().stackTitle }}</h2>
+        <div class="stack-grid section-gap"><div class="stack-badge" *ngFor="let item of stack()"><strong>{{ item.role }}</strong>{{ item.name }}</div></div>
+      </section>
+      <section class="container section-spaced">
+        <h2 class="section-title">{{ copy().projects }}</h2>
+        <div class="grid grid-2 section-gap">
+          <a class="panel public-project-link" [href]="locale.language() === 'ar' ? 'https://mawrid.cloudbase.website/ar/' : 'https://mawrid.cloudbase.website/'">{{ copy().mawrid }}</a>
+          <a class="panel public-project-link" href="https://maps.cloudbase.website/">{{ copy().maps }}</a>
         </div>
       </section>
     </div>
@@ -132,42 +80,22 @@ interface PlatformStatus {
 })
 export class LandingPageComponent implements OnInit, OnDestroy {
   readonly auth = inject(AuthService);
+  readonly locale = inject(PublicLocaleService);
+  readonly copy = this.locale.copy;
   private readonly http = inject(HttpClient);
-
-  readonly stats = signal([
-    { value: '— / —', label: 'Active Containers' },
-    { value: '—', label: 'Active Stacks' },
-    { value: '—', label: 'Docker Images' },
-    { value: '—', label: 'Volumes' }
-  ]);
-
+  private readonly metrics = signal<PlatformStatus | null>(null);
   readonly metricsLoading = signal(false);
-  readonly portainerOk = signal(false);
-  readonly liveStatus = signal('Checking platform status…');
-  readonly connectionLabel = signal('One moment');
-
-  readonly steps: Array<{ icon: IconName; tone: IconTone; title: string; desc: string }> = [
-    { icon: 'github-link', tone: 'indigo', title: 'Link GitHub', desc: 'Connect GitHub with OAuth and pick a repository you can push to. CloudBase adds a Dockerfile if it has none, a build workflow and a deploy webhook.' },
-    { icon: 'shield-check', tone: 'emerald', title: 'Admin Approves', desc: 'An admin enables Deploy for your account. Every account gets the same fixed RAM, CPU and storage pool.' },
-    { icon: 'rocket', tone: 'violet', title: 'Automatic Deployment', desc: 'Every git push builds a new image with GitHub Actions and rolls out your container over HTTPS.' }
-  ];
-
-  readonly features: Array<{ icon: IconName; tone: IconTone; title: string; desc: string; tags: string[] }> = [
-    { icon: 'pipeline', tone: 'amber', title: 'Automated Pipelines', desc: 'GitHub Actions builds on every push and publishes the image to the GitHub Container Registry of that same repository. CloudBase never writes secrets into your repository.', tags: ['Webhooks', 'GitHub Actions', 'GHCR'] },
-    { icon: 'lock-shield', tone: 'emerald', title: 'Project Isolation', desc: 'Each project gets its own Docker network and every service its own container with CPU and RAM limits. Add PostgreSQL, MySQL, MongoDB or Redis as private services.', tags: ['Per-project network', 'Resource limits', 'Private databases'] },
-    { icon: 'terminal-live', tone: 'sky', title: 'Live deploy trail', desc: 'Watch Queued → Building → Deploying → Verify on the service page, then open container logs and an HTTP shell when the stack is running.', tags: ['Deploy stages', 'Logs', 'Exec'] }
-  ];
-
-  readonly stack = [
-    // Product-level choices only: naming the host OS, runtime or admin panels would help attackers fingerprint it.
-    { role: 'Containers', name: 'Docker' },
-    { role: 'Edge & HTTPS', name: 'Cloudflare' },
-    { role: 'Builds', name: 'GitHub Actions' },
-    { role: 'Registry', name: 'GitHub Container Registry' },
-    { role: 'Databases', name: 'PostgreSQL · MySQL · MongoDB · Redis' },
-    { role: 'Platform', name: 'Spring Boot · Angular' }
-  ];
-
+  readonly portainerOk = computed(() => this.metrics()?.online ?? false);
+  readonly liveStatus = computed(() => !this.metrics() ? this.copy().checking : this.portainerOk() ? this.copy().online : this.copy().offline);
+  readonly connectionLabel = computed(() => !this.metrics() ? this.copy().moment : this.portainerOk() ? this.copy().runningCount.replace('{count}', String(this.metrics()!.activeContainers)) : this.copy().keepRunning);
+  readonly stats = computed(() => {
+    const m = this.metrics(), c = this.copy().statLabels, ok = m?.online;
+    return [{ value: ok ? String(m.activeContainers) + ' / ' + String(m.totalContainers || m.activeContainers) : '— / —', label: c.containers },
+      { value: ok ? String(m.stacks) : '—', label: c.stacks }, { value: ok ? String(m.images) : '—', label: c.images }, { value: ok ? String(m.volumes) : '—', label: c.volumes }];
+  });
+  readonly steps = computed(() => this.copy().steps.map((s, i) => ({ title: s[0], desc: s[1], icon: stepIcons[i], tone: stepTones[i] })));
+  readonly features = computed<Array<{title: string; desc: string; tags: string[]; icon: IconName; tone: IconTone}>>(() => this.copy().features.map((f, i) => ({ ...f, tags: [...f.tags], icon: featureIcons[i], tone: featureTones[i] })));
+  readonly stack = computed(() => ['Docker', 'Cloudflare', 'GitHub Actions', 'GHCR', 'PostgreSQL · MySQL · MongoDB · Redis', 'Spring Boot · Angular'].map((name, i) => ({ name, role: this.copy().stackRoles[i] })));
   readonly terminalLines = [
     { text: 'GitHub Actions → building image...', cls: '' },
     { text: '✓ Published ghcr.io/you/portfolio:3f9c2a1', cls: 'success' },
@@ -176,72 +104,19 @@ export class LandingPageComponent implements OnInit, OnDestroy {
     { text: '✓ HTTPS live → cloudbase8472.cloudbase.website', cls: 'success' },
     { text: '══ Deploy succeeded ══', cls: 'highlight' }
   ];
-
   readonly fullCommand = 'git push origin main';
   readonly typedCommand = signal('');
-  readonly visibleLines = signal<{ text: string; cls: string }[]>([]);
-
+  readonly visibleLines = signal<{text: string; cls: string}[]>([]);
   private timers: ReturnType<typeof setTimeout>[] = [];
-
-  ngOnInit() {
-    this.runTerminalAnimation();
-    this.loadPortainerMetrics();
-  }
-
-  ngOnDestroy() {
-    this.timers.forEach(clearTimeout);
-  }
-
+  ngOnInit() { this.runTerminalAnimation(); this.loadPortainerMetrics(); }
+  ngOnDestroy() { this.timers.forEach(clearTimeout); }
   loadPortainerMetrics() {
     this.metricsLoading.set(true);
     const base = environment.apiBaseUrl || '/api';
-    this.http
-      .get<PlatformStatus>(`${base}/public/platform-status`, {
-        headers: { 'X-Skip-Spinner': '1' }
-      })
-      .pipe(
-        timeout(10000),
-        catchError(() =>
-          of({
-            online: false,
-            activeContainers: 0,
-            totalContainers: 0,
-            stacks: 0,
-            images: 0,
-            volumes: 0
-          } satisfies PlatformStatus)
-        )
-      )
-      .subscribe((metrics) => {
-        this.metricsLoading.set(false);
-        this.portainerOk.set(metrics.online);
-
-        if (!metrics.online) {
-          this.liveStatus.set('Live status is unavailable right now');
-          this.connectionLabel.set('Deployed apps keep running');
-          this.stats.set([
-            { value: '— / —', label: 'Active Containers' },
-            { value: '—', label: 'Active Stacks' },
-            { value: '—', label: 'Docker Images' },
-            { value: '—', label: 'Volumes' }
-          ]);
-          return;
-        }
-
-        this.liveStatus.set('All systems operational');
-        this.connectionLabel.set(`${metrics.activeContainers} containers running`);
-        this.stats.set([
-          {
-            value: `${metrics.activeContainers} / ${metrics.totalContainers || metrics.activeContainers}`,
-            label: 'Active Containers'
-          },
-          { value: `${metrics.stacks}`, label: 'Active Stacks' },
-          { value: `${metrics.images}`, label: 'Docker Images' },
-          { value: `${metrics.volumes}`, label: 'Volumes' }
-        ]);
-      });
+    this.http.get<PlatformStatus>(base + '/public/platform-status', { headers: { 'X-Skip-Spinner': '1' } })
+      .pipe(timeout(10000), catchError(() => of({online:false,activeContainers:0,totalContainers:0,stacks:0,images:0,volumes:0} satisfies PlatformStatus)))
+      .subscribe(m => { this.metrics.set(m); this.metricsLoading.set(false); });
   }
-
   private runTerminalAnimation() {
     if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) {
       this.typedCommand.set(this.fullCommand);

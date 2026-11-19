@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { PublicLocaleService } from '../core/public-locale.service';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs/operators';
 import { AuthService } from '../core/auth.service';
@@ -28,21 +29,22 @@ import { PressableDirective } from '../shared/directives/pressable.directive';
   ],
   template: `
     <div [class.app-shell-footer-hidden]="auth.isAuthenticated()">
-    <header class="navbar">
+    <header class="navbar" [class.public-home-header]="locale.isHome()">
       <div class="container navbar-inner">
         <a [routerLink]="auth.isAuthenticated() ? '/dashboard' : '/'" class="navbar-brand" appPressable
-           (click)="closeMenu()" aria-label="CloudBase home">
+           (click)="closeMenu()" [attr.aria-label]="copy().homeLabel">
           <app-icon name="cloud" tone="violet" size="sm"></app-icon>
           CloudBase
         </a>
 
+        <a *ngIf="locale.isHome()" [href]="locale.language() === 'ar' ? '/' : '/ar/'" class="public-language-link" [attr.lang]="locale.language() === 'ar' ? 'en' : 'ar'">{{ copy().switchLanguage }}</a>
         <button
           type="button"
           class="navbar-toggle"
           appPressable
           (click)="toggleMenu()"
           [attr.aria-expanded]="menuOpen()"
-          aria-label="Toggle navigation menu"
+          [attr.aria-label]="copy().menuLabel"
         >
           <span class="navbar-toggle-bar"></span>
           <span class="navbar-toggle-bar"></span>
@@ -50,7 +52,7 @@ import { PressableDirective } from '../shared/directives/pressable.directive';
         </button>
 
         <div class="navbar-menu" [class.is-open]="menuOpen()">
-          <nav class="navbar-links" aria-label="Main">
+          <nav class="navbar-links" [attr.aria-label]="copy().nav">
             <ng-container *appHasRole="'AUTH'">
               <a routerLink="/dashboard" routerLinkActive="active" ariaCurrentWhenActive="page" class="nav-link" (click)="closeMenu()">Projects</a>
               <a routerLink="/billing" routerLinkActive="active" ariaCurrentWhenActive="page" class="nav-link" (click)="closeMenu()">Usage</a>
@@ -61,8 +63,8 @@ import { PressableDirective } from '../shared/directives/pressable.directive';
 
           <div class="navbar-actions">
             <ng-container *appHasRole="'GUEST'">
-              <a routerLink="/auth" [queryParams]="{ mode: 'login' }" class="btn btn-ghost btn-sm" appPressable (click)="closeMenu()">Sign in</a>
-              <a routerLink="/auth" [queryParams]="{ mode: 'register' }" class="btn btn-primary btn-sm" appPressable (click)="closeMenu()">Get started</a>
+              <a routerLink="/auth" [queryParams]="{ mode: 'login' }" class="btn btn-ghost btn-sm" appPressable (click)="closeMenu()">{{ copy().login }}</a>
+              <a routerLink="/auth" [queryParams]="{ mode: 'register' }" class="btn btn-primary btn-sm" appPressable (click)="closeMenu()">{{ copy().register }}</a>
             </ng-container>
             <ng-container *appHasRole="'AUTH'">
               <app-notification-bell></app-notification-bell>
@@ -84,7 +86,7 @@ import { PressableDirective } from '../shared/directives/pressable.directive';
 
     <footer class="footer">
       <div class="container footer-inner">
-        <span class="footer-copy">© 2026 CloudBase · Hosted locally on private secure hardware · All rights reserved</span>
+        <span class="footer-copy">{{ copy().footer }}</span>
         <div *appHasRole="'GUEST'" id="contact" class="footer-contact">
           <a class="footer-contact-link" [href]="'mailto:' + contactEmail">
             <app-icon name="mail" tone="sky" size="sm"></app-icon>
@@ -112,6 +114,8 @@ import { PressableDirective } from '../shared/directives/pressable.directive';
 })
 export class MainLayoutComponent {
   readonly auth = inject(AuthService);
+  readonly locale = inject(PublicLocaleService);
+  readonly copy = this.locale.copy;
   private readonly router = inject(Router);
   readonly menuOpen = signal(false);
 

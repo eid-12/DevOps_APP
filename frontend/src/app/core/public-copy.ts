@@ -1,0 +1,191 @@
+// Public homepage translations; account screens retain their existing language.
+export const publicCopy = {
+  "en": {
+    "badge": "CloudBase \u00b7 Self-hosted app deployment",
+    "headline": "CloudBase: Deploy your apps on",
+    "highlight": "private cloud infrastructure.",
+    "description": "Connect a GitHub repository or Docker image, deploy applications and manage private databases from one platform.",
+    "register": "Get started",
+    "login": "Sign in",
+    "dashboard": "Open dashboard",
+    "admin": "Open admin console",
+    "myProjects": "My projects",
+    "note": "Choose a project, configure your service and follow its deployment.",
+    "checking": "Checking platform status\u2026",
+    "moment": "One moment",
+    "offline": "Live status is unavailable right now",
+    "keepRunning": "Deployed apps keep running",
+    "online": "All systems operational",
+    "runningCount": "{count} containers running",
+    "live": "Live platform status",
+    "unavailable": "Status unavailable",
+    "refreshing": "Refreshing\u2026",
+    "refresh": "Refresh metrics",
+    "statLabels": {
+      "containers": "Active containers",
+      "stacks": "Active stacks",
+      "images": "Docker images",
+      "volumes": "Volumes"
+    },
+    "how": "How it works",
+    "flow": "From repository to running application",
+    "arrow": "\u2192",
+    "steps": [
+      [
+        "Connect your project",
+        "Connect GitHub and select a repository you can push to, or use a Docker image."
+      ],
+      [
+        "Configure access and resources",
+        "An administrator enables deployment. Your services use the resource limits assigned to your account."
+      ],
+      [
+        "Deploy and follow progress",
+        "Follow image builds, deployment status and application logs, then open your service over HTTPS."
+      ]
+    ],
+    "capabilities": "Platform features",
+    "capabilitiesTitle": "Tools for deploying and managing your apps",
+    "features": [
+      {
+        "title": "Automated pipelines",
+        "desc": "Build images with GitHub Actions and deploy application updates from your project.",
+        "tags": [
+          "GitHub Actions",
+          "Webhooks",
+          "GHCR"
+        ]
+      },
+      {
+        "title": "Project isolation",
+        "desc": "Keep project services on separate Docker networks and apply CPU and memory limits. Add private database services when needed.",
+        "tags": [
+          "Private networks",
+          "Resource limits",
+          "Databases"
+        ]
+      },
+      {
+        "title": "Deployment visibility",
+        "desc": "Follow deployment stages, check service logs and inspect running applications from one dashboard.",
+        "tags": [
+          "Status",
+          "Logs",
+          "Services"
+        ]
+      }
+    ],
+    "infrastructure": "Technology",
+    "stackTitle": "Built with established open-source tools",
+    "stackRoles": [
+      "Containers",
+      "Edge and HTTPS",
+      "Builds",
+      "Registry",
+      "Databases",
+      "Platform"
+    ],
+    "projects": "Explore projects",
+    "mawrid": "Mawrid: university equipment loans and booking requests.",
+    "maps": "Wakeb Maps: place search, interactive maps and saved locations.",
+    "switchLanguage": "\u0627\u0644\u0639\u0631\u0628\u064a\u0629",
+    "homeLabel": "CloudBase home",
+    "menuLabel": "Toggle navigation menu",
+    "nav": "Main",
+    "footer": "\u00a9 2026 CloudBase \u00b7 Private application deployment \u00b7 All rights reserved"
+  },
+  "ar": {
+    "badge": "\u0643\u0644\u0627\u0648\u062f \u0628\u064a\u0633 \u00b7 \u0646\u0634\u0631 \u0627\u0644\u062a\u0637\u0628\u064a\u0642\u0627\u062a \u0639\u0644\u0649 \u0633\u062d\u0627\u0628\u0629 \u062e\u0627\u0635\u0629",
+    "headline": "\u0643\u0644\u0627\u0648\u062f \u0628\u064a\u0633",
+    "highlight": "\u0627\u0646\u0634\u0631 \u062a\u0637\u0628\u064a\u0642\u0627\u062a\u0643 \u0639\u0644\u0649 \u0633\u062d\u0627\u0628\u0629 \u062e\u0627\u0635\u0629",
+    "description": "\u0627\u0631\u0628\u0637 \u0645\u0633\u062a\u0648\u062f\u0639 GitHub \u0623\u0648 \u0635\u0648\u0631\u0629 Docker\u060c \u0648\u0627\u0646\u0634\u0631 \u0627\u0644\u062a\u0637\u0628\u064a\u0642\u0627\u062a \u0648\u0623\u062f\u0631 \u0642\u0648\u0627\u0639\u062f \u0627\u0644\u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u062e\u0627\u0635\u0629 \u0645\u0646 \u0645\u0646\u0635\u0629 \u0648\u0627\u062d\u062f\u0629.",
+    "register": "\u0627\u0628\u062f\u0623 \u0627\u0644\u0622\u0646",
+    "login": "\u062a\u0633\u062c\u064a\u0644 \u0627\u0644\u062f\u062e\u0648\u0644",
+    "dashboard": "\u0627\u0641\u062a\u062d \u0644\u0648\u062d\u0629 \u0627\u0644\u062a\u062d\u0643\u0645",
+    "admin": "\u0627\u0641\u062a\u062d \u0644\u0648\u062d\u0629 \u0627\u0644\u0625\u062f\u0627\u0631\u0629",
+    "myProjects": "\u0645\u0634\u0627\u0631\u064a\u0639\u064a",
+    "note": "\u0627\u062e\u062a\u0631 \u0645\u0634\u0631\u0648\u0639\u0643\u060c \u0648\u0627\u0636\u0628\u0637 \u062e\u062f\u0645\u062a\u0643\u060c \u0648\u062a\u0627\u0628\u0639 \u0645\u0631\u0627\u062d\u0644 \u0627\u0644\u0646\u0634\u0631.",
+    "checking": "\u062c\u0627\u0631\u064d \u0627\u0644\u062a\u062d\u0642\u0642 \u0645\u0646 \u062d\u0627\u0644\u0629 \u0627\u0644\u0645\u0646\u0635\u0629\u2026",
+    "moment": "\u0644\u062d\u0638\u0629 \u0648\u0627\u062d\u062f\u0629",
+    "offline": "\u062d\u0627\u0644\u0629 \u0627\u0644\u0645\u0646\u0635\u0629 \u0627\u0644\u0645\u0628\u0627\u0634\u0631\u0629 \u063a\u064a\u0631 \u0645\u062a\u0627\u062d\u0629 \u062d\u0627\u0644\u064a\u064b\u0627",
+    "keepRunning": "\u0627\u0644\u062a\u0637\u0628\u064a\u0642\u0627\u062a \u0627\u0644\u0645\u0646\u0634\u0648\u0631\u0629 \u062a\u0648\u0627\u0635\u0644 \u0627\u0644\u0639\u0645\u0644",
+    "online": "\u0627\u0644\u0623\u0646\u0638\u0645\u0629 \u062a\u0639\u0645\u0644",
+    "runningCount": "\u0639\u062f\u062f \u0627\u0644\u062d\u0627\u0648\u064a\u0627\u062a \u0627\u0644\u0639\u0627\u0645\u0644\u0629: {count}",
+    "live": "\u062d\u0627\u0644\u0629 \u0627\u0644\u0645\u0646\u0635\u0629 \u0627\u0644\u0645\u0628\u0627\u0634\u0631\u0629",
+    "unavailable": "\u0627\u0644\u062d\u0627\u0644\u0629 \u063a\u064a\u0631 \u0645\u062a\u0627\u062d\u0629",
+    "refreshing": "\u062c\u0627\u0631\u064d \u0627\u0644\u062a\u062d\u062f\u064a\u062b\u2026",
+    "refresh": "\u062a\u062d\u062f\u064a\u062b \u0627\u0644\u062d\u0627\u0644\u0629",
+    "statLabels": {
+      "containers": "\u0627\u0644\u062d\u0627\u0648\u064a\u0627\u062a \u0627\u0644\u0639\u0627\u0645\u0644\u0629",
+      "stacks": "\u0645\u062c\u0645\u0648\u0639\u0627\u062a \u0627\u0644\u062e\u062f\u0645\u0627\u062a",
+      "images": "\u0635\u0648\u0631 Docker",
+      "volumes": "\u0648\u062d\u062f\u0627\u062a \u0627\u0644\u062a\u062e\u0632\u064a\u0646"
+    },
+    "how": "\u0643\u064a\u0641 \u062a\u0639\u0645\u0644 \u0627\u0644\u0645\u0646\u0635\u0629\u061f",
+    "flow": "\u0645\u0646 \u0627\u0644\u0645\u0633\u062a\u0648\u062f\u0639 \u0625\u0644\u0649 \u062a\u0637\u0628\u064a\u0642 \u064a\u0639\u0645\u0644",
+    "arrow": "\u2190",
+    "steps": [
+      [
+        "\u0627\u0631\u0628\u0637 \u0645\u0634\u0631\u0648\u0639\u0643",
+        "\u0627\u0631\u0628\u0637 GitHub \u0648\u0627\u062e\u062a\u0631 \u0645\u0633\u062a\u0648\u062f\u0639\u064b\u0627 \u062a\u0645\u0644\u0643 \u0635\u0644\u0627\u062d\u064a\u0629 \u0627\u0644\u0646\u0634\u0631 \u0625\u0644\u064a\u0647\u060c \u0623\u0648 \u0627\u0633\u062a\u062e\u062f\u0645 \u0635\u0648\u0631\u0629 Docker."
+      ],
+      [
+        "\u0627\u0636\u0628\u0637 \u0627\u0644\u0635\u0644\u0627\u062d\u064a\u0627\u062a \u0648\u0627\u0644\u0645\u0648\u0627\u0631\u062f",
+        "\u064a\u064f\u0641\u0639\u0651\u0644 \u0627\u0644\u0645\u0633\u0624\u0648\u0644 \u0635\u0644\u0627\u062d\u064a\u0629 \u0627\u0644\u0646\u0634\u0631. \u062a\u0639\u0645\u0644 \u062e\u062f\u0645\u0627\u062a\u0643 \u0636\u0645\u0646 \u062d\u062f\u0648\u062f \u0627\u0644\u0645\u0648\u0627\u0631\u062f \u0627\u0644\u0645\u062e\u0635\u0635\u0629 \u0644\u062d\u0633\u0627\u0628\u0643."
+      ],
+      [
+        "\u0627\u0646\u0634\u0631 \u0648\u062a\u0627\u0628\u0639 \u0627\u0644\u062a\u0642\u062f\u0645",
+        "\u062a\u0627\u0628\u0639 \u0628\u0646\u0627\u0621 \u0627\u0644\u0635\u0648\u0631 \u0648\u062d\u0627\u0644\u0629 \u0627\u0644\u0646\u0634\u0631 \u0648\u0633\u062c\u0644\u0627\u062a \u0627\u0644\u062a\u0637\u0628\u064a\u0642\u060c \u062b\u0645 \u0627\u0641\u062a\u062d \u062e\u062f\u0645\u062a\u0643 \u0639\u0628\u0631 HTTPS."
+      ]
+    ],
+    "capabilities": "\u0645\u0632\u0627\u064a\u0627 \u0627\u0644\u0645\u0646\u0635\u0629",
+    "capabilitiesTitle": "\u0623\u062f\u0648\u0627\u062a \u0644\u0646\u0634\u0631 \u062a\u0637\u0628\u064a\u0642\u0627\u062a\u0643 \u0648\u0625\u062f\u0627\u0631\u062a\u0647\u0627",
+    "features": [
+      {
+        "title": "\u0645\u0633\u0627\u0631\u0627\u062a \u0646\u0634\u0631 \u0622\u0644\u064a\u0629",
+        "desc": "\u0627\u0628\u0646\u0650 \u0627\u0644\u0635\u0648\u0631 \u0628\u0627\u0633\u062a\u062e\u062f\u0627\u0645 GitHub Actions \u0648\u0627\u0646\u0634\u0631 \u062a\u062d\u062f\u064a\u062b\u0627\u062a \u0627\u0644\u062a\u0637\u0628\u064a\u0642\u0627\u062a \u0645\u0646 \u0645\u0634\u0631\u0648\u0639\u0643.",
+        "tags": [
+          "GitHub Actions",
+          "Webhooks",
+          "GHCR"
+        ]
+      },
+      {
+        "title": "\u0639\u0632\u0644 \u0627\u0644\u0645\u0634\u0627\u0631\u064a\u0639",
+        "desc": "\u0627\u0641\u0635\u0644 \u062e\u062f\u0645\u0627\u062a \u0627\u0644\u0645\u0634\u0627\u0631\u064a\u0639 \u0628\u0634\u0628\u0643\u0627\u062a Docker \u0645\u0633\u062a\u0642\u0644\u0629 \u0648\u062d\u062f\u0651\u062f \u0627\u0633\u062a\u0647\u0644\u0627\u0643 \u0627\u0644\u0645\u0639\u0627\u0644\u062c \u0648\u0627\u0644\u0630\u0627\u0643\u0631\u0629\u060c \u0648\u0623\u0636\u0641 \u0642\u0648\u0627\u0639\u062f \u0628\u064a\u0627\u0646\u0627\u062a \u062e\u0627\u0635\u0629 \u0639\u0646\u062f \u0627\u0644\u062d\u0627\u062c\u0629.",
+        "tags": [
+          "\u0634\u0628\u0643\u0627\u062a \u062e\u0627\u0635\u0629",
+          "\u062d\u062f\u0648\u062f \u0627\u0644\u0645\u0648\u0627\u0631\u062f",
+          "\u0642\u0648\u0627\u0639\u062f \u0627\u0644\u0628\u064a\u0627\u0646\u0627\u062a"
+        ]
+      },
+      {
+        "title": "\u0648\u0636\u0648\u062d \u0645\u0631\u0627\u062d\u0644 \u0627\u0644\u0646\u0634\u0631",
+        "desc": "\u062a\u0627\u0628\u0639 \u0645\u0631\u0627\u062d\u0644 \u0627\u0644\u0646\u0634\u0631\u060c \u0648\u0627\u0641\u062d\u0635 \u0633\u062c\u0644\u0627\u062a \u0627\u0644\u062e\u062f\u0645\u0627\u062a\u060c \u0648\u0631\u0627\u062c\u0639 \u0627\u0644\u062a\u0637\u0628\u064a\u0642\u0627\u062a \u0627\u0644\u0639\u0627\u0645\u0644\u0629 \u0645\u0646 \u0644\u0648\u062d\u0629 \u0648\u0627\u062d\u062f\u0629.",
+        "tags": [
+          "\u0627\u0644\u062d\u0627\u0644\u0629",
+          "\u0627\u0644\u0633\u062c\u0644\u0627\u062a",
+          "\u0627\u0644\u062e\u062f\u0645\u0627\u062a"
+        ]
+      }
+    ],
+    "infrastructure": "\u0627\u0644\u062a\u0642\u0646\u064a\u0627\u062a \u0627\u0644\u0645\u0633\u062a\u062e\u062f\u0645\u0629",
+    "stackTitle": "\u0645\u0628\u0646\u064a\u0629 \u0628\u0623\u062f\u0648\u0627\u062a \u0645\u0641\u062a\u0648\u062d\u0629 \u0627\u0644\u0645\u0635\u062f\u0631 \u0648\u0645\u0639\u0631\u0648\u0641\u0629",
+    "stackRoles": [
+      "\u0627\u0644\u062d\u0627\u0648\u064a\u0627\u062a",
+      "\u0627\u0644\u0627\u062a\u0635\u0627\u0644 \u0648HTTPS",
+      "\u0627\u0644\u0628\u0646\u0627\u0621",
+      "\u0633\u062c\u0644 \u0627\u0644\u0635\u0648\u0631",
+      "\u0642\u0648\u0627\u0639\u062f \u0627\u0644\u0628\u064a\u0627\u0646\u0627\u062a",
+      "\u0627\u0644\u0645\u0646\u0635\u0629"
+    ],
+    "projects": "\u0627\u0643\u062a\u0634\u0641 \u0627\u0644\u0645\u0634\u0627\u0631\u064a\u0639",
+    "mawrid": "\u0645\u0648\u0631\u062f \u0644\u0625\u0639\u0627\u0631\u0629 \u0627\u0644\u0645\u0639\u062f\u0627\u062a \u0627\u0644\u062c\u0627\u0645\u0639\u064a\u0629 \u0648\u0645\u062a\u0627\u0628\u0639\u0629 \u0637\u0644\u0628\u0627\u062a \u0627\u0644\u062d\u062c\u0632.",
+    "maps": "\u0648\u0627\u0643\u0628 \u0645\u0627\u0628\u0632 \u0644\u0644\u0628\u062d\u062b \u0639\u0646 \u0627\u0644\u0623\u0645\u0627\u0643\u0646 \u0648\u0627\u0633\u062a\u0643\u0634\u0627\u0641 \u0627\u0644\u062e\u0631\u0627\u0626\u0637 \u0648\u062d\u0641\u0638 \u0627\u0644\u0645\u0648\u0627\u0642\u0639.",
+    "switchLanguage": "English",
+    "homeLabel": "\u0627\u0644\u0631\u0626\u064a\u0633\u064a\u0629 \u0641\u064a \u0643\u0644\u0627\u0648\u062f \u0628\u064a\u0633",
+    "menuLabel": "\u062a\u0628\u062f\u064a\u0644 \u0639\u0631\u0636 \u0642\u0627\u0626\u0645\u0629 \u0627\u0644\u062a\u0646\u0642\u0644",
+    "nav": "\u0627\u0644\u0642\u0627\u0626\u0645\u0629 \u0627\u0644\u0631\u0626\u064a\u0633\u064a\u0629",
+    "footer": "\u00a9 2026 \u0643\u0644\u0627\u0648\u062f \u0628\u064a\u0633 \u00b7 \u0646\u0634\u0631 \u0627\u0644\u062a\u0637\u0628\u064a\u0642\u0627\u062a \u0639\u0644\u0649 \u0633\u062d\u0627\u0628\u0629 \u062e\u0627\u0635\u0629 \u00b7 \u062c\u0645\u064a\u0639 \u0627\u0644\u062d\u0642\u0648\u0642 \u0645\u062d\u0641\u0648\u0638\u0629"
+  }
+} as const;

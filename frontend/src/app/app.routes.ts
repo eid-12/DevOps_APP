@@ -25,6 +25,11 @@ export const routes: Routes = [
           import('./features/landing/landing.routes').then(m => m.LANDING_ROUTES)
       },
       {
+        path: 'ar',
+        canActivate: [guestGuard],
+        loadChildren: () => import('./features/landing/landing.routes').then(m => m.LANDING_ROUTES)
+      },
+      {
         path: 'auth',
         loadChildren: () =>
           import('./features/auth/auth.routes').then(m => m.AUTH_ROUTES)

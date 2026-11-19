@@ -6,7 +6,7 @@
     "prestart": "node scripts/ensure-env.mjs",
     "start": "ng serve",
     "prebuild": "node scripts/ensure-env.mjs",
-    "build": "ng build"
+    "build": "ng build && node scripts/localize-home.mjs"
   },
   "dependencies": {
     "@angular/animations": "21.2.25",

@@ -1,4 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://www.cloudbase.website/</loc></url>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
+  <url><loc>https://www.cloudbase.website/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.cloudbase.website/" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://www.cloudbase.website/ar/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.cloudbase.website/" />
+  </url>
+  <url><loc>https://www.cloudbase.website/ar/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.cloudbase.website/" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://www.cloudbase.website/ar/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.cloudbase.website/" />
+  </url>
 </urlset>

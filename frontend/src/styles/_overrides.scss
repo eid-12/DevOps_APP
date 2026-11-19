@@ -101,3 +101,30 @@
 }
 .app-shell-footer-hidden .footer { display: none; }
 .app-main { min-height: calc(100vh - 64px); }
+
+.public-language-link {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted-light);
+  font-size: 14px;
+  white-space: nowrap;
+}
+.public-project-link { display: block; padding: 24px; line-height: 1.8; }
+html[lang='ar'] .hero-title { font-family: Tahoma, Arial, sans-serif; font-weight: 700; line-height: 1.6; letter-spacing: normal; }
+html[lang='ar'] .hero-title span { display: block; }
+html[lang='ar'] .section-title { line-height: 1.6; letter-spacing: normal; }
+html[lang='ar'] .section-label,
+html[lang='ar'] .stat-label,
+html[lang='ar'] .pill {
+  font-family: var(--font-family);
+  letter-spacing: normal;
+  text-transform: none;
+}
+@media (max-width: 768px) {
+  .public-home-header .navbar-inner { flex-wrap: nowrap; }
+  .public-home-header .navbar-toggle { margin: 0; }
+}
+@media (max-width: 900px) {
+  html[lang='ar'] .step-arrow { transform: rotate(-90deg); }
+}
