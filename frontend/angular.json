@@ -21,6 +21,7 @@
               "includePaths": ["src/styles"]
             },
             "assets": [
+              {"glob": "**/*", "input": "public", "output": "/"},
               {
                 "glob": "favicon.svg",
                 "input": "src",
