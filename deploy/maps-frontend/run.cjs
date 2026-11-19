@@ -77,4 +77,4 @@ async function api(method, route, body, stream = false) {
     } catch { return false; }
   };
   await deployMaps({release,digest:tag.digest,api,publicHealthy,sleep,record,stableChecks:4,attempts:30});
-})().catch(error => { console.error('[maps-deploy] ' + error.message); process.exitCode = 1; });
+})().catch(error => { console.error('::error title=Maps deployment::' + error.message.replace(/[\r\n]/g, ' ')); process.exitCode = 1; });
