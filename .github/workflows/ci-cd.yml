@@ -40,6 +40,25 @@ jobs:
             exit 1
           fi
 
+      - name: Identify failing backend tests
+        if: failure()
+        working-directory: backend
+        run: |
+          python3 - <<'PY'
+          import glob
+          import xml.etree.ElementTree as ET
+          reports = glob.glob('target/surefire-reports/TEST-*.xml')
+          for filename in reports:
+              root = ET.parse(filename).getroot()
+              for test in root.iter('testcase'):
+                  if test.find('failure') is not None or test.find('error') is not None:
+                      # Test identity only; assertion bodies can contain request or credential fixtures.
+                      identity = test.get('classname', '') + '.' + test.get('name', '')
+                      print('::error title=Backend test failure::' + identity.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+          if not reports:
+              print('::error title=Backend build failure::No test reports were produced; inspect compilation and dependency resolution logs.')
+          PY
+
   frontend:
     name: Frontend build
     runs-on: ubuntu-24.04
