@@ -27,7 +27,7 @@ interface PlatformStatus {
           <div>
             <span class="pill pill-emerald pill-dot">Now live on cloudbase.website · Self-hosted · Zero cloud bills</span>
             <h1 class="hero-title">
-              Deploy Your Apps on Our <span>Private Cloud Infrastructure</span> In Seconds.
+              CloudBase: Deploy Your Apps on <span>Private Cloud Infrastructure</span>.
             </h1>
             <p class="hero-sub">
               Zero configuration. Automated GitHub pipelines. Isolated Docker containers.
