@@ -7,6 +7,10 @@ on:
     branches: [master]
   push:
     branches: [master]
+    paths-ignore:
+      - 'deploy/maps-frontend/**'
+      - 'deploy/maps-release.json'
+      - '.github/workflows/maps-frontend.yml'
 
 permissions:
   contents: read
