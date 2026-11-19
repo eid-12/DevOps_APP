@@ -33,6 +33,7 @@ interface PlatformStatus {
               Zero configuration. Automated GitHub pipelines. Isolated Docker containers.
               Running entirely on secure private hardware — no AWS, no GCP, no cloud bills.
             </p>
+            <p class="hero-sub" lang="ar" dir="rtl">&#1603;&#1604;&#1575;&#1608;&#1583; &#1576;&#1610;&#1587; &#1605;&#1606;&#1589;&#1577; &#1604;&#1606;&#1588;&#1585; &#1575;&#1604;&#1578;&#1591;&#1576;&#1610;&#1602;&#1575;&#1578; &#1608;&#1573;&#1583;&#1575;&#1585;&#1578;&#1607;&#1575; &#1593;&#1604;&#1609; &#1576;&#1606;&#1610;&#1577; &#1587;&#1581;&#1575;&#1576;&#1610;&#1577; &#1582;&#1575;&#1589;&#1577;&#1548; &#1605;&#1593; &#1585;&#1576;&#1591; GitHub &#1608;&#1571;&#1578;&#1605;&#1578;&#1577; &#1575;&#1604;&#1606;&#1588;&#1585;.</p>
             <div class="hero-actions">
               <a *ngIf="!auth.isAuthenticated()" routerLink="/auth" [queryParams]="{ mode: 'register' }" class="btn btn-primary btn-lg">Get Started Free</a>
               <a *ngIf="auth.isAuthenticated() && !auth.isAdmin()" routerLink="/dashboard" class="btn btn-primary btn-lg">Open Dashboard</a>
