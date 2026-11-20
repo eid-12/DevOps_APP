@@ -1,0 +1,34 @@
+name: Clean unused application images
+on:
+  workflow_run:
+    workflows: [CI/CD, Verified Maps frontend deployment]
+    types: [completed]
+    branches: [master]
+  push:
+    branches: [master]
+    paths: [deploy/cleanup-images.cjs, .github/workflows/cleanup-images.yml]
+permissions:
+  contents: read
+jobs:
+  cleanup:
+    if: github.event_name == 'push' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    environment: production
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: master
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '22'
+      - run: node deploy/cleanup-images.cjs --test
+      - run: node deploy/cleanup-images.cjs
+        env:
+          PORTAINER_API_KEY: ${{ secrets.PORTAINER_API_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
