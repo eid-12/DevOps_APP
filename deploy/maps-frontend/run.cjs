@@ -32,7 +32,8 @@ async function api(method, route, body, stream = false) {
     }
     if (!response.ok) {
       if (response.status >= 500 && i + 1 < tries) { await sleep(5000); continue; }
-      throw Error('Portainer HTTP ' + response.status);
+      const layer = response.headers.get('cf-mitigated') === 'challenge' ? 'Cloudflare challenge' : (response.headers.get('content-type') || '').includes('json') ? 'API JSON refusal' : 'gateway or HTML refusal';
+      throw Error('Portainer HTTP ' + response.status + ' during ' + method + ' ' + route.split('?')[0] + ' (' + layer + '); response body withheld');
     }
     if (stream) {
       const text = await response.text();
