@@ -52,8 +52,8 @@ async function deployMaps({ release, digest, api, publicHealthy, sleep, record =
 
   const summary = { target: TARGET, stackId: stack.Id, previousImage: previousRef, previousImageId: oldImage.Id, rollbackImage: rollbackRef, desiredImage: desired, release };
   record({ ...summary, status: 'planned' });
-  await api('POST', docker(`/images/create?fromImage=${encodeURIComponent(REPOSITORY + '@' + digest)}`), undefined, true);
-  const newImage = await api('GET', docker(`/images/${encodeURIComponent(REPOSITORY + '@' + digest)}/json`));
+  await api('POST', docker(`/images/create?fromImage=${REPOSITORY + '@' + digest}`), undefined, true);
+  const newImage = await api('GET', docker(`/images/${REPOSITORY + '@' + digest}/json`));
   if (newImage.Config?.Labels?.['org.opencontainers.image.revision'] !== release) fail('Pulled image revision differs from the approved release; stack unchanged');
   const planned = replaceImage(source, previousRef, desired);
   const rollback = replaceImage(source, previousRef, rollbackRef);
